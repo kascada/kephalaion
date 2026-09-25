@@ -131,6 +131,17 @@ Ein lauffähiges Go-Modul `github.com/kascada/kephalaion` mit:
   `release VERSION=v0.1.0` → CI grün, Assets vorhanden → `install.sh` auf diesem Rechner →
   `kephalaion version`. Danach `v0.1.1` und `kephalaion upgrade` → neue Version läuft.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — Modul und Binary | erledigt | 2026-09-25 | go.mod (toolchain go1.27.1), `help`/`version`, buildinfo, Begriffe „Auslieferung“ |
+| 2 — Makefile und CI | offen | | |
+| 3 — Release | offen | | |
+| 4 — `upgrade` | offen | | |
+| 5 — Installationsskript | offen | | |
+| 6 — Doku und erster Durchlauf | offen | | |
+
 ---
 ## Review-Log (2026-09-25)
 

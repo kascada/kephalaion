@@ -11,6 +11,13 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **kephalaion** — Produkt, Paket, Binary. Kurzform im Gespräch: Keph.
 - **serve** — `kephalaion serve`, der Dienst. Trägt die Rollen, die in der Konfiguration
   stehen: `hub:`, `node:` oder beide in einem Prozess.
+- **config** — `~/.config/kephalaion/config.yaml`. Sagt nur, welche Rollen eingerichtet sind
+  und wo ihre Datenbank liegt (`db:`). Alles andere steht in der Datenbank der Rolle.
+  `kephalaion config export` sichert die Einstellungen aus den Datenbanken.
+- **init** — `kephalaion hub init`, `kephalaion node init`: richtet eine Rolle ein — Datenbank,
+  Schema, Abschnitt in der config.
+- **status** — `kephalaion status`: welche Rollen eingerichtet sind, wo ihre Datenbank liegt,
+  welche Verbindungen bestehen.
 - **client** (MCP-Client) — was per MCP mit dem Node redet: Claude Code, Cursor, OpenCode,
   k-playbook. Für ihn ist der Node der MCP-Server. Die KI im Client sieht Name und Token nicht.
 - **node** (Knoten) — Rolle, Abschnitt `node:`. Einmal je Rechner. MCP-Server über HTTP
@@ -58,3 +65,23 @@ Ausführlich: [`konzept.md`](konzept.md).
   eigenen Token an. Das Token des Accounts steht in der Anfrage.
 - **rotate** — ersetzt das Token eines Accounts: altes Token zur Anmeldung, Hash des neuen.
   Erster Vorgang jedes Accounts; eine eigene Begrüßung gibt es nicht.
+
+## Auslieferung
+
+- **release** — eine veröffentlichte Version auf GitHub, erzeugt aus einem Git-Tag `v*`. Die
+  Version ist der Tag; eine `VERSION`-Datei gibt es nicht. Trägt die Assets.
+- **asset** — eine Datei an einem Release: je Plattform ein nacktes Binary
+  `kephalaion-<os>-<arch>`, dazu `SHA256SUMS` und `install.sh`.
+- **SHA256SUMS** — Asset mit den SHA-256-Prüfsummen der Binaries eines Releases, nicht
+  mehr. Prüft die Unversehrtheit, nicht die Herkunft.
+- **latest** — das neueste veröffentlichte Release ohne Suffix; so, wie die GitHub-API es
+  unter `releases/latest` nennt.
+- **prerelease** (Vorabversion) — ein Release, dessen Tag ein Suffix trägt
+  (`v0.2.0-rc1`). Nie `latest`; nur ausdrücklich per Version zu erreichen.
+- **dev build** (Entwicklungs-Build) — ein Binary, das nicht aus einem Release stammt. Trägt
+  die Version `dev`, dazu den Commit aus `git describe`.
+- **version** — `kephalaion version`: zeigt Version, Commit, Go-Version und Plattform.
+- **upgrade** — `kephalaion upgrade`: ersetzt das laufende Binary durch das Binary eines
+  Releases, nach Prüfung gegen `SHA256SUMS`, atomar. Stuft nie von selbst zurück.
+- **install.sh** — Installationsskript für die Erstinstallation nach
+  `~/.local/bin/kephalaion`; liegt im Repo und hängt an jedem Release.
