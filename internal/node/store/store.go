@@ -29,12 +29,39 @@ type Info struct {
 	SchemaVersion int
 }
 
-// Store ist der Zugriff des Nodes auf seine Datenbank.
+// Store ist der Zugriff des Nodes auf seine Datenbank. hubInConfig sagt bei
+// den prüfenden Methoden, ob in derselben config ein Hub eingerichtet ist —
+// nur dann ist Transport local erlaubt. Der Node liest das aus der config,
+// nicht aus dem Hub.
 type Store interface {
 	Info(ctx context.Context) (Info, error)
 	Settings(ctx context.Context) (map[string]string, error)
 	// ReplaceSettings ersetzt alle settings in einer Transaktion.
 	ReplaceSettings(ctx context.Context, settings map[string]string) error
+
+	Hubs(ctx context.Context) ([]Hub, error)
+	Hub(ctx context.Context, name string) (Hub, error)
+	AddHub(ctx context.Context, h Hub, hubInConfig bool) error
+	// SetHub ändert die angegebenen Felder und prüft den Eintrag danach mit
+	// denselben Regeln wie AddHub; siehe ApplyUpdate.
+	SetHub(ctx context.Context, name string, u HubUpdate, hubInConfig bool) error
+	SetHubToken(ctx context.Context, name, token string) error
+	// RemoveHub entfernt einen Hub-Eintrag samt seinen gewünschten
+	// Collections.
+	RemoveHub(ctx context.Context, name string) error
+
+	Collections(ctx context.Context) ([]Wanted, error)
+	// AddCollection prüft nur, dass es den Hub-Eintrag gibt; ob der Hub die
+	// Collection erlaubt, zeigt sich erst beim Abgleich.
+	AddCollection(ctx context.Context, hub, collection string) error
+	RemoveCollection(ctx context.Context, hub, collection string) error
+
+	// Tables liest die lokalen Tabellen für den Export.
+	Tables(ctx context.Context) (Tables, error)
+	// Import ersetzt in einer Transaktion die settings und, wenn tables nicht
+	// nil ist, die lokalen Tabellen.
+	Import(ctx context.Context, settings map[string]string, tables *Tables, hubInConfig bool) error
+
 	Close() error
 }
 
