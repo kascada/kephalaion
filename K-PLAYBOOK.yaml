@@ -31,4 +31,4 @@ tools:
     # Soll die GitHub CLI genutzt werden? unknown, enabled oder disabled.
     # Ob gh auf diesem Rechner liegt, steht bewusst nicht hier: das ist ein
     # Host-Befund und gehört in die Kontextausgabe.
-    status: unknown
+    status: enabled
