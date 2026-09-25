@@ -933,8 +933,29 @@ sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
 - **Warteschlange** der offenen Fragen: hinzufügen, auflisten, verwerfen
   (heute `knowledge_queue_*`).
 - **Todos:** hinzufügen, auflisten, ändern, löschen (heute `todo_*`).
-- **Tasks:** anlegen mit fortlaufender Nummer (`create_numbered`), auflisten, das Neueste
-  finden (`list` nach `created`).
+- **Tasks** — als eigene Werkzeuge, weil eine KI ein Werkzeug, das ihre Absicht beim Namen
+  nennt, zuverlässiger benutzt als eine Folge allgemeiner Aufrufe:
+
+  | Werkzeug | Zweck | darunter |
+  |---|---|---|
+  | `task_create` | neuen Task anlegen: Kurzname, wahlweise Inhalt → Nummer und Name | `create_numbered` in `tasks/` |
+  | `task_get` | Nummer → vollständiger Name, wahlweise mit Inhalt; sucht in `tasks/` und `tasks/done/` | `list` mit Maske `<nummer>-*` |
+  | `task_list` | offene, erledigte oder alle; Neueste zuerst, Anzahl wählbar | `list` |
+  | `task_done` | Task nach `tasks/done/` verschieben | `rename`, `id` bleibt |
+
+  Weil erledigte Tasks bei der Vergabe mitzählen, ist eine Nummer eindeutig und reicht als
+  Schlüssel. Finden sich doch zwei Dateien mit derselben Nummer (von Hand angelegt), meldet
+  `task_get` beide, statt zu raten. Offen: in welcher Collection die Tasks eines Projekts
+  liegen, und ob sie ein Standard des Nodes oder des Clients ist.
+
+- **Verallgemeinerung, später: Reihen.** Die Werkzeuge für Tasks sind eine nummerierte Reihe
+  mit Voreinstellung — Verzeichnis `tasks/`, Ablage `tasks/done/`, Breite drei Stellen.
+  Allgemein hieße das: `series_create`, `series_get`, `series_list`, `series_done` mit einer
+  benannten Reihe, deren Verzeichnisse in der Collection eingetragen sind. `task_*` bliebe als
+  bequemer Name darüber.
+- **Werkzeuge sind zuschaltbar.** Jedes Werkzeug mehr lenkt die KI ab. Die Werkzeuge für
+  k-playbook erscheinen nur, wo sie gebraucht werden — etwa wenn eine Collection als
+  k-playbook-Ablage gekennzeichnet ist. Wie genau, ist offen.
 - **Veröffentlichen** der erzeugten Doku (heute `knowledge_publish`, allgemein
   `replace_directory`).
 - **Stand der Ablage** (heute `knowledge_status`).
