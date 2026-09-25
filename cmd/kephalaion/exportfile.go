@@ -14,9 +14,11 @@ import (
 )
 
 // exportFormat ist die Fassung des Exportformats, die dieses Binary schreibt.
-// Gelesen werden auch ältere Fassungen ab minExportFormat.
+// Gelesen werden auch ältere Fassungen ab minExportFormat. Format 3 bringt
+// hubs.node_name am Node; ein Hub-Eintrag ohne ihn scheitert beim Import an
+// derselben Prüfung wie node hub add ohne --node.
 const (
-	exportFormat    = 2
+	exportFormat    = 3
 	minExportFormat = 1
 )
 
@@ -71,6 +73,7 @@ type nodeTablesYAML struct {
 
 type hubYAML struct {
 	Name      string `yaml:"name"`
+	NodeName  string `yaml:"node_name"`
 	Transport string `yaml:"transport"`
 	Address   string `yaml:"address"`
 	Token     string `yaml:"token"`
@@ -120,7 +123,7 @@ func (y *hubTablesYAML) toStore() hubstore.Tables {
 func nodeTablesToYAML(t nodestore.Tables) *nodeTablesYAML {
 	out := &nodeTablesYAML{Hubs: []hubYAML{}, HubCollections: []wantedYAML{}}
 	for _, h := range t.Hubs {
-		out.Hubs = append(out.Hubs, hubYAML{Name: h.Name, Transport: h.Transport, Address: h.Address,
+		out.Hubs = append(out.Hubs, hubYAML{Name: h.Name, NodeName: h.NodeName, Transport: h.Transport, Address: h.Address,
 			Token: h.Token, SSHKey: h.SSHKey, HubID: h.HubID})
 	}
 	for _, w := range t.Wanted {
@@ -132,7 +135,7 @@ func nodeTablesToYAML(t nodestore.Tables) *nodeTablesYAML {
 func (y *nodeTablesYAML) toStore() nodestore.Tables {
 	t := nodestore.Tables{Hubs: []nodestore.Hub{}, Wanted: []nodestore.Wanted{}}
 	for _, h := range y.Hubs {
-		t.Hubs = append(t.Hubs, nodestore.Hub{Name: h.Name, Transport: h.Transport, Address: h.Address,
+		t.Hubs = append(t.Hubs, nodestore.Hub{Name: h.Name, NodeName: h.NodeName, Transport: h.Transport, Address: h.Address,
 			Token: h.Token, SSHKey: h.SSHKey, HubID: h.HubID})
 	}
 	for _, w := range y.HubCollections {

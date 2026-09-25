@@ -12,19 +12,20 @@ import (
 )
 
 const nodeHubUsage = `Aufruf:
-  kephalaion node hub add   <alias> --transport local|http|https|ssh
+  kephalaion node hub add   <alias> --node <name am hub> --transport local|http|https|ssh
                             [--address adresse] [--ssh-key pfad] --token-stdin
   kephalaion node hub list
   kephalaion node hub show  <alias>
-  kephalaion node hub set   <alias> [--transport …] [--address …] [--ssh-key …]
+  kephalaion node hub set   <alias> [--node …] [--transport …] [--address …] [--ssh-key …]
   kephalaion node hub token <alias> --token-stdin
   kephalaion node hub rm    <alias>
 
 Kommandos:
-  add     trägt einen Hub ein; den Alias vergibt der Node
+  add     trägt einen Hub ein; den Alias vergibt der Node, den Node-Namen der
+          Hub (kephalaion hub node add)
   list    zeigt alle Hubs
   show    zeigt einen Hub samt gewünschten Collections
-  set     ändert Transport, Adresse oder Schlüssel; der Rest bleibt
+  set     ändert Node-Namen, Transport, Adresse oder Schlüssel; der Rest bleibt
   token   ersetzt das Token dieses Nodes beim Hub
   rm      entfernt den Eintrag samt seinen gewünschten Collections
 
@@ -43,6 +44,8 @@ Das Token liest --token-stdin als eine Zeile von der Standardeingabe; als
 Argument wird es nie übergeben. Angezeigt wird es nur gekürzt.
 
 Optionen:
+  --node name        der Name, unter dem der Hub diesen Node kennt; mit ihm und
+                     dem Token meldet sich der Node beim Hub an (Pflicht bei add)
   --transport art    local, http, https oder ssh
   --address adresse  Adresse des Hubs, je nach Transport
   --ssh-key pfad     SSH-Schlüssel, nur bei ssh
@@ -70,18 +73,22 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return dispatch("node hub", u, args, stdout, stderr, map[string]func([]string) int{
 		"add": func(a []string) int {
 			c := newCommand("node hub add", u, stdout, stderr, "<alias>")
+			nodeName := c.fs.String("node", "", "")
 			transport := c.fs.String("transport", "", "")
 			address := c.fs.String("address", "", "")
 			sshKey := c.fs.String("ssh-key", "", "")
 			tokenStdin := c.fs.Bool("token-stdin", false, "")
 			return c.nodeDo(a, func(ctx context.Context, s nodestore.Store, hubInConfig bool, pos []string) error {
+				if *nodeName == "" {
+					return errors.New("es fehlt --node: der Name, unter dem der Hub diesen Node kennt")
+				}
 				if *transport == "" {
 					return errors.New("es fehlt --transport (local, http, https oder ssh)")
 				}
 				if !*tokenStdin {
 					return errors.New("es fehlt --token-stdin; das Token wird nie als Argument übergeben")
 				}
-				h := nodestore.Hub{Name: pos[0], Transport: *transport, Address: *address, SSHKey: *sshKey}
+				h := nodestore.Hub{Name: pos[0], NodeName: *nodeName, Transport: *transport, Address: *address, SSHKey: *sshKey}
 				// Erst alles andere prüfen, dann stdin lesen.
 				if err := ident.CheckName("Hub", h.Name); err != nil {
 					return err
@@ -94,7 +101,7 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				if err := s.AddHub(ctx, h, hubInConfig); err != nil {
 					return err
 				}
-				fmt.Fprintf(stdout, "Hub %s eingetragen (%s).\n", h.Name, describeTransport(h))
+				fmt.Fprintf(stdout, "Hub %s eingetragen (%s, als Node %s).\n", h.Name, describeTransport(h), h.NodeName)
 				return nil
 			})
 		},
@@ -110,9 +117,9 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 					return nil
 				}
 				tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-				fmt.Fprintln(tw, "ALIAS\tTRANSPORT\tADRESSE\tTOKEN\tHUB_ID\tCOLLECTIONS")
+				fmt.Fprintln(tw, "ALIAS\tNODE\tTRANSPORT\tADRESSE\tTOKEN\tHUB_ID\tCOLLECTIONS")
 				for _, h := range hubs {
-					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", h.Name, h.Transport, orDash(h.Address),
+					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", h.Name, h.NodeName, h.Transport, orDash(h.Address),
 						ident.MaskToken(h.Token), hubIDOrNone(h.HubID), joinOrNone(h.Collections))
 				}
 				return tw.Flush()
@@ -126,6 +133,7 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 					return err
 				}
 				fmt.Fprintf(stdout, "Hub %s\n", h.Name)
+				fmt.Fprintf(stdout, "  Node-Name:    %s\n", h.NodeName)
 				fmt.Fprintf(stdout, "  Transport:    %s\n", h.Transport)
 				fmt.Fprintf(stdout, "  Adresse:      %s\n", orDash(h.Address))
 				if h.Transport == nodestore.TransportSSH {
@@ -139,11 +147,15 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		},
 		"set": func(a []string) int {
 			c := newCommand("node hub set", u, stdout, stderr, "<alias>")
+			nodeName := c.fs.String("node", "", "")
 			transport := c.fs.String("transport", "", "")
 			address := c.fs.String("address", "", "")
 			sshKey := c.fs.String("ssh-key", "", "")
 			return c.nodeDo(a, func(ctx context.Context, s nodestore.Store, hubInConfig bool, pos []string) error {
 				var upd nodestore.HubUpdate
+				if c.isSet("node") {
+					upd.NodeName = nodeName
+				}
 				if c.isSet("transport") {
 					upd.Transport = transport
 				}
@@ -154,7 +166,7 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 					upd.SSHKey = sshKey
 				}
 				if upd == (nodestore.HubUpdate{}) {
-					return errors.New("nichts zu ändern; erwartet --transport, --address oder --ssh-key")
+					return errors.New("nichts zu ändern; erwartet --node, --transport, --address oder --ssh-key")
 				}
 				if err := s.SetHub(ctx, pos[0], upd, hubInConfig); err != nil {
 					return err
@@ -163,7 +175,7 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(stdout, "Hub %s geändert (%s).\n", h.Name, describeTransport(h))
+				fmt.Fprintf(stdout, "Hub %s geändert (%s, als Node %s).\n", h.Name, describeTransport(h), h.NodeName)
 				return nil
 			})
 		},

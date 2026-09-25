@@ -37,7 +37,7 @@ func TestCreateAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ReplaceSettings(ctx, map[string]string{"listen": ":8080"}); err != nil {
+	if err := s.ReplaceSettings(ctx, map[string]string{"gruss": ":8080"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -71,7 +71,7 @@ func TestCreateAndReopen(t *testing.T) {
 		t.Errorf("Stats = %+v", st)
 	}
 	settings, err := s.Settings(ctx)
-	if err != nil || settings["listen"] != ":8080" {
+	if err != nil || settings["gruss"] != ":8080" {
 		t.Errorf("Settings = %v, %v", settings, err)
 	}
 }

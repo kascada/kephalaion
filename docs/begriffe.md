@@ -19,7 +19,7 @@ Ausführlich: [`konzept.md`](konzept.md).
   in der Datenbank der Rolle.
   `kephalaion config show` zeigt sie samt den `settings` je Rolle.
   - **export** — `kephalaion config export`: sichert config, `settings` und lokale Tabellen
-    je Rolle als YAML mit einer Fassung des Formats (`format: 2`, darin `tables:`), getrennt
+    je Rolle als YAML mit einer Fassung des Formats (`format: 3`, darin `tables:`), getrennt
     von den Inhalten; ohne `db_info` und `actions`.
   - **import** — `kephalaion config import <datei>`: schreibt einen Export in bereits
     eingerichtete Rollen und ersetzt dort je Rolle `settings` und lokale Tabellen; ein

@@ -71,10 +71,12 @@ Hub und Node werden je mit einem Aufruf eingerichtet — ohne Rückfragen, nie �
 kephalaion hub init     # Datenbank ~/.local/share/kephalaion/hub.db, Abschnitt hub: in der config
 kephalaion node init    # Datenbank ~/.local/share/kephalaion/node.db, Abschnitt node: in der config
 kephalaion node init --db sqlite:///pfad/node.db   # anderer Ort, absoluter Pfad
+kephalaion hub init --listen 0.0.0.0:7434          # auch für Nodes anderer Rechner
 ```
 
 `init` legt die Datenbank samt Schema an und trägt die Rolle in die config
-`~/.config/kephalaion/config.yaml` ein. Steht die Rolle schon dort oder gibt es die
+`~/.config/kephalaion/config.yaml` ein, mit `db:` und `listen:` — wo der Dienst der Rolle
+später lauscht; Standard Node `127.0.0.1:7433`, Hub `127.0.0.1:7434`. Noch lauscht nichts. Steht die Rolle schon dort oder gibt es die
 Datenbankdatei schon, bricht es ab. Die Orte folgen `XDG_CONFIG_HOME` und `XDG_DATA_HOME`;
 eine andere config wählt `--config` oder `KEPHALAION_CONFIG`. PostgreSQL ist vorgesehen, aber
 noch nicht unterstützt.
@@ -95,8 +97,9 @@ nicht.
 
 Der Hub legt Collections und einen Node-Eintrag an und erlaubt ihm Collections; das Token
 des Nodes zeigt er genau einmal und speichert nur den Hash. Der Node trägt den Hub unter
-einem Alias ein, mit seinem Token über die Standardeingabe — nie als Argument, sonst stünde
-es im Shell-Verlauf und in der Prozessliste.
+einem Alias ein, mit dem Namen, unter dem der Hub ihn kennt (`--node`), und seinem Token
+über die Standardeingabe — nie als Argument, sonst stünde es im Shell-Verlauf und in der
+Prozessliste.
 
 ```sh
 kephalaion hub init
@@ -108,12 +111,12 @@ kephalaion hub node grant laptop team-x
 
 # Transport local: Hub im selben Prozess, verlangt den Hub in derselben config
 read -rs TOKEN            # Token einfügen, Enter
-printf '%s\n' "$TOKEN" | kephalaion node hub add privat --transport local --token-stdin
+printf '%s\n' "$TOKEN" | kephalaion node hub add privat --node laptop --transport local --token-stdin
 kephalaion node collection add privat:team-x
 
 # oder http auf localhost — verhält sich wie eine getrennte Installation
-printf '%s\n' "$TOKEN" | kephalaion node hub add test --transport http \
-  --address http://localhost:8080 --token-stdin
+printf '%s\n' "$TOKEN" | kephalaion node hub add test --node laptop --transport http \
+  --address http://localhost:7434 --token-stdin
 unset TOKEN
 
 kephalaion status       # Collections und Nodes am Hub, Hubs und Collections am Node

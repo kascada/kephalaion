@@ -419,7 +419,7 @@ func printNodeStatus(ctx context.Context, w io.Writer, st nodestore.Store) error
 	}
 	fmt.Fprintf(w, "  Hubs:\n")
 	for _, h := range hubs {
-		fmt.Fprintf(w, "    %s: %s, hub_id: %s\n", h.Name, describeTransport(h), hubIDOrNone(h.HubID))
+		fmt.Fprintf(w, "    %s: %s, als Node %s, hub_id: %s\n", h.Name, describeTransport(h), h.NodeName, hubIDOrNone(h.HubID))
 		fmt.Fprintf(w, "      Collections: %s\n", joinOrNone(h.Collections))
 	}
 	return nil

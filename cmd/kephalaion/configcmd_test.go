@@ -52,9 +52,9 @@ func getSettings(t *testing.T, cfgPath string, r config.Role) map[string]string 
 func TestConfigShow(t *testing.T) {
 	dir := isolate(t)
 	cfg := setup(t, filepath.Join(dir, "a"))
-	setSettings(t, cfg, config.Hub, map[string]string{"listen": ":8443"})
+	setSettings(t, cfg, config.Hub, map[string]string{"gruss": ":8443"})
 	runT(t, "config", "show", "--config", cfg).want(t, 0,
-		"config: "+cfg+" (vorhanden)", "  hub:", "sqlite://", "settings hub:", "listen = :8443",
+		"config: "+cfg+" (vorhanden)", "  hub:", "sqlite://", "settings hub:", "gruss = :8443",
 		"settings node:", "(keine)")
 
 	// Fehlt die Datenbank einer Rolle, zeigt show die config trotzdem.
@@ -62,7 +62,7 @@ func TestConfigShow(t *testing.T) {
 		t.Fatal(err)
 	}
 	runT(t, "config", "show", "--config", cfg).want(t, 1,
-		"  node:", "listen = :8443", "Fehler:", "Datenbankdatei fehlt")
+		"  node:", "gruss = :8443", "Fehler:", "Datenbankdatei fehlt")
 	if _, err := os.Stat(filepath.Join(dir, "a", "node.db")); err == nil {
 		t.Fatal("config show hat die Datenbankdatei angelegt")
 	}
@@ -71,8 +71,8 @@ func TestConfigShow(t *testing.T) {
 func TestConfigExportImportRoundTrip(t *testing.T) {
 	dir := isolate(t)
 	cfgA := setup(t, filepath.Join(dir, "a"))
-	hubSettings := map[string]string{"listen": ":8443", "name": "zentrale"}
-	nodeSettings := map[string]string{"listen": "127.0.0.1:7070"}
+	hubSettings := map[string]string{"gruss": ":8443", "name": "zentrale"}
+	nodeSettings := map[string]string{"gruss": "127.0.0.1:7070"}
 	setSettings(t, cfgA, config.Hub, hubSettings)
 	setSettings(t, cfgA, config.Node, nodeSettings)
 
@@ -86,7 +86,7 @@ func TestConfigExportImportRoundTrip(t *testing.T) {
 		t.Errorf("Exportdatei %v, erwartet 0600", fi.Mode().Perm())
 	}
 	data, _ := os.ReadFile(exp)
-	for _, want := range []string{"format: 2", "config:", "settings:", "tables:", "zentrale"} {
+	for _, want := range []string{"format: 3", "config:", "settings:", "tables:", "zentrale"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("Export ohne %q:\n%s", want, data)
 		}
@@ -122,7 +122,7 @@ func TestConfigImportUnknownFormat(t *testing.T) {
 	cfg := setup(t, dir)
 	setSettings(t, cfg, config.Hub, map[string]string{"bleibt": "ja"})
 	for _, content := range []string{
-		"format: 3\nconfig: {}\nneu: 1\n",
+		"format: 4\nconfig: {}\nneu: 1\n",
 		"config: {}\nsettings: {}\n",
 	} {
 		exp := filepath.Join(dir, "export.yaml")

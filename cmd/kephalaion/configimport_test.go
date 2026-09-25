@@ -30,8 +30,8 @@ func fill(t *testing.T, cfg string) string {
 	runT(t, "hub", "node", "add", "desktop", c).want(t, 0)
 	runT(t, "hub", "node", "grant", "laptop", "team-x", c).want(t, 0)
 	runT(t, "hub", "node", "lock", "desktop", c).want(t, 0)
-	runIn(t, tok, "node", "hub", "add", "lokal", "--transport", "local", "--token-stdin", c).want(t, 0)
-	runIn(t, tok, "node", "hub", "add", "fern", "--transport", "ssh", "--address", "keph@hub:22",
+	runIn(t, tok, "node", "hub", "add", "lokal", "--node", "laptop", "--transport", "local", "--token-stdin", c).want(t, 0)
+	runIn(t, tok, "node", "hub", "add", "fern", "--node", "rechner-fern", "--transport", "ssh", "--address", "keph@hub:22",
 		"--ssh-key", "/k/id", "--token-stdin", c).want(t, 0)
 	runT(t, "node", "collection", "add", "lokal:team-x", c).want(t, 0)
 	runT(t, "node", "collection", "add", "fern:notizen", c).want(t, 0)
@@ -115,11 +115,12 @@ func TestImportRoundTripTables(t *testing.T) {
 	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
 	cfgA := setup(t, a)
 	tok := fill(t, cfgA)
-	setSettings(t, cfgA, config.Hub, map[string]string{"listen": ":8443"})
+	setSettings(t, cfgA, config.Hub, map[string]string{"gruss": ":8443"})
 	exp := filepath.Join(dir, "export.yaml")
 	exportTo(t, cfgA, exp)
 	data, _ := os.ReadFile(exp)
-	for _, want := range []string{"token_hash: " + ident.HashToken(tok), "token: " + tok, "node_collections:", "hub_collections:"} {
+	for _, want := range []string{"token_hash: " + ident.HashToken(tok), "token: " + tok, "node_collections:", "hub_collections:",
+		"format: 3", "node_name: laptop", "node_name: rechner-fern"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("Export ohne %q", want)
 		}
@@ -155,8 +156,35 @@ func TestImportRoundTripTables(t *testing.T) {
 	runT(t, "status", "--config", cfgB).want(t, 0,
 		"hub_id:        "+infoB.HubID, "Collections:   privat, team-x",
 		"desktop: gesperrt, erlaubt: keine", "laptop: aktiv, erlaubt: team-x",
-		"fern: ssh keph@hub:22, hub_id: noch kein Kontakt", "Collections: notizen",
-		"lokal: local, hub_id: noch kein Kontakt", "Collections: team-x")
+		"fern: ssh keph@hub:22, als Node rechner-fern, hub_id: noch kein Kontakt", "Collections: notizen",
+		"lokal: local, als Node laptop, hub_id: noch kein Kontakt", "Collections: team-x")
+}
+
+// Ein Export im Format 2 kennt hubs.node_name nicht; ein Hub-Eintrag ohne ihn
+// scheitert an derselben Prüfung wie node hub add ohne --node.
+func TestImportFormat2WithoutNodeName(t *testing.T) {
+	dir := isolate(t)
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	fill(t, setup(t, a))
+	exp := filepath.Join(dir, "export.yaml")
+	exportTo(t, filepath.Join(a, "config.yaml"), exp)
+	data, _ := os.ReadFile(exp)
+	var lines []string
+	for _, l := range strings.Split(string(data), "\n") {
+		if !strings.Contains(l, "node_name:") {
+			lines = append(lines, l)
+		}
+	}
+	old := strings.Replace(strings.Join(lines, "\n"), "format: 3", "format: 2", 1)
+	if err := os.WriteFile(exp, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgB := setup(t, b)
+	before := takeSnapshot(t, b, cfgB)
+	runT(t, "config", "import", "--config", cfgB, exp).want(t, 1, "Rolle node", "--node", "Nichts geschrieben")
+	if after := takeSnapshot(t, b, cfgB); !reflect.DeepEqual(before, after) {
+		t.Errorf("trotz Abbruch geschrieben:\n%+v\n%+v", before, after)
+	}
 }
 
 func TestImportEmptyRoundTrip(t *testing.T) {
@@ -293,14 +321,14 @@ func TestImportFormat1(t *testing.T) {
 	before := takeSnapshot(t, dir, cfg)
 	exp := filepath.Join(dir, "export1.yaml")
 	content := "format: 1\nconfig:\n  hub:\n    db: sqlite:///x/hub.db\n  node:\n    db: sqlite:///x/node.db\n" +
-		"settings:\n  hub:\n    listen: :8443\n  node: {}\n"
+		"settings:\n  hub:\n    gruss: :8443\n  node: {}\n"
 	if err := os.WriteFile(exp, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runT(t, "config", "import", "--config", cfg, exp).want(t, 0,
 		"hub: settings ersetzt (1 Einträge); config.import im Protokoll; Tabellen unberührt (Format 1)",
 		"node: settings ersetzt (0 Einträge); Tabellen unberührt (Format 1)")
-	if got := getSettings(t, cfg, config.Hub); !reflect.DeepEqual(got, map[string]string{"listen": ":8443"}) {
+	if got := getSettings(t, cfg, config.Hub); !reflect.DeepEqual(got, map[string]string{"gruss": ":8443"}) {
 		t.Errorf("hub settings = %v", got)
 	}
 	if !reflect.DeepEqual(hubTables(t, cfg), before.hub) || !reflect.DeepEqual(nodeTables(t, cfg), before.node) {

@@ -102,30 +102,37 @@ func TestNodeFlow(t *testing.T) {
 	c := "--config=" + cfg
 	tok, _ := ident.NewToken()
 
-	runIn(t, tok+"\n", "node", "hub", "add", "lokal", "--transport", "local", "--token-stdin", c).
-		want(t, 0, "Hub lokal eingetragen (local)")
-	runIn(t, tok+"\n", "node", "hub", "add", "zweit", "--transport", "local", "--token-stdin", c).
+	runIn(t, tok+"\n", "node", "hub", "add", "lokal", "--node", "laptop", "--transport", "local", "--token-stdin", c).
+		want(t, 0, "Hub lokal eingetragen (local, als Node laptop)")
+	runIn(t, tok+"\n", "node", "hub", "add", "zweit", "--node", "laptop", "--transport", "local", "--token-stdin", c).
 		want(t, 1, "Transport local")
-	runIn(t, tok, "node", "hub", "add", "test", c, "--transport", "http", "--address", "http://localhost:8080", "--token-stdin").
-		want(t, 0, "Hub test eingetragen (http http://localhost:8080)")
-	runIn(t, tok, "node", "hub", "add", "fern", "--transport", "http", "--address", "http://hub.example.org", "--token-stdin", c).
+	runIn(t, tok, "node", "hub", "add", "test", "--node", "laptop", c, "--transport", "http", "--address", "http://localhost:8080", "--token-stdin").
+		want(t, 0, "Hub test eingetragen (http http://localhost:8080, als Node laptop)")
+	runIn(t, tok, "node", "hub", "add", "fern", "--node", "laptop", "--transport", "http", "--address", "http://hub.example.org", "--token-stdin", c).
 		want(t, 1, "localhost")
-	runIn(t, tok, "node", "hub", "add", "ohne", "--transport", "https", "--address", "https://h", c).
+	runIn(t, tok, "node", "hub", "add", "ohne", "--node", "laptop", "--transport", "https", "--address", "https://h", c).
 		want(t, 1, "--token-stdin")
 	for _, a := range []string{"--token", "-token", "--token=" + tok} {
-		runT(t, "node", "hub", "add", "arg", "--transport", "local", a, tok, c).
+		runT(t, "node", "hub", "add", "arg", "--node", "laptop", "--transport", "local", a, tok, c).
 			want(t, 2, "nie als Argument", "--token-stdin")
 	}
 	runT(t, "node", "hub", "token", "lokal", "--token", tok, c).want(t, 2, "nie als Argument")
-	runIn(t, "keph_falsch\n", "node", "hub", "add", "kaputt", "--transport", "https", "--address", "https://h", "--token-stdin", c).
+	runIn(t, "keph_falsch\n", "node", "hub", "add", "kaputt", "--node", "laptop", "--transport", "https", "--address", "https://h", "--token-stdin", c).
 		want(t, 1, "ungültiges Token")
-	runIn(t, "", "node", "hub", "add", "leer", "--transport", "https", "--address", "https://h", "--token-stdin", c).
+	runIn(t, "", "node", "hub", "add", "leer", "--node", "laptop", "--transport", "https", "--address", "https://h", "--token-stdin", c).
 		want(t, 1, "kein Token")
 
 	runT(t, "node", "hub", "set", "test", "--address", "http://127.0.0.1:9090", c).
-		want(t, 0, "Hub test geändert (http http://127.0.0.1:9090)")
+		want(t, 0, "Hub test geändert (http http://127.0.0.1:9090, als Node laptop)")
 	runT(t, "node", "hub", "set", "test", "--transport", "local", c).want(t, 1, "local")
 	runT(t, "node", "hub", "set", "test", c).want(t, 1, "nichts zu ändern")
+	runIn(t, tok, "node", "hub", "add", "ohne-node", "--transport", "https", "--address", "https://h", "--token-stdin", c).
+		want(t, 1, "es fehlt --node")
+	runIn(t, tok, "node", "hub", "add", "falsch", "--node", "Laptop", "--transport", "https", "--address", "https://h", "--token-stdin", c).
+		want(t, 1, "Node \"Laptop\"")
+	runT(t, "node", "hub", "set", "test", "--node", "rechner-2", c).
+		want(t, 0, "Hub test geändert (http http://127.0.0.1:9090, als Node rechner-2)")
+	runT(t, "node", "hub", "set", "test", "--node", "", c).want(t, 1, "--node")
 
 	runT(t, "node", "collection", "add", "test:team-x", c).want(t, 0, "test:team-x gewünscht")
 	runT(t, "node", "collection", "add", "lokal:privat", c).want(t, 0)
@@ -135,12 +142,12 @@ func TestNodeFlow(t *testing.T) {
 	runT(t, "node", "collection", "list", c).want(t, 0, "lokal:privat", "test:team-x")
 
 	r := runT(t, "node", "hub", "list", c)
-	r.want(t, 0, "lokal", "local", "test", "http://127.0.0.1:9090", "noch kein Kontakt", ident.MaskToken(tok))
+	r.want(t, 0, "NODE", "lokal", "laptop", "local", "test", "rechner-2", "http://127.0.0.1:9090", "noch kein Kontakt", ident.MaskToken(tok))
 	if strings.Contains(r.out, tok) {
 		t.Error("list zeigt das Token")
 	}
 	r = runT(t, "node", "hub", "show", "test", c)
-	r.want(t, 0, "Hub test", "Collections:  team-x", "noch kein Kontakt")
+	r.want(t, 0, "Hub test", "Node-Name:    rechner-2", "Collections:  team-x", "noch kein Kontakt")
 	if strings.Contains(r.out, tok) {
 		t.Error("show zeigt das Token")
 	}
@@ -160,7 +167,7 @@ func TestNodeLocalWithoutHub(t *testing.T) {
 	cfg := filepath.Join(dir, "config.yaml")
 	runT(t, "node", "init", "--db", "sqlite://"+filepath.Join(dir, "node.db"), "--config", cfg).want(t, 0)
 	tok, _ := ident.NewToken()
-	runIn(t, tok, "node", "hub", "add", "lokal", "--transport", "local", "--token-stdin", "--config", cfg).
+	runIn(t, tok, "node", "hub", "add", "lokal", "--node", "laptop", "--transport", "local", "--token-stdin", "--config", cfg).
 		want(t, 1, "verlangt einen Hub in derselben config")
 	runT(t, "hub", "collection", "list", "--config", cfg).want(t, 1, "kephalaion hub init")
 }

@@ -166,7 +166,7 @@ Node:
 
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
-| 1 — listen und node_name | offen | | |
+| 1 — listen und node_name | erledigt | 2026-09-25 | `config.Section.Listen` + `Config.Listen(r)` (Standard, wenn leer), `CheckListen` verlangt Host; Node-Schema 3 mit `hubs.node_name NOT NULL`, `--node` bei add/set; Exportformat 3 (Format 2 ohne `node_name` scheitert an der Prüfung); README-Beispiele nachgezogen |
 | 2 — Dokumente am Hub | offen | | |
 | 3 — Vertrag und Hub-Seite | offen | | |
 | 4 — Replica und Abgleich am Node | offen | | |
