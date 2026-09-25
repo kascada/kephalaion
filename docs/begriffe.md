@@ -14,8 +14,9 @@ Ausführlich: [`konzept.md`](konzept.md).
   Eintrag in der config, sondern der eine Aufruf, der nicht endet: Er lauscht auf Ports (MCP
   für Clients, HTTP für Nodes), gleicht im Hintergrund ab und hält den Index warm. Alle
   anderen Kommandos sind kurze Aufrufe und arbeiten ohne ihn direkt auf der Datenbank.
-- **config** — `~/.config/kephalaion/config.yaml`. Sagt nur, welche Rollen eingerichtet sind
-  und wo ihre Datenbank liegt (`db:`). Alles andere steht in der Datenbank der Rolle.
+- **config** — `~/.config/kephalaion/config.yaml`. Sagt nur, welche Rollen eingerichtet sind,
+  wo ihre Datenbank liegt (`db:`) und wo ihr Dienst lauscht (`listen:`). Alles andere steht
+  in der Datenbank der Rolle.
   `kephalaion config show` zeigt sie samt den `settings` je Rolle.
   - **export** — `kephalaion config export`: sichert config, `settings` und lokale Tabellen
     je Rolle als YAML mit einer Fassung des Formats (`format: 2`, darin `tables:`), getrennt

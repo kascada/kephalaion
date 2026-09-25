@@ -104,22 +104,30 @@ nicht.
 sein. Stehen in der Konfiguration beide Abschnitte, trägt ein Prozess beide Rollen.
 
 **Konfiguration — entschieden am 2026-09-25: eine kleine Datei für „was und wo“, alles
-andere in der Datenbank.** Die Datei sagt, welche Rollen auf diesem Rechner eingerichtet sind
-und wo ihre Datenbank liegt — mehr nicht:
+andere in der Datenbank.** Die Datei sagt, welche Rollen auf diesem Rechner eingerichtet sind,
+wo ihre Datenbank liegt und wo ihr Dienst lauscht — mehr nicht:
 
 ```yaml
 # ~/.config/kephalaion/config.yaml   (abweichend: --config, KEPHALAION_CONFIG, XDG_CONFIG_HOME)
 hub:                          # nur auf dem Rechner des Hubs
   db: sqlite:///home/kleist/.local/share/kephalaion/hub.db
   # später: postgres://keph@db.intern/kephalaion
+  listen: 127.0.0.1:7434      # für Nodes anderer Rechner bewusst 0.0.0.0:7434
 node:
   db: sqlite:///home/kleist/.local/share/kephalaion/node.db
+  listen: 127.0.0.1:7433      # MCP für Clients
 ```
 
 - **Fehlt ein Abschnitt, fehlt die Rolle.** `status` und `serve` lesen das direkt ab.
+- **`listen` — entschieden am 2026-09-25, zuvor in `settings` vorgesehen:** wo `serve` für
+  diese Rolle lauscht. Es gehört zum „wo“ wie der Ort der Datenbank, und `serve` braucht es
+  beim Start. Standard Node `127.0.0.1:7433`, Hub `127.0.0.1:7434`; `init` schreibt den Wert
+  sichtbar in die Datei, `--listen` weicht ab. Nach außen lauscht nur, wer es ausdrücklich
+  einträgt. Ein Node-Eintrag mit `http` für den Test auf einem Rechner nennt die Adresse des
+  Hubs: `http://localhost:7434`.
 - **Alles andere steht in der Datenbank der Rolle** und wird nur über die CLI geändert:
-  Adressen zum Lauschen, die Hubs eines Nodes mit Transport und Token, die Collections, die
-  ein Node haben will, am Hub Collections und Accounts. Eine Quelle, eine Prüfung.
+  die Hubs eines Nodes mit Transport und Token, die Collections, die ein Node haben will, am
+  Hub Collections, Nodes und Accounts. Eine Quelle, eine Prüfung.
 - **Die Datei enthält kein Geheimnis** und wird einfach mitgesichert. Die Einstellungen in
   der Datenbank sichert `kephalaion config export` getrennt von den Inhalten. Ein Passwort für
   PostgreSQL steht nicht in der Datei, sondern kommt aus `~/.pgpass` oder der Umgebung.
@@ -133,7 +141,8 @@ node:
   entfernt. Nur `init` legt eine Datenbank an, alle anderen Kommandos öffnen nur vorhandene.
   Bei PostgreSQL legt `init` nur das Schema an; Datenbank und Benutzer richtet der Betrieb
   ein.
-- **Die Replicas eines Nodes** liegen als eine Datenbank je Hub neben `node.db`; `node.db`
+- **Die Replicas eines Nodes** liegen als eine Datenbank je Hub in `replicas/` neben `node.db`
+  (siehe „Speicherung“); `node.db`
   selbst hält die Einstellungen des Nodes und in einer eigenen Tabelle `hubs` seine Hubs:
   Name (den der Node als Alias vergibt), Transport, Adresse, Token, SSH-Schlüssel, `hub_id`.
 
