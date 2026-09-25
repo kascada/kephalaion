@@ -373,11 +373,9 @@ Abschnitte zweimal. Der Hub sucht nicht.
 ## Wenn der Hub selbst einordnet (zurückgestellt)
 
 Der Hub soll Schnipsel einordnen, zusammenführen und Überholtes erkennen. Das heißt, dass
-im Hub eine KI arbeitet. Drei Leitplanken, ohne die daraus ein Store wird, dem
+im Hub eine KI arbeitet. Zwei Leitplanken, ohne die daraus ein Store wird, dem
 niemand mehr traut:
 
-- **Gelöscht wird nichts.** Falsches wird abgelöst, mit Grund und Nachfolger, und bleibt
-  lesbar. Ein Store, der löscht, kann nicht mehr sagen, was er früher behauptet hat.
 - **Jede maschinelle Entscheidung wird protokolliert:** Eingabe, betroffene Dokumente,
   Begründung, Zeitpunkt, Modell. Das Protokoll ist selbst Teil des Stores und wird von Zeit
   zu Zeit durchgesehen.
@@ -519,8 +517,7 @@ Dienste, mehrere Ports, mehrere MCP-Einträge je Client.
 **Kein Schutz gegen Abfluss zwischen Hubs.** Ein Client mit Token für zwei Hubs kann aus
 dem einen lesen und in den anderen schreiben. Das zu verhindern ist nicht Aufgabe von
 Kephalaion; wer Daten übertragen will, kann das auch anders. Geschützt wird, dass die
-Datenbank eines Hubs nicht anderswo läuft und kein Fremder auf sie zugreift — von außen ist
-ein Hub nur über OAuth erreichbar.
+Datenbank eines Hubs nicht anderswo läuft und kein Fremder auf sie zugreift.
 
 ## Speicherung
 
