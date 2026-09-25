@@ -5,9 +5,10 @@ description: Entwurf für eine geteilte Wissensdatenbank mehrerer Nutzer und Pro
 
 # Kephalaion — Konzept
 
-**Stand: Entwurf, nichts davon ist gebaut.** Die Überlegungen entstanden in k-playbook und
-sind am 2026-09-25 hierher umgezogen. Begriffe nach [`begriffe.md`](begriffe.md): Sie sind
-englisch, die Dokumentation ist deutsch.
+**Stand: Entwurf.** Gebaut ist nur das Gerüst — Build, Release, Installation und
+`kephalaion upgrade`, siehe [`README.md`](../README.md) —, vom Folgenden noch nichts. Die
+Überlegungen entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
+Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
 
 Ausgangspunkt ist die lokale Wissensablage von k-playbook (`k-playbook-local/knowledge/`,
 beschrieben in `k-playbook/docs/knowledge-gate.md` und `knowledge-layout.md`). Sie bleibt
@@ -39,7 +40,8 @@ er wird gelesen, nicht getippt.
 **Repository:** `kascada/kephalaion` auf GitHub, öffentlich — entschieden am 2026-09-25.
 
 **Vor der Veröffentlichung zu prüfen:** GitHub-Organisation, Domains in den Schreibweisen
-Kephalaion, Kefalaion und Cephalaion, sowie DPMA und EUIPO.
+Kephalaion, Kefalaion und Cephalaion, sowie DPMA und EUIPO. Als Veröffentlichung gilt erst
+das erste Release ab v1.0; ein v0.x-Release gilt nicht als solche (entschieden am 2026-09-25).
 
 ## Wozu
 
