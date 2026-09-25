@@ -50,13 +50,42 @@ type Stats struct {
 	Collections int64
 }
 
-// Store ist der Zugriff des Hubs auf seine Datenbank.
+// Store ist der Zugriff des Hubs auf seine Datenbank. Jede Änderung läuft in
+// einer Transaktion und schreibt eine Zeile in actions, als Account admin.
 type Store interface {
 	Info(ctx context.Context) (Info, error)
 	Stats(ctx context.Context) (Stats, error)
 	Settings(ctx context.Context) (map[string]string, error)
 	// ReplaceSettings ersetzt alle settings in einer Transaktion.
 	ReplaceSettings(ctx context.Context, settings map[string]string) error
+
+	Collections(ctx context.Context) ([]Collection, error)
+	AddCollection(ctx context.Context, name, description string) error
+	SetCollectionDescription(ctx context.Context, name, description string) error
+	// RemoveCollection entfernt eine Collection, die kein Node erlaubt hat und
+	// in der keine Dokumente stehen.
+	RemoveCollection(ctx context.Context, name string) error
+
+	Nodes(ctx context.Context) ([]Node, error)
+	Node(ctx context.Context, name string) (Node, error)
+	// AddNode legt einen Node an und liefert sein Token. Gespeichert wird nur
+	// der Hash; das Token gibt es danach nicht wieder.
+	AddNode(ctx context.Context, name, description string) (token string, err error)
+	SetNodeDescription(ctx context.Context, name, description string) error
+	SetNodeLocked(ctx context.Context, name string, locked bool) error
+	// NewNodeToken ersetzt das Token eines Nodes und liefert das neue.
+	NewNodeToken(ctx context.Context, name string) (token string, err error)
+	// RemoveNode entfernt einen Node samt seinen erlaubten Collections.
+	RemoveNode(ctx context.Context, name string) error
+	Grant(ctx context.Context, node, collection string) error
+	Revoke(ctx context.Context, node, collection string) error
+
+	// Tables liest die lokalen Tabellen für den Export.
+	Tables(ctx context.Context) (Tables, error)
+	// Import ersetzt in einer Transaktion die settings und, wenn tables nicht
+	// nil ist, die lokalen Tabellen, und schreibt config.import in actions.
+	Import(ctx context.Context, settings map[string]string, tables *Tables) error
+
 	Close() error
 }
 
@@ -65,6 +94,35 @@ var queries = struct {
 	CountDocuments   string
 	CountCollections string
 	LockRevision     string
+
+	ActionInsert string
+
+	CollectionsAll        string
+	CollectionGet         string
+	CollectionInsert      string
+	CollectionSetDesc     string
+	CollectionDelete      string
+	CollectionsDeleteAll  string
+	CollectionCountDocs   string
+	CollectionGrantedNode string
+
+	NodesAll       string
+	NodeGet        string
+	NodeInsert     string
+	NodeSetDesc    string
+	NodeSetLocked  string
+	NodeSetToken   string
+	NodeDelete     string
+	NodesDeleteAll string
+	AccountRows    string
+
+	GrantsAll       string
+	GrantsOfNode    string
+	GrantGet        string
+	GrantInsert     string
+	GrantDelete     string
+	GrantsDeleteOf  string
+	GrantsDeleteAll string
 }{
 	CountDocuments: `SELECT COUNT(*) FROM documents
 		WHERE deleted = 0 AND substr(name, 1, 7) <> 'SYSTEM:'`,
@@ -73,6 +131,44 @@ var queries = struct {
 	// wird — für PostgreSQL, wo sonst zwei Schreiber dieselbe Revision
 	// vergäben. Unter SQLite sperrt schon BEGIN IMMEDIATE.
 	LockRevision: `UPDATE db_info SET value = value WHERE key = $1`,
+
+	ActionInsert: `INSERT INTO actions (at, account, action, subject) VALUES ($1, $2, $3, $4)`,
+
+	CollectionsAll: `SELECT name, COALESCE(description, ''), created_at, created_by
+		FROM collections ORDER BY name`,
+	CollectionGet: `SELECT name, COALESCE(description, ''), created_at, created_by
+		FROM collections WHERE name = $1`,
+	CollectionInsert: `INSERT INTO collections (name, description, created_at, created_by)
+		VALUES ($1, $2, $3, $4)`,
+	CollectionSetDesc:    `UPDATE collections SET description = $2 WHERE name = $1`,
+	CollectionDelete:     `DELETE FROM collections WHERE name = $1`,
+	CollectionsDeleteAll: `DELETE FROM collections`,
+	// Jede Zeile zählt: auch Löschmarken und SYSTEM:-Zeilen.
+	CollectionCountDocs:   `SELECT COUNT(*) FROM documents WHERE collection = $1`,
+	CollectionGrantedNode: `SELECT node FROM node_collections WHERE collection = $1 ORDER BY node`,
+
+	NodesAll: `SELECT name, COALESCE(description, ''), token_hash, locked, created_at, created_by
+		FROM nodes ORDER BY name`,
+	NodeGet: `SELECT name, COALESCE(description, ''), token_hash, locked, created_at, created_by
+		FROM nodes WHERE name = $1`,
+	NodeInsert: `INSERT INTO nodes (name, description, token_hash, locked, created_at, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+	NodeSetDesc:    `UPDATE nodes SET description = $2 WHERE name = $1`,
+	NodeSetLocked:  `UPDATE nodes SET locked = $2 WHERE name = $1`,
+	NodeSetToken:   `UPDATE nodes SET token_hash = $2 WHERE name = $1`,
+	NodeDelete:     `DELETE FROM nodes WHERE name = $1`,
+	NodesDeleteAll: `DELETE FROM nodes`,
+	// Jede Zeile eines Accounts belegt den Namen, in jeder Collection, auch
+	// eine Löschmarke.
+	AccountRows: `SELECT COUNT(*) FROM documents WHERE name = $1`,
+
+	GrantsAll:       `SELECT node, collection FROM node_collections ORDER BY node, collection`,
+	GrantsOfNode:    `SELECT collection FROM node_collections WHERE node = $1 ORDER BY collection`,
+	GrantGet:        `SELECT COUNT(*) FROM node_collections WHERE node = $1 AND collection = $2`,
+	GrantInsert:     `INSERT INTO node_collections (node, collection) VALUES ($1, $2)`,
+	GrantDelete:     `DELETE FROM node_collections WHERE node = $1 AND collection = $2`,
+	GrantsDeleteOf:  `DELETE FROM node_collections WHERE node = $1`,
+	GrantsDeleteAll: `DELETE FROM node_collections`,
 }
 
 // sqliteSchema ist das DDL des Hubs für SQLite, nach „Datenmodell“ im

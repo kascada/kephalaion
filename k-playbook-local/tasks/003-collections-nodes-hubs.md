@@ -223,7 +223,7 @@ Dazu `hub_id` bei `hub init`, erweitertes `status`, erweitertes `config export|i
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
 | 1 — Schema und hub_id | erledigt | 2026-09-25 | Fassung 2 (Hub: collections, nodes, node_collections, actions.subject; Node: hubs, hub_collections), hub_id als ULID; `_txlock=immediate`, WAL nur bei Create, Sperrzeile in nextRevision |
-| 2 — Hub: Collections und Nodes im Store | offen | | |
+| 2 — Hub: Collections und Nodes im Store | erledigt | 2026-09-25 | Paket `internal/ident` (Namen, Adresse, Token, Hash, Maske); Hub-Store-Methoden je Transaktion mit `actions` (admin, subject), `SYSTEM:A:`-Prüfung, `Tables`/`Import` für Etappe 5 vorbereitet |
 | 3 — Node: Hubs und Collections im Store | offen | | |
 | 4 — CLI | offen | | |
 | 5 — status und config | offen | | |

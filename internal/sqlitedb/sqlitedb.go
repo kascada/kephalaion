@@ -308,6 +308,18 @@ func ReplaceSettings(ctx context.Context, db *sql.DB, settings map[string]string
 		return fmt.Errorf("settings schreiben: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := ReplaceSettingsTx(ctx, tx, settings); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("settings schreiben: %w", err)
+	}
+	return nil
+}
+
+// ReplaceSettingsTx ersetzt alle settings innerhalb einer laufenden
+// Transaktion.
+func ReplaceSettingsTx(ctx context.Context, tx Querier, settings map[string]string) error {
 	if _, err := tx.ExecContext(ctx, q(Queries.SettingsDelete)); err != nil {
 		return fmt.Errorf("settings schreiben: %w", err)
 	}
@@ -315,9 +327,6 @@ func ReplaceSettings(ctx context.Context, db *sql.DB, settings map[string]string
 		if _, err := tx.ExecContext(ctx, q(Queries.SettingsInsert), k, settings[k]); err != nil {
 			return fmt.Errorf("settings schreiben: %w", err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("settings schreiben: %w", err)
 	}
 	return nil
 }
