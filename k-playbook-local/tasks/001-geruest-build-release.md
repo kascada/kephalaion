@@ -138,7 +138,7 @@ Ein lauffähiges Go-Modul `github.com/kascada/kephalaion` mit:
 | 1 — Modul und Binary | erledigt | 2026-09-25 | go.mod (toolchain go1.27.1), `help`/`version`, buildinfo, Begriffe „Auslieferung“ |
 | 2 — Makefile und CI | erledigt | 2026-09-25 | Makefile (help, build, test, check, check-toolchain, dist, dist-host, dev-install, clean), ci.yml, dependabot.yml; make check/dist lokal grün |
 | 3 — Release | erledigt | 2026-09-25 | release.yml (Entwurf → Assets → veröffentlichen, Vorabversion, latest nur für höchste stabile Version, Wiederholungslauf per workflow_dispatch), `release`-Target in k-playbook-local/Makefile |
-| 4 — `upgrade` | offen | | |
+| 4 — `upgrade` | erledigt | 2026-09-25 | internal/upgrade (Semver, API latest/tags, SHA256SUMS, atomarer Austausch mit `.kephalaion-upgrade-*`, Abbruch per SIGINT/SIGTERM räumt auf), 21 httptest-Tests grün |
 | 5 — Installationsskript | offen | | |
 | 6 — Doku und erster Durchlauf | offen | | |
 
