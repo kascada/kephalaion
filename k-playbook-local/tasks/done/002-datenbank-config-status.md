@@ -168,12 +168,12 @@ CLI sichtbar, ohne dass schon Inhalte fließen.
 
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
-| 1 — config | offen | | |
-| 2 — Datenbank des Hubs | offen | | |
-| 3 — Datenbank des Nodes | offen | | |
-| 4 — CLI: init und status | offen | | |
-| 5 — config show, export, import | offen | | |
-| 6 — Doku | offen | | |
+| 1 — config | erledigt | 2026-09-25 | `internal/config`: Pfad, Laden (strikt), atomar schreiben, AddRole, ParseDB; Tests grün |
+| 2 — Datenbank des Hubs | erledigt | 2026-09-25 | `internal/sqlq` (Platzhalter $n, Check), `internal/sqlitedb` (Unterbau), `internal/hub/store`; SQL-Test, Revision im Code; Tests grün |
+| 3 — Datenbank des Nodes | erledigt | 2026-09-25 | `internal/node/store`; Trenntest `internal/separation_test.go` liest Importe per `go/parser` (cache-sicher, statt `go list`); Tests grün |
+| 4 — CLI: init und status | erledigt | 2026-09-25 | `cmd/kephalaion/roles.go`: `hub init`, `node init`, `status`; usage ergänzt; Tests über `run()` inkl. Aufräumen, fehlende DB, falsche Rolle; grün |
+| 5 — config show, export, import | erledigt | 2026-09-25 | `cmd/kephalaion/configcmd.go`: show, export (Format 1, Datei 0600), import (Fassung zuerst, Vorabprüfung, je Rolle eine Transaktion); Tests grün |
+| 6 — Doku | erledigt | 2026-09-25 | begriffe (export, import, settings, db_info, db-Adresse), README „Einrichten“, k-playbook.md Aufbau + Regeln, Konzept: Stand, db_info/settings, Umsetzung Speicherung, befristete Abweichung Migrationen, Revision in `db_info` |
 
 ---
 ## Review-Log (2026-09-25)
@@ -265,3 +265,108 @@ export/import mit Vorabprüfung, Trennregel per Test. Inhalte sind ausdrücklich
 
 ### Offen (nicht gefixt)
 - FEHLEND-03: bewusst übersprungen; Verbindungen folgen mit `node hub …`/`serve`.
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-25  
+**Zusammenfassung:** Neu sind die Pakete `internal/config`, `internal/sqlq` (Platzhalter `$n`, `Bind` je Dialekt, `Check` auf verbotene Konstrukte), `internal/sqlitedb` (gemeinsamer Unterbau) sowie `internal/hub/store` und `internal/node/store` mit je einer Schnittstelle `Store` und SQLite-Umsetzung. Die CLI kann jetzt `hub init`, `node init`, `status` und `config show|export|import`; Tests laufen über `run()`, der Trenntest liest die Importe per `go/parser`. Die Doku ist nachgezogen (begriffe, README „Einrichten“, k-playbook.md, konzept), `make check` ist grün.
+
+**Ermessensentscheidungen (Sub-Agent):** Platzhalter `$n`, für SQLite zu `?n` gebunden. `SYSTEM:`-Ausschluss per `substr(name,1,7) <> 'SYSTEM:'` (case-sensitiv in beiden Dialekten). Die config wird strikt gelesen (unbekannte Schlüssel sind ein Fehler) und mit 0644 geschrieben. Exportformat `format: 1`; `config export` bricht ganz ab, wenn eine Rolle fehlerhaft ist. `postgresql://` wird wie `postgres://` abgelehnt. Neuer Begriff „db-Adresse“.
+
+**Offen:** Während der Ausführung wurden `docs/konzept.md` und `docs/begriffe.md` parallel geändert (`hub_id` in `db_info`, Tabellen `hubs` am Node sowie `nodes`/`node_collections` am Hub). Das ist nicht umgesetzt — Folgetask. Die fremden Änderungen sind in den Dateien erhalten und stecken im Diff mit drin.
+
+**Geänderte Dateien:**
+```
+ README.md                                          |  31 +-
+ cmd/kephalaion/configcmd.go                        | 354 +++++++++++++++++++++
+ cmd/kephalaion/configcmd_test.go                   | 182 +++++++++++
+ cmd/kephalaion/main.go                             |  22 +-
+ cmd/kephalaion/roles.go                            | 333 +++++++++++++++++++
+ cmd/kephalaion/roles_test.go                       | 196 ++++++++++++
+ docs/begriffe.md                                   |  26 +-
+ docs/konzept.md                                    | 141 ++++++--
+ go.mod                                             |  17 +
+ go.sum                                             |  52 +++
+ internal/config/config.go                          | 221 +++++++++++++
+ internal/config/config_test.go                     | 179 +++++++++++
+ internal/config/dbaddr.go                          |  61 ++++
+ internal/hub/store/store.go                        | 206 ++++++++++++
+ internal/hub/store/store_test.go                   | 186 +++++++++++
+ internal/node/store/store.go                       | 103 ++++++
+ internal/node/store/store_test.go                  |  92 ++++++
+ internal/separation_test.go                        | 148 +++++++++
+ internal/sqlitedb/sqlitedb.go                      | 336 +++++++++++++++++++
+ internal/sqlitedb/sqlitedb_test.go                 | 181 +++++++++++
+ internal/sqlq/sqlq.go                              |  88 +++++
+ internal/sqlq/sqlq_test.go                         |  44 +++
+ k-playbook-local/k-playbook.md                     |  27 ++
+ .../tasks/002-datenbank-config-status.md           |  12 +-
+ 24 files changed, 3203 insertions(+), 35 deletions(-)
+```
+
+**Code-Änderungen:** (rund 3200 Zeilen, großteils neue Dateien; hier nur die wichtigsten Stellen)
+
+- `cmd/kephalaion/main.go`: `usage` ergänzt, Verteilung auf die neuen Kommandos:
+```diff
++	case "hub":
++		return runRole(config.Hub, args[1:], stdout, stderr)
++	case "node":
++		return runRole(config.Node, args[1:], stdout, stderr)
++	case "status":
++		return runStatus(args[1:], stdout, stderr)
++	case "config":
++		return runConfig(args[1:], stdout, stderr)
+```
+- `internal/sqlitedb/sqlitedb.go`: Öffnen nur vorhandener Dateien, sodass keine Datei entsteht:
+```go
++func dsn(path string) string {
++	u := url.URL{Scheme: "file", Path: path}
++	return u.String() + "?mode=rw" +
++		"&_pragma=foreign_keys(1)" +
++		"&_pragma=busy_timeout(" + strconv.Itoa(busyTimeout) + ")" +
++		"&_pragma=journal_mode(WAL)"
++}
+```
+- `internal/hub/store/store.go`: zentrale Abfragetexte, geprüft per `sqlq.Check`:
+```go
++	CountDocuments: `SELECT COUNT(*) FROM documents
++		WHERE deleted = 0 AND substr(name, 1, 7) <> 'SYSTEM:'`,
++	CountCollections: `SELECT COUNT(DISTINCT collection) FROM documents`,
+```
+- Übrige neue Dateien in Prosa: `roles.go` (init mit Aufräumen samt `-wal`/`-shm`/`-journal`, status), `configcmd.go` (show/export mit 0600/import mit Vorabprüfung und Transaktion je Rolle), `config.go`/`dbaddr.go` (Pfadreihenfolge, atomares Schreiben, `ParseDB`), `separation_test.go` (Trennregel). Dazu die Tests je Paket.
+
+**Code-Review:** (engineering:code-review, nur Diff) Keine kritischen Befunde. Urteil: Freigabe mit Nachbesserungen.
+- *Mittel*
+  1. `nextRevision` liest und schreibt dann. Unter PG (READ COMMITTED) ist das ein Lost Update, unter SQLite bei DEFERRED-Transaktion SQLITE_BUSY beim Wechsel zum Schreiben. Abhilfe: zuerst schreiben, `FOR UPDATE` bzw. `BEGIN IMMEDIATE`. Muss vor dem ersten Schreibpfad behoben sein.
+  2. Scheitert der Import bei der zweiten Rolle, ist die erste schon committet, und die Meldung sagt nicht, was geschrieben wurde.
+  3. `journal_mode(WAL)` wird bei jedem Öffnen gesetzt und bleibt in der Datei. `status` auf eine fremde SQLite-Datei stellt sie dadurch dauerhaft um, bevor `CheckInfo` ablehnt. Eine read-only DB scheitert an `mode=rw`. Abhilfe: WAL nur in `Create` setzen, `CheckInfo` vor weiteren Pragmas.
+  4. Import: Eine Rolle in `config` ohne `settings`-Eintrag (oder mit `null`) löscht still alle settings dieser Rolle.
+- *Gering*
+  - Laden und Speichern der config ohne Sperre: parallele `hub init`/`node init` können eine Rolle verlieren.
+  - Ein Close-Fehler in `createRole` lässt die DB ohne config-Eintrag zurück.
+  - `Save` setzt die Rechte hart auf 0644 und ersetzt einen Symlink durch eine Datei.
+  - Nach dem Rename fehlt der fsync des Verzeichnisses.
+  - Scheitert init, bleibt ein leeres DB-Verzeichnis zurück.
+  - Irreführende Meldung bei fehlender `schema_version`.
+  - `CountCollections` filtert anders als `CountDocuments`, und `substr` nutzt den Index `documents_system` nicht.
+  - Der `init`-Vorschlag beim Import setzt `--db` unquotiert und ungeprüft ein.
+- *Hinweise*
+  - `Bind` erkennt nur einfache Anführungszeichen.
+  - `Check` ist eine Blockliste und lehnt auch `?` in Literalen bzw. PG-JSONB-Operatoren ab.
+  - `nextRevision` wird noch nicht benutzt.
+  - `DB.String` liefert immer `sqlite://`.
+  - Ein zweites YAML-Dokument wird ignoriert.
+  - Flags nach dem Positionsargument werden nicht erkannt (`flag`-Paket).
+  - Export auf stdout bekommt keine 0600-Rechte.
+  - Der Trenntest parst auch `testdata/`.
+
+**Intent-Alignment:** Ja. Alle fünf Punkte des Intents sind umgesetzt:
+- `hub init` und `node init` legen ohne Rückfrage an und überschreiben nie.
+- `status` funktioniert auch bei null oder einer Rolle und legt nichts an.
+- Hub und Node haben je eine eigene `Store`-Schnittstelle.
+- Die Hub-Abfragen bleiben über `$n`-Platzhalter und die Dialekt-Prüfung portabel.
+- `config export` und `config import` sichern die Einstellungen getrennt von den Inhalten.
+- Ein Test prüft die Trennung von Hub und Node.
+
+Die mittleren Review-Befunde sollten vor dem ersten produktiven Einsatz behoben werden, vor allem diese beiden: Ein fehlender settings-Eintrag löscht beim Import die settings still. Ein Import über zwei Rollen kann teilweise schreiben, ohne dass die Meldung es sagt.

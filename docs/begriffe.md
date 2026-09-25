@@ -13,7 +13,19 @@ Ausführlich: [`konzept.md`](konzept.md).
   stehen: `hub:`, `node:` oder beide in einem Prozess.
 - **config** — `~/.config/kephalaion/config.yaml`. Sagt nur, welche Rollen eingerichtet sind
   und wo ihre Datenbank liegt (`db:`). Alles andere steht in der Datenbank der Rolle.
-  `kephalaion config export` sichert die Einstellungen aus den Datenbanken.
+  `kephalaion config show` zeigt sie samt den `settings` je Rolle.
+  - **export** — `kephalaion config export`: sichert config und `settings` je Rolle als YAML
+    mit einer Fassung des Formats, getrennt von den Inhalten.
+  - **import** — `kephalaion config import <datei>`: schreibt die `settings` eines Exports in
+    bereits eingerichtete Rollen und ersetzt sie dort; die config bleibt unverändert.
+- **db address** (db-Adresse) — der Wert von `db:` in der config: `sqlite:///<absoluter
+  Pfad>`; `postgres://…` ist vorgesehen.
+- **settings** (Einstellungen) — Tabelle `settings (key, value)` in der Datenbank jeder Rolle:
+  alles, was nicht in der config steht. Wird mit `config export` gesichert.
+- **db_info** — Tabelle `db_info (key, value)` in der Datenbank jeder Rolle. Hält die
+  Schemafassung (`schema_version`), die Rolle (`role`), die Anlagezeit (`created_at`), am Hub
+  auch die Revision (`revision`). Passt Fassung oder Rolle nicht, wird die Datenbank nicht
+  benutzt.
 - **init** — `kephalaion hub init`, `kephalaion node init`: richtet eine Rolle ein — Datenbank,
   Schema, Abschnitt in der config.
 - **status** — `kephalaion status`: welche Rollen eingerichtet sind, wo ihre Datenbank liegt,
@@ -27,7 +39,8 @@ Ausführlich: [`konzept.md`](konzept.md).
   Accounts, Token. Einziger Schreiber. Kein MCP, sucht nicht. Eigene Datenbank, getrennt von
   der Replica eines Nodes im selben Prozess.
 - **transport** — wie ein Node einen Hub erreicht: `https`, `ssh` (dasselbe HTTP, getunnelt)
-  oder `local` (Funktionsaufruf im selben Prozess, mit denselben Prüfungen).
+  oder `local` (Funktionsaufruf im selben Prozess, mit denselben Prüfungen). Dazu `http` ohne
+  TLS, nur für `localhost` — zum Testen des HTTP-Wegs auf einem Rechner.
 - **bridge** (Brücke) — *zurückgestellt.* Wäre der Prozess, den ein Client über stdio
   startet, und reichte an den Node weiter. Nur falls ein Client zwingend stdio braucht.
 
@@ -58,7 +71,14 @@ Ausführlich: [`konzept.md`](konzept.md).
   - `read` — hat jeder in der Collection eingetragene Account.
   - `write` — anlegen; Eigenes ändern und löschen; gelöschte Namen neu anlegen.
   - `supersede` — Fremdes ändern, ablösen, löschen.
-  - `replicate` — nur Nodes: Inhalt und Account-Zeilen der Collection abgleichen.
+  - `replicate` — kein Scope eines Accounts, sondern das Recht eines Nodes: Inhalt und
+    Account-Zeilen der Collection abgleichen. Steht am Hub in `node_collections`.
+- **node entry** (Node-Eintrag) — ein Node am Hub: Zeile in `nodes`, Name vom Admin, Token
+  (nur der Hash), gesperrt ja/nein. Name gemeinsam mit den Accounts eindeutig.
+- **hub entry** (Hub-Eintrag) — ein Hub am Node: Zeile in `hubs` in `node.db`, Alias vom
+  Node, Transport, Adresse, Token, `hub_id`.
+- **hub_id** — Kennung des Hubs, von `hub init` vergeben. Weicht sie ab, gleicht der Node
+  von vorn ab.
 - **SYSTEM:** — reservierter Präfix im Namen eines Dokuments, nur der Hub schreibt ihn.
   `SYSTEM:A:<account>` ist die Zeile eines Accounts in einer Collection.
 - **carrier** (Träger) — der Node, der eine Anfrage an den Hub trägt; meldet sich mit seinem

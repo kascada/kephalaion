@@ -5,8 +5,9 @@ description: Entwurf für eine geteilte Wissensdatenbank mehrerer Nutzer und Pro
 
 # Kephalaion — Konzept
 
-**Stand: Entwurf.** Gebaut ist nur das Gerüst — Build, Release, Installation und
-`kephalaion upgrade`, siehe [`README.md`](../README.md) —, vom Folgenden noch nichts. Die
+**Stand: Entwurf.** Gebaut sind das Gerüst — Build, Release, Installation und
+`kephalaion upgrade`, siehe [`README.md`](../README.md) — und das Einrichten der Rollen
+(`hub init`, `node init`, `status`, `config show|export|import`); vom Übrigen noch nichts. Die
 Überlegungen entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
 Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
 
@@ -105,7 +106,7 @@ andere in der Datenbank.** Die Datei sagt, welche Rollen auf diesem Rechner eing
 und wo ihre Datenbank liegt — mehr nicht:
 
 ```yaml
-# ~/.config/kephalaion/config.yaml   (abweichend: --config oder KEPHALAION_CONFIG)
+# ~/.config/kephalaion/config.yaml   (abweichend: --config, KEPHALAION_CONFIG, XDG_CONFIG_HOME)
 hub:                          # nur auf dem Rechner des Hubs
   db: sqlite:///home/kleist/.local/share/kephalaion/hub.db
   # später: postgres://keph@db.intern/kephalaion
@@ -122,13 +123,17 @@ node:
   PostgreSQL steht nicht in der Datei, sondern kommt aus `~/.pgpass` oder der Umgebung.
 - **Eingerichtet wird je Rolle mit einem Aufruf:** `kephalaion hub init [--db …]` und
   `kephalaion node init [--db …]`. Ohne Angabe gilt der Standard unter
-  `~/.local/share/kephalaion/`. `init` legt Datenbank und Schema an und trägt den Abschnitt
+  `~/.local/share/kephalaion/` (bzw. `$XDG_DATA_HOME/kephalaion/`). `init` legt Datenbank und Schema an und trägt den Abschnitt
   in die Datei ein, die es bei Bedarf anlegt. Keine Rückfragen, nur Parameter — das läuft
   auch in Skripten und Devcontainern. Gibt es die Rolle schon, bricht `init` ab, statt zu
-  überschreiben. Bei PostgreSQL legt `init` nur das Schema an; Datenbank und Benutzer
-  richtet der Betrieb ein.
+  überschreiben, ebenso, wenn die Datenbankdatei schon existiert. Erst entsteht die
+  Datenbank, dann der Eintrag in der Datei; scheitert der, wird die Datenbank wieder
+  entfernt. Nur `init` legt eine Datenbank an, alle anderen Kommandos öffnen nur vorhandene.
+  Bei PostgreSQL legt `init` nur das Schema an; Datenbank und Benutzer richtet der Betrieb
+  ein.
 - **Die Replicas eines Nodes** liegen als eine Datenbank je Hub neben `node.db`; `node.db`
-  selbst hält die Einstellungen des Nodes.
+  selbst hält die Einstellungen des Nodes und in einer eigenen Tabelle `hubs` seine Hubs:
+  Name (den der Node als Alias vergibt), Transport, Adresse, Token, SSH-Schlüssel, `hub_id`.
 
 - **Zwei Umsetzungen des Vertrags:** über HTTP — direkt per TLS oder durch SSH getunnelt, das
   ist derselbe Client mit anderem Verbindungsaufbau — und lokal als Funktionsaufruf. Der Node
@@ -137,6 +142,10 @@ node:
 - **Der lokale Weg prüft genauso.** Auch beim Funktionsaufruf trägt der Node sein eigenes
   Token und das des Accounts, und der Hub prüft beide. Sonst gäbe es einen Weg ohne Prüfung,
   den kein Test der HTTP-Seite findet. Die Tests des Vertrags laufen gegen beide Umsetzungen.
+- **Getestet wird auf einem Rechner — entschieden am 2026-09-25.** Hub und Node im selben
+  Prozess; trägt der Hub-Eintrag des Nodes `http` mit `localhost` und dem Port des Hubs
+  statt `local`, verhält er sich wie eine getrennte Installation. Mehrere Installationen auf
+  einem Rechner braucht es dafür nicht; getrennte Rechner kommen, wenn es so weit ist.
 - **Getrennte Datenbanken.** Der Node behält seine eigene Replica, auch neben dem Hub, statt
   aus dessen Datenbank zu lesen: ein einziger Lesepfad im Node, kein Suchindex im Hub, keine
   Leser in der Datei des einzigen Schreibers. Die doppelten Daten sind wenige Megabyte. Der
@@ -238,7 +247,7 @@ liegt nie im Repository, sondern beim Nutzer auf dem Rechner.
 | `read` | Suchen, Lesen. Hat jeder Account, der in der Collection eingetragen ist. |
 | `write` | Neues anlegen; **Eigenes** ändern und löschen (`created_by` ist der Account). Einen gelöschten Namen neu anlegen darf jeder mit `write`. |
 | `supersede` | **Fremdes** ändern, ablösen und löschen. |
-| `replicate` | Nur für Nodes: Inhalt und Account-Zeilen der Collection abgleichen. |
+| `replicate` | Kein Recht eines Accounts, sondern eines Nodes: Inhalt und Account-Zeilen der Collection abgleichen. Steht am Hub in `node_collections` (siehe „Datenmodell“). |
 
 Später, falls gebraucht: `write` als Liste von Namenspräfixen statt `true` (etwa `["eins/",
 "zwei/"]`) — Präfixe, keine Regex; bei Rechten ist „passt versehentlich mehr“ die gefährliche
@@ -346,6 +355,34 @@ Abschnitt ersetzen, abschließen — und ein ganzes Verzeichnis in einem Schritt
 ein Generator braucht (in k-playbook heute `publish`). Das ist der Teil, der sofort nutzbar
 ist.
 
+**Anlegen scheitert an einem vorhandenen Namen, und der Hub entscheidet das.** Ein Client
+kann vorher nachsehen, aber das genügt nicht: Seine Replica kann hinter dem Hub zurückliegen,
+und zwischen Nachsehen und Anlegen kann ein anderer Node denselben Namen belegen. Der Hub
+lehnt deshalb mit einem eigenen Fehlercode ab (Name vergeben — endgültig, kein erneuter
+Versuch); der Client wählt einen anderen Namen oder nimmt den nummerierten Weg unten. Für
+das Ändern gilt dasselbe in anderer Form: Ein Schreibvorgang kann die Revision nennen, auf
+der er beruht, und der Hub lehnt ab, wenn das Dokument inzwischen eine neuere hat — sonst
+überschreiben zwei Nodes einander still.
+
+**Fortlaufend nummerierte Namen (vorgemerkt).** Manche Namen werden hochgezählt, etwa Tasks
+(`tasks/004-kurzname.md`). Schreiben mehrere Nodes, kann das nur der Hub, weil nur er den
+ganzen Stand kennt und seine Schreibvorgänge nacheinander ausführt. Ein eigener Vorgang:
+
+- Der Aufrufer übergibt Collection, Verzeichnis (`tasks/`) und den Rest des Namens
+  (`kurzname.md`), wahlweise schon einen Inhalt; ohne Inhalt wird das Dokument leer angelegt.
+- Der Hub sucht unter dem Verzeichnis — auch in Unterverzeichnissen wie `tasks/done/` — die
+  höchste Nummer im **letzten Pfadsegment** nach dem festen Muster `<Ziffern>-<Rest>`. Namen,
+  die dem Muster nicht folgen, zählen nicht. Löschmarken zählen mit: Eine Nummer wird nie
+  zweimal vergeben.
+- Er legt `<Verzeichnis><Nummer+1>-<Rest>` an, die Nummer mit führenden Nullen auf die Breite
+  der bisher höchsten (mindestens drei Stellen), und antwortet mit id, Name und Revision.
+- **Suche und Anlegen stehen in derselben Transaktion**, der Zähler der Revision reiht sie
+  hinter alle anderen Schreiber — zwei Nodes bekommen nie dieselbe Nummer.
+- **Das Muster prüft Go, nicht SQL.** Die Abfrage grenzt nur über den Präfix des Verzeichnisses
+  ein (`name >= 'tasks/' AND name < 'tasks0'`, nutzt den Index auf `(collection, name)`);
+  reguläre Ausdrücke sind in SQLite und PostgreSQL verschieden, und ein Verzeichnis hat
+  selten mehr als einige hundert Einträge.
+
 ## Löschen
 
 Drei Stufen:
@@ -369,7 +406,7 @@ Löschen gründlich.
 ## Indizierung
 
 **Indiziert wird auf dem Node, über genau den Ausschnitt, den er replizieren darf.** Das ist
-die Replica, und die enthält nur die Collections, für die sein Scope `replicate` gilt. Welche
+die Replica, und die enthält nur die Collections, die der Hub ihm erlaubt (`replicate`). Welche
 davon eine einzelne Anfrage sehen darf, entscheidet der Node über die Rechte des Accounts je
 Collection — grob, vor der Suche, nicht je Treffer.
 
@@ -473,11 +510,13 @@ Generalschlüssel.
 
 **Einrichtung.** Collections und Accounts legt der Admin am Hub per Kommandozeile an; sie
 liegen in der Datenbank des Hubs, die Konfigurationsdatei enthält nur, was der Dienst zum
-Starten braucht. Ein Account — für einen Node oder für einen Menschen, eine KI oder ein
-Programm — bekommt Name, Kurzbeschreibung und Scopes
-(`kephalaion hub account add <name> --scope team-x:write …`). Der Hub
-erzeugt ein Token, zeigt es einmal an und speichert nur den Hash. Das Token wird vorerst von
-Hand übergeben. Ein Node trägt es in seine Datenbank ein (`kephalaion node hub add …`).
+Starten braucht. Ein Account — für einen Menschen, eine KI oder ein Programm — bekommt Name,
+Kurzbeschreibung und Scopes (`kephalaion hub account add <name> --scope team-x:write …`). Ein
+Node bekommt einen Eintrag mit Name und Kurzbeschreibung (`kephalaion hub node add <name>`)
+und die Collections, die er abgleichen darf (`kephalaion hub node grant <node>
+<collection>`). In beiden Fällen erzeugt der Hub ein Token, zeigt es einmal an und speichert
+nur den Hash. Das Token wird vorerst von Hand übergeben. Ein Node trägt sein Token in seine
+Datenbank ein (`kephalaion node hub add …`).
 
 **Der erste Vorgang jedes Accounts ist ein `rotate`.** Einrichtung und Rotation sind derselbe
 Vorgang:
@@ -507,11 +546,12 @@ wirkt es auf einem Node erst mit dem nächsten Abgleich; der Hub meldet Sperren 
 **Die Grenze beim Lesen ist der Rechner.** Die Replica liegt unverschlüsselt beim Node. Auf
 dem Rechner haben nur root und der Node Zugriff auf sie; das genügt. Die Token-Prüfung im
 Node ordnet Anfragen ihren Collections zu. Die harte Grenze ist, was der Hub auf den Rechner
-lässt — das bestimmt der Scope `replicate` des Node-Accounts.
+lässt — das bestimmt, welche Collections der Hub dem Node erlaubt (`replicate`).
 
-**Was der Hub über einen Node weiß:** nur seinen Account und dessen Scopes. `replicate`
-umfasst den Inhalt der Collection und ihre Account-Zeilen (`SYSTEM:A:<account>`, siehe
-„Datenmodell“). `read` allein bekommt die Account-Zeilen nicht. Welche Collections ein Node tatsächlich
+**Was der Hub über einen Node weiß:** nur seinen Eintrag in `nodes` und die erlaubten
+Collections in `node_collections`. `replicate` umfasst den Inhalt der Collection und ihre
+Account-Zeilen (`SYSTEM:A:<account>`, siehe „Datenmodell“). `read` allein bekommt die
+Account-Zeilen nicht. Welche Collections ein Node tatsächlich
 hält, verfolgt der Hub nicht.
 
 ## Mehrere Hubs
@@ -525,8 +565,9 @@ Dienste, mehrere Ports, mehrere MCP-Einträge je Client.
 - **Adressen sind zweistufig.** Auf dem Hub bleibt alles hub-lokal (`team-x:write`). Im Node
   und für Clients gilt `<hub>:<collection>`; den Hub-Namen vergibt der Node als Alias in
   seiner Datenbank.
-- **Der Node ist auf jedem Hub ein eigener Account**, mit eigenem Token und eigener Rotation.
-  Seine Datenbank führt eine Liste von Hubs: Name, Adresse, Transport (`https`, `ssh`,
+- **Der Node ist auf jedem Hub ein eigener Eintrag** in `nodes`, mit eigenem Token und
+  eigener Rotation.
+  Seine Datenbank führt eine Liste von Hubs: Name, Adresse, Transport (`https`, `http`, `ssh`,
   `local`), SSH-Schlüssel, Token.
 - **Abgleich je Hub.** Ist ein Hub nicht erreichbar, laufen die anderen weiter.
 - **Ein Client trägt mehrere Paare aus Name und Token**, je Hub höchstens eins. Die Suche
@@ -575,6 +616,14 @@ hinter einer eigenen Schnittstelle gekapselt, und seine Abfragen bleiben in beid
 Datenbanken ausführbar. Der Hub sucht nicht, braucht also weder FTS5 noch ein
 Gegenstück. Der Wechsel ändert den Vertrag nicht.
 
+So ist es umgesetzt: Hub und Node haben je eine Schnittstelle zu ihrer Datenbank
+(`internal/hub/store`, `internal/node/store`), darunter ein gemeinsamer SQLite-Unterbau, der
+keine der beiden Rollen kennt. Die Abfragen des Hubs und des Unterbaus stehen zentral, mit
+Platzhaltern `$n`, ohne SQLite-Eigenes wie `INSERT OR`, `PRAGMA` oder `AUTOINCREMENT`; ein Test
+prüft das. Das DDL steht je Dialekt; das für PostgreSQL entsteht mit dessen Umsetzung (dort
+`BIGINT` für Zeitstempel und Revisionen). Der volle Nachweis kommt erst mit PostgreSQL selbst.
+Die Verbindung zu SQLite läuft im WAL-Modus, mit `foreign_keys` und `busy_timeout`.
+
 - **Ein Ausweg nach Markdown bleibt — als Export.** Ein Store, den man nur über einen
   laufenden Dienst lesen kann, ist ein Store, den man verlieren kann. Markdown mit
   Frontmatter wird bei Bedarf exportiert, ist aber nicht der Speicher.
@@ -622,7 +671,58 @@ CREATE TABLE actions (                 -- Protokoll, befristet
   document_id TEXT,
   revision    INTEGER
 );
+
+-- Nur am Hub, gleichen sich nicht ab:
+CREATE TABLE collections (
+  name        TEXT PRIMARY KEY,
+  description TEXT,
+  created_at  INTEGER NOT NULL,
+  created_by  TEXT NOT NULL
+);
+CREATE TABLE nodes (
+  name        TEXT PRIMARY KEY,        -- vom Admin vergeben
+  description TEXT,
+  token_hash  TEXT NOT NULL,           -- sha256(token)
+  locked      INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL,
+  created_by  TEXT NOT NULL
+);
+CREATE TABLE node_collections (        -- das Recht replicate
+  node        TEXT NOT NULL REFERENCES nodes(name),
+  collection  TEXT NOT NULL REFERENCES collections(name),
+  PRIMARY KEY (node, collection)
+);
 ```
+
+In `node.db`, ebenfalls lokal:
+
+```sql
+CREATE TABLE hubs (
+  name        TEXT PRIMARY KEY,        -- Alias, vom Node vergeben
+  transport   TEXT NOT NULL,           -- local, http, https, ssh
+  address     TEXT,                    -- leer bei local
+  token       TEXT,                    -- das eigene Token des Nodes bei diesem Hub
+  ssh_key     TEXT,
+  hub_id      TEXT                     -- beim ersten Kontakt gemerkt
+);
+CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
+  hub         TEXT NOT NULL REFERENCES hubs(name),
+  collection  TEXT NOT NULL,
+  PRIMARY KEY (hub, collection)
+);
+```
+
+- **Lokale Tabellen:** Einzelne Werte stehen in `settings` (Schlüssel, Wert); Listen mit
+  Struktur bekommen eigene Tabellen. Nichts davon gleicht sich ab. `config export` und
+  `config import` nehmen sie mit.
+- **Namen von Accounts und Nodes sind am Hub gemeinsam eindeutig.** Das Protokoll nennt nur
+  Namen (`account`, `carrier`); „laptop“ darf dort nicht zweierlei bedeuten. Der Hub prüft
+  das beim Anlegen.
+- **Ein Node-Token ist nie ein Client-Token.** Der Node prüft Clients nur gegen
+  `SYSTEM:A:`-Zeilen; ein Node steht dort gar nicht.
+- **Das Token des Nodes steht im Klartext in `node.db`**, denn der Node muss es vorzeigen.
+  Das Verzeichnis hat `0700`, die Datei `0600`.
+- **Die CLI am Hub handelt als `admin`.** So steht es in `created_by` und im Protokoll.
 
 - **Nur Text, kein Typ.** Solange nur Texte gespeichert werden, braucht es keine Typspalte.
 - **Metadaten: ein freies Feld `meta` (JSON), vom Hub nicht gedeutet**, nur gespeichert und
@@ -647,9 +747,24 @@ CREATE TABLE actions (                 -- Protokoll, befristet
   beantworten „wer war zuletzt dran“ ohne Umweg; das Protokoll `actions` den Rest, solange es
   zurückreicht. Es ist befristet; Einträge über echtes Löschen durch den Admin bleiben
   dauerhaft.
+- **Jede Datenbank — des Hubs wie `node.db` — hat zwei weitere Tabellen**, beide
+  `(key TEXT PRIMARY KEY, value TEXT NOT NULL)`:
+  - `db_info` beschreibt die Datenbank selbst: Schemafassung (`schema_version`), Rolle
+    (`role`, `hub` oder `node`), Anlagezeit (`created_at`), am Hub die Revision
+    (`revision`, siehe unten). Wer eine Datenbank öffnet, prüft Rolle und Schemafassung;
+    eine Hub-Datenbank als Node zu öffnen oder umgekehrt ist ein Fehler.
+  - `settings` hält die Einstellungen der Rolle — alles, was nicht in der config steht.
+    `config export` sichert sie, `config import` schreibt sie je Rolle in einer Transaktion
+    zurück.
 - **Schemaänderungen:** SQLite kann `ADD COLUMN`, `RENAME COLUMN` (seit 3.25) und `DROP
   COLUMN` (seit 3.35). Typ oder Bedingung einer Spalte ändert man durch Neubau der Tabelle in
   einer Transaktion. Es braucht eine Schemafassung und Migrationen.
+  **Befristete Abweichung, entschieden am 2026-09-25:** Solange es keine Daten gibt, die
+  bleiben müssen, gibt es keine Migrationen. Die Schemafassung steht in `db_info`; passt sie
+  nicht zum Binary, bricht jeder Zugriff mit einer Meldung ab, und die Datenbank wird neu
+  angelegt. Die Einstellungen (`settings` und config) lassen sich über `config export` —
+  mit dem bisherigen Binary — und `config import` retten, die Inhalte nicht. Ein Rahmen für
+  Migrationen entsteht, sobald es Daten gibt, die bleiben müssen.
 - **History (angedacht, zurückgestellt):** eine zweite Tabelle `document_versions (id,
   revision, content, …)`, in die vor jeder Änderung die alte Fassung kopiert wird, begrenzt
   auf einige Versionen.
@@ -659,11 +774,18 @@ CREATE TABLE actions (                 -- Protokoll, befristet
 - **Eine Folge je Hub, eine Revision je Collection.** Die Revision zählt über alle
   Collections des Hubs fort. Der Node merkt sich je Collection die letzte — meist sind
   alle gleich, aber eine neu hinzugekommene Collection beginnt bei 0.
-- **Die Revision ist ein Zähler in einer Tabellenzeile**, erhöht innerhalb der schreibenden
-  Transaktion — keine `SEQUENCE` und kein Autoincrement. Eine Sequenz in PostgreSQL vergibt
+- **Die Revision ist ein Zähler in einer Tabellenzeile** — der Zeile `revision` in
+  `db_info` —, erhöht innerhalb der schreibenden Transaktion — keine `SEQUENCE` und kein
+  Autoincrement. Gelesen, hochgezählt und geschrieben wird im Code, in derselben
+  Transaktion; die Umwandlung des Textwerts in SQL wäre je Dialekt verschieden. Eine Sequenz in PostgreSQL vergibt
   Nummern beim Ziehen, nicht beim Commit: Zieht A die 11 und B die 12, committet B zuerst und
   gleicht ein Node dann ab, merkt er sich 12 und sieht A nie. Die Sperre auf der Zeile reiht
   die Schreiber hintereinander; so gilt in SQLite und PostgreSQL dasselbe.
+- **Der Hub hat eine Identität.** `hub init` vergibt eine `hub_id` (ULID, in `db_info`); jede
+  Antwort an einen Node trägt sie, der Node speichert sie in `hubs`. Weicht sie ab — etwa
+  weil die Datenbank des Hubs neu angelegt wurde und die Revision wieder bei 0 beginnt —,
+  verwirft der Node die Replica und gleicht von vorn ab. Sonst fragte er „alles seit 1200“,
+  bekäme nichts, und die Replica wäre still veraltet.
 - **Eine Abfrage für alle Collections.** Der Node schickt eine Liste von Paaren (Collection,
   seit); der Hub fragt einmal ab, nach Revision sortiert, jede Collection über den Index
   `(collection, revision)`:
@@ -675,6 +797,9 @@ CREATE TABLE actions (                 -- Protokoll, befristet
   Seiten.
 - **Format:** JSON über HTTP, komprimiert (gzip). Ein Datenstrom zeilenweiser JSON-Objekte
   wäre die nächste Stufe, falls Seiten zu groß werden.
+- **In `documents` steht nur, was sich abgleichen muss.** Das ist der einzige Grund für
+  `SYSTEM:`-Zeilen. Was nur der Hub selbst braucht, steht in eigenen Tabellen des Hubs; was
+  nur der Node braucht (seine Hubs, seine Einstellungen), in `node.db`.
 - **Accounts sind Zeilen in `documents`**, keine eigene Tabelle — damit gleichen sie sich
   ohne eigenen Mechanismus ab. Je Account und Collection eine Zeile:
   - `name` = `SYSTEM:A:<account>`, also der Account-Name; der eindeutige Index auf

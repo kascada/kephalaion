@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/kascada/kephalaion/internal/buildinfo"
+	"github.com/kascada/kephalaion/internal/config"
 	"github.com/kascada/kephalaion/internal/upgrade"
 )
 
@@ -26,9 +27,16 @@ Aufruf:
   kephalaion <kommando> [optionen]
 
 Kommandos:
-  help       zeigt diese Übersicht
-  version    zeigt Version, Commit, Go-Version und Plattform
-  upgrade    aktualisiert dieses Binary auf das neueste Release
+  help        zeigt diese Übersicht
+  version     zeigt Version, Commit, Go-Version und Plattform
+  upgrade     aktualisiert dieses Binary auf das neueste Release
+  hub init    richtet den Hub ein: Datenbank, Schema, Abschnitt in der config
+  node init   richtet den Node ein: Datenbank, Schema, Abschnitt in der config
+  status      zeigt, welche Rollen eingerichtet sind und wo ihre Datenbank liegt
+  config      zeigt, sichert und stellt die Einstellungen wieder her
+              (show, export, import)
+
+Hilfe zu einem Kommando: kephalaion <kommando> --help
 
 Siehe https://github.com/kascada/kephalaion
 `
@@ -48,6 +56,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "upgrade":
 		return runUpgrade(args[1:], stdout, stderr)
+	case "hub":
+		return runRole(config.Hub, args[1:], stdout, stderr)
+	case "node":
+		return runRole(config.Node, args[1:], stdout, stderr)
+	case "status":
+		return runStatus(args[1:], stdout, stderr)
+	case "config":
+		return runConfig(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unbekanntes Kommando: %s\n\n", args[0])
 		fmt.Fprint(stderr, usage)

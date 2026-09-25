@@ -5,7 +5,8 @@ dem Hub für Store, Journal und Accounts und dem Node als lokalem MCP-Server mit
 Was geplant ist und warum, steht in [`docs/konzept.md`](docs/konzept.md), die Begriffe in
 [`docs/begriffe.md`](docs/begriffe.md).
 
-**Stand:** Gebaut ist bisher nur das Gerüst. Das Binary kann `version` und `upgrade`.
+**Stand:** Gebaut sind das Gerüst (`version`, `upgrade`) und das Einrichten der Rollen:
+`hub init`, `node init`, `status` und `config show|export|import`. Inhalte fließen noch nicht.
 
 ## Installation
 
@@ -35,6 +36,34 @@ kephalaion upgrade --version v0.1.0   # genau diese Version, auch zurück
 unverändert. Vorabversionen (`v0.2.0-rc1`) und ältere Versionen gibt es nur mit `--version`,
 ebenso das Ersetzen eines selbst gebauten `dev`-Binarys. Ohne Anmeldung erlaubt die GitHub-API
 60 Anfragen je Stunde.
+
+## Einrichten
+
+Hub und Node werden je mit einem Aufruf eingerichtet — ohne Rückfragen, nie überschreibend:
+
+```sh
+kephalaion hub init     # Datenbank ~/.local/share/kephalaion/hub.db, Abschnitt hub: in der config
+kephalaion node init    # Datenbank ~/.local/share/kephalaion/node.db, Abschnitt node: in der config
+kephalaion node init --db sqlite:///pfad/node.db   # anderer Ort, absoluter Pfad
+```
+
+`init` legt die Datenbank samt Schema an und trägt die Rolle in die config
+`~/.config/kephalaion/config.yaml` ein. Steht die Rolle schon dort oder gibt es die
+Datenbankdatei schon, bricht es ab. Die Orte folgen `XDG_CONFIG_HOME` und `XDG_DATA_HOME`;
+eine andere config wählt `--config` oder `KEPHALAION_CONFIG`. PostgreSQL ist vorgesehen, aber
+noch nicht unterstützt.
+
+```sh
+kephalaion status       # welche Rollen, wo ihre Datenbank liegt, Kennzahlen
+kephalaion config show  # config und settings je Rolle
+kephalaion config export --output keph-config.yaml   # Einstellungen sichern, ohne Inhalte
+kephalaion config import keph-config.yaml            # in eingerichtete Rollen zurückschreiben
+```
+
+`status` und alle anderen Kommandos öffnen nur vorhandene Datenbanken, angelegt wird nur mit
+`init`. Migrationen gibt es noch nicht: Passt die Schemafassung einer Datenbank nicht zum
+Binary, ist sie neu anzulegen; die Einstellungen rettet `config export`/`import`, die Inhalte
+nicht.
 
 ## Bauen
 

@@ -16,6 +16,33 @@ Ein Go-Modul `github.com/kascada/kephalaion`, ein Binary `kephalaion`
 keine CLI-Bibliothek. Meldungen des Binarys deutsch, Bezeichner englisch. Begriffe stehen
 in `docs/begriffe.md` und werden dort eingetragen, bevor sie benutzt werden.
 
+Pakete unter `internal/`:
+
+- `config` — die config (`config.yaml`): Ort auflösen, strikt lesen, atomar schreiben,
+  Rolle eintragen, db-Adressen zerlegen.
+- `sqlitedb` — gemeinsamer Unterbau beider Datenbanken, kennt weder Hub noch Node: SQLite
+  öffnen (WAL, `foreign_keys`, `busy_timeout`; eine fehlende Datei wird nie angelegt, nur
+  `Create` legt an), `db_info` prüfen (Schemafassung, Rolle), `settings` lesen und schreiben.
+- `sqlq` — Hilfe für PostgreSQL-taugliche Abfragen: Platzhalter `$n`, `Bind` je Dialekt,
+  `Check` auf verbotene Konstrukte.
+- `hub/store`, `node/store` — die gekapselten Datenbanken von Hub und Node, je eine
+  Schnittstelle `Store` mit SQLite-Umsetzung und DDL.
+
+Regeln dazu:
+
+- **Hub und Node bleiben getrennt.** Kein Paket unter `internal/hub` importiert eines unter
+  `internal/node` und umgekehrt, auch nicht über Umwege oder in Tests; Gemeinsames gehört in
+  neutrale Pakete. `internal/separation_test.go` prüft das.
+- **Hub-SQL bleibt PostgreSQL-tauglich.** Die Abfragen (DML) des Hubs und des Unterbaus
+  stehen zentral in einer Struktur (`queries` bzw. `sqlitedb.Queries`), mit Platzhaltern
+  `$n` über `sqlq.Bind` — kein `INSERT OR`, kein `PRAGMA`, kein `AUTOINCREMENT`, kein rohes
+  `?`. Ein Test je Paket prüft sie mit `sqlq.Check`. `PRAGMA` gibt es nur beim Öffnen der
+  Verbindung. Das DDL steht je Dialekt. Zähler wie die Revision werden im Code
+  hochgezählt, nicht per Umwandlung in SQL. Der Node darf SQLite-Eigenes benutzen.
+- **Keine Migrationen, Schema neu anlegen** — befristet, solange es keine Daten gibt, die
+  bleiben müssen. Ändert sich das Schema, wird `SchemaVersion` im Store-Paket erhöht;
+  vorhandene Datenbanken werden dann abgelehnt und neu angelegt.
+
 ## Bauen
 
 - Über das `Makefile` im Wurzelverzeichnis, lokal und in CI gleich: `make build` bzw.
