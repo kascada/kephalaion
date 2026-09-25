@@ -53,7 +53,9 @@ Node:
   „nicht zugleich Datei und Verzeichnis“. `SYSTEM:`-Namen kann die CLI nicht schreiben.
 - **Schreiben am Hub:** je Vorgang eine Transaktion, eine Revision (`nextRevision`), neue `id`
   als ULID, `created_by`/`updated_by` = `admin`, Zeile in `actions` mit `document_id` und
-  `revision`. `put` legt an oder ersetzt; unveränderter Inhalt erzeugt keine Revision. `rm`
+  `revision`. `put` legt an oder ersetzt — bewusst ein Admin-Upsert; der Store ist so
+  geschnitten, dass „anlegen, scheitert an vorhandenem Namen“ später daneben passt.
+  Unveränderter Inhalt erzeugt keine Revision. `rm`
   setzt eine Löschmarke (Inhalt NULL, `deleted = 1`, neue Revision). Nur UTF-8-Text, höchstens
   1 MiB je Dokument. `meta` bleibt NULL; Frontmatter bleibt im Text.
 - **`hub import`:** liest das Verzeichnis rekursiv, Namen = relativer Pfad (mit `--prefix`),
@@ -63,16 +65,23 @@ Node:
   Transaktion, eine Revision für alle Zeilen** — das erzwingt die Revisionsgrenze der Seiten.
   Ausgabe: angelegt, ersetzt, unverändert, übersprungen.
 - **Vertrag (`docs/vertrag.md`, Fassung 1)** — nur der Abgleich:
-  - Anfrage: Node-Name, Node-Token, Liste (Collection, seit Revision), Seitengröße.
+  - Anfrage: Fassung des Nodes (in Go ein Feld, über HTTP später im Pfad; Fassung 1 ist die
+    einzige), Node-Name, Node-Token, Liste (Collection, seit Revision), Seitengröße.
   - Antwort: `hub_id`, Fassung, je angefragter Collection „erlaubt“ oder „nicht erlaubt“
     (unbekannt und nicht erlaubt sind dieselbe Antwort), dazu alle dem Node erlaubten
     Collections; Zeilen (alle Spalten von `documents`, auch Löschmarken und `SYSTEM:`-Zeilen)
-    mit `revision > seit` der jeweiligen Collection, sortiert nach Revision, dann `id`; `bis`
-    (Revision R, auf die der Node setzt) und `mehr`.
+    mit `revision > seit` der jeweiligen Collection, sortiert nach Revision, dann `id`; die
+    aktuelle Revision H des Hubs; `bis` (Revision R der Seite, bei leerer Seite = H) und
+    `mehr`. Der Hub liest H zuerst und liefert nur Zeilen mit `revision ≤ H` — so passen Seite
+    und H zusammen, ohne Lese-Transaktion (die wäre IMMEDIATE). Die Revision ist global: Der
+    Node setzt je Collection max(seit, R), nie zurück (steht so in `vertrag.md`).
   - **Eine Seite endet an einer Revisionsgrenze:** Sie nimmt ganze Revisionen, bis die
-    Seitengröße erreicht ist; eine einzelne Revision, die größer ist, kommt ganz.
+    Seitengröße erreicht ist; eine einzelne Revision, die größer ist, kommt ganz. Bekannte
+    Grenze, in `vertrag.md` benannt: Ein großer Import ist eine unbegrenzte Seite (über HTTP
+    später Datenstrom oder Obergrenze je Schreibvorgang); kein Limit in diesem Task.
   - Fehler: nicht angemeldet (unbekannter Node, falsches Token, gesperrt — dieselbe Antwort),
-    ungültige Anfrage, Fassung nicht unterstützt. Token-Vergleich in konstanter Zeit.
+    ungültige Anfrage, Fassung nicht unterstützt (unbekannte oder nicht unterstützte Fassung
+    des Nodes). Token-Vergleich in konstanter Zeit.
   - Go: neutrales Paket (etwa `internal/contract`) mit Typen und Schnittstelle `Hub`; der Hub
     setzt sie um, der Node benutzt sie. Die Verdrahtung für `local` geschieht in
     `cmd/kephalaion` — `internal/node` importiert nichts aus `internal/hub`.
@@ -84,14 +93,24 @@ Node:
   revision, synced_at)`. Sie wird vom ersten `sync` angelegt — die einzige Datenbank, die
   nicht `init` anlegt, weil sie abgeleitet ist. `node hub rm` löscht sie mit.
 - **Abgleich am Node:** fragt je gewünschter Collection ab ihrer Revision (neu: 0); jede Seite
-  in einer Transaktion (Zeilen per `id` einfügen oder ersetzen, Revision auf R), dann die
-  nächste. `hub_id` beim ersten Kontakt in `hubs` und `db_info` merken; weicht sie ab: Replica
-  leeren, von vorn. Nicht mehr gewünschte oder vom Hub nicht erlaubte Collections werden aus
-  der Replica entfernt, mit Meldung. Nur `local` geht; andere Transporte melden „noch nicht
-  unterstützt“, die übrigen Hubs laufen weiter.
+  in einer Transaktion (Zeilen per `id` einfügen oder ersetzen, Revision je Collection auf
+  max(seit, R)), dann die nächste. `hub_id` beim ersten Kontakt merken: maßgeblich ist
+  `db_info.hub_id` der Replica; `hubs.hub_id` ist Kopie für Anzeige und Export und wird danach
+  geschrieben. Weicht sie ab oder liegt ein `seit` über der Hub-Revision (Hub aus Sicherung mit
+  gleicher `hub_id`): Replica leeren, von vorn. Die zweite Prüfung greift nur, bis der Hub wieder
+  darüber hinaus geschrieben hat; `vertrag.md` benennt die Grenze: Ein aus einer Sicherung
+  zurückgespielter Hub braucht eine neue `hub_id`, bis dahin verwirft der Node die Replica
+  selbst (`node hub rm` + `add`). Nicht
+  mehr gewünschte oder vom Hub nicht erlaubte Collections werden aus der Replica entfernt, mit
+  Meldung. Nur `local` geht; andere Transporte melden „noch nicht unterstützt“, die übrigen Hubs
+  laufen weiter. `local` meint den Hub der eigenen config; fehlt dort der `hub:`-Abschnitt, gibt
+  es eine Fehlermeldung für diesen Hub-Eintrag, die übrigen laufen weiter.
 - **Anzeigen am Node:** `node doc list|get` lesen aus der Replica, nie `SYSTEM:`-Zeilen, nie
   Löschmarken. `status` am Node: je Hub `hub_id`, je Collection Revision und letzter Abgleich.
-- **Seitengröße:** Standard 500 Zeilen, für Tests einstellbar (nicht als Nutzeroption).
+- **Seitengröße:** Standard 500 Zeilen, für Tests einstellbar (nicht als Nutzeroption). Der Hub
+  prüft sie: ≤ 0 ist „ungültige Anfrage“, nach oben begrenzt er auf eine eigene Obergrenze.
+- **Keine Migrationen** bleibt: Hub-Dokumente gelten vorerst als wiederherstellbar per
+  `hub import`.
 - **Nicht in diesem Task:** `serve`, HTTP, Accounts, Zerlegung und Suche (FTS5),
   `create_numbered`, Schreiben über den Node.
 
@@ -116,15 +135,18 @@ Node:
   Seiten an Revisionsgrenzen).
 - Tests gegen die Schnittstelle: Seitengrenze mitten in einer großen Revision, mehrere
   Revisionen über mehrere Seiten, falsches Token/gesperrt/unbekannt gleich, nicht erlaubte
-  Collection, Fassung.
+  Collection, nicht unterstützte Fassung, Seitengröße ≤ 0 und über der Obergrenze, leere Seite
+  (`bis` = Hub-Revision).
 
 ### Etappe 4 — Replica und Abgleich am Node
 
 - Replica-Store, Abgleichlogik gegen die Schnittstelle (im Test mit einer Attrappe und mit dem
   echten Hub über local).
 - Tests: Erstabgleich, Folgeabgleich nur mit Neuem, Abbruch nach Seite n und Fortsetzen,
-  `hub_id`-Wechsel, revoke und nicht mehr gewünscht entfernt, Umbenennen mit Namenswechsel
-  (A `x`→`y`, B neu `x`, A geändert) scheitert nicht.
+  `hub_id`-Wechsel, revoke und nicht mehr gewünscht entfernt, Collections mit verschiedenen
+  Ständen über mehrere Seiten (keine fällt zurück), `seit` über der Hub-Revision gleicht die
+  ganze Replica von vorn ab, Umbenennen mit Namenswechsel (A `x`→`y`, B neu `x`, A geändert)
+  scheitert nicht — nur gegen die Attrappe, der Hub kann noch nicht umbenennen.
 
 ### Etappe 5 — CLI und status am Node
 
@@ -135,4 +157,99 @@ Node:
 
 - `README.md`: Dokumente einspielen und abgleichen; `docs/begriffe.md`: sync, page, replica
   (genauer), vertrag; `k-playbook-local/k-playbook.md`: Vertrag, Replica; `docs/konzept.md`
-  nur nachziehen, wo die Umsetzung abweicht.
+  nur nachziehen, wo die Umsetzung abweicht, ausdrücklich: Rolle `replica` in `db_info`,
+  Replica als Ausnahme von „nur `init` legt eine Datenbank an“, `hubs.node_name`, die
+  Abgleich-Verfeinerungen aus `vertrag.md` (max(seit, R), `bis` bei leerer Seite, Grenze bei
+  Wiederherstellung aus einer Sicherung).
+
+---
+## Review-Log (2026-09-25)
+
+**Pfad:** k-playbook-local/tasks/004-dokumente-abgleich-local.md
+**Intent:** inline (`## Intent`)
+**Runden:** 2
+
+### Diskussion
+- **K8 (Hub aus Sicherung):** Runde 1 setzte „`seit` über der Hub-Revision → nur diese Collection
+  von vorn“. Der Moderator wandte ein, dass die Prüfung nur greift, bis der Hub wieder über `seit`
+  hinaus geschrieben hat. Der Critic bestätigte das in Runde 2: Wegen der globalen Revision stehen
+  praktisch alle Collections gleich, das Rücksetzen je Collection ist also zu fein. Ergebnis: Die
+  Prüfung wird wie ein `hub_id`-Wechsel behandelt (ganze Replica), die eigentliche Grenze nennt
+  `vertrag.md` (Wiederherstellung braucht eine neue `hub_id`).
+- **N1 (Seite und Hub-Revision aus einem Lesestand):** Der Critic schlug eine Lese-Transaktion vor.
+  Der Moderator verwarf das, weil Transaktionen in `sqlitedb` IMMEDIATE sind und reine Lesezugriffe
+  laut Projektregeln ohne Transaktion laufen. Stattdessen liest der Hub H zuerst und liefert nur
+  Zeilen mit `revision ≤ H`; das ist gleichwertig konsistent.
+
+### Critic-Issues
+| ID | Kategorie | Datei | Stelle | Problem | Empfehlung |
+|---|---|---|---|---|---|
+| K1 | FEHLER | 004 | Vertrag, Anfrage | Keine Fassung in der Anfrage, trotzdem Fehler/Test „Fassung“ | Fassung des Nodes in die Anfrage |
+| K2 | FEHLER | 004 | Abgleich am Node, „Revision auf R“ | Globale Revision: Collection mit seit > R fällt zurück | je Collection max(seit, R), Test |
+| K3 | WARNUNG | 004 | Schreiben am Hub | `put` als Upsert vs. „Anlegen scheitert an vorhandenem Namen“ | als Admin-Upsert kennzeichnen |
+| K4 | WARNUNG | 004 | hub import / Seiten | Großer Import = unbegrenzte Seite, über HTTP problematisch | Grenze bewusst entscheiden, dokumentieren |
+| K5 | WARNUNG | 004 | Regel „Keine Migrationen“ | Erstmals Inhalte; unklar, ob Regel bleibt | ausdrücklich festhalten |
+| K6 | WARNUNG | 004 | `hub_id` in hubs und db_info | Zwei Orte, keine gemeinsame Transaktion | maßgebliche Quelle, Reihenfolge |
+| K7 | FEHLEND | 004 | Seitengröße | Keine Prüfung am Hub | ≤ 0 ungültig, Obergrenze |
+| K8 | FEHLEND | 004 | Antwort `bis`/`mehr` | `bis` bei leerer Seite offen; Hub-Rückspielung unbemerkt | Hub-Revision mitliefern, Fall festlegen |
+| K9 | FEHLEND | 004 | Etappe 4, Umbenennen | Kein Rename am Hub | nur gegen Attrappe |
+| K10 | FEHLEND | 004 | Nur local | `local` ohne `hub:`-Abschnitt unklar | Fehler für diesen Eintrag |
+| K11 | WARNUNG | 004 | Etappe 6 | Konzept-Abweichungen (Rolle `replica`, nur init legt an, node_name) leicht übersehen | ausdrücklich nennen |
+| N1 | Korrektheit | 004 | Vertrag, Antwort | Hub-Revision und Seite aus verschiedenem Lesestand → Zeilen übersprungen | aus einem Lesestand |
+| N2 | Überspezifikation | 004 | Abgleich am Node, Etappe 4 | Rücksetzen je Collection passt nicht zur globalen Revision | wie `hub_id`-Wechsel, Grenze benennen |
+| N3 | Konsistenz | 004 | Etappe 6 | Abgleich-Verfeinerungen fehlen in der Abweichungsliste | aufnehmen |
+
+### Moderator-Routing
+| ID | Route | Begründung | Ergebnis |
+|---|---|---|---|
+| K1 | pass | Widerspruch zum Konzept (Fassung, ältere Nodes) | gefixt |
+| K2 | pass | echter Fehler, Revision am Hub global | gefixt |
+| K3 | decide | bewusst Admin-Upsert, Store offen für Anlegen | gefixt |
+| K4 | decide | Risiko akzeptiert, in `vertrag.md` benannt | gefixt |
+| K5 | decide | Regel bleibt, Wiederherstellung per `hub import` | gefixt |
+| K6 | decide | `db_info.hub_id` maßgeblich, `hubs.hub_id` Kopie, danach geschrieben | gefixt |
+| K7 | pass | billig, betrifft HTTP-Tauglichkeit | gefixt |
+| K8 | decide | Hub-Revision in der Antwort, `bis` bei leerer Seite | gefixt, in Runde 2 korrigiert |
+| K9 | pass | Test sonst nicht ausführbar | gefixt |
+| K10 | pass | Verhalten sonst offen | gefixt |
+| K11 | pass | Abweichungen sonst übersehen | gefixt |
+| N1 | decide | ohne Lese-Transaktion: H zuerst, Zeilen ≤ H | vom Moderator gefixt |
+| N2 | pass | Moderator-Einwand bestätigt | vom Moderator gefixt |
+| N3 | pass | Folge von K2/K8 | vom Moderator gefixt |
+
+### Editor-Entscheidungen
+| ID | Aktion | Begründung |
+|---|---|---|
+| K1 | fixed | Fassung in der Anfrage (Go-Feld, HTTP im Pfad), Fehler präzisiert, Test |
+| K2 | fixed | max(seit, R) je Collection, in `vertrag.md`, Test in Etappe 4 |
+| K3 | fixed | ein Satz: Admin-Upsert, Store offen |
+| K4 | fixed | bekannte Grenze, kein Limit |
+| K5 | fixed | Vermerk im Kontext |
+| K6 | fixed | maßgebliche Quelle und Reihenfolge |
+| K7 | fixed | Prüfung am Hub, Test in Etappe 3 |
+| K8 | fixed | Hub-Revision, `bis` bei leerer Seite, Rücksetzen, Tests |
+| K9 | fixed | nur gegen Attrappe |
+| K10 | fixed | Fehlermeldung je Hub-Eintrag |
+| K11 | fixed | drei Abweichungen in Etappe 6 |
+
+### Moderator-Entscheidungen
+- K3–K6, K8: Designfragen vom Moderator entschieden (siehe Routing), keine Nutzerfrage nötig.
+- N1–N3: Runde 2 ohne erneuten Editor umgesetzt, weil die Änderungen klein und eindeutig waren.
+  N1 abweichend vom Critic-Vorschlag gelöst (keine Lese-Transaktion, siehe Diskussion).
+- Keine Editor-Vorschläge verworfen.
+
+### Intent-Alignment
+Ja — jeder Punkt des Intents ist im Kontext festgelegt und hat eine Etappe mit Tests (Vertrag im
+neutralen Paket ohne Hub-Import im Node, Seiten an Revisionsgrenzen, `hub_id` und Entfernen nicht
+erlaubter Collections, Anmeldeprüfung auch über local, `listen` ohne `serve`).
+
+### Geänderte Dateien
+- 004-dokumente-abgleich-local.md: Fassung in der Anfrage (K1); max(seit, R) je Collection (K2);
+  Admin-Upsert (K3); Grenze großer Import (K4); Keine Migrationen bleibt (K5); maßgebliche `hub_id`
+  (K6); Prüfung der Seitengröße (K7); Hub-Revision H, `bis` bei leerer Seite, Zeilen ≤ H (K8, N1);
+  Rücksetzen der ganzen Replica bei `seit` > H, Grenze bei Wiederherstellung (K8, N2); Rename-Test
+  nur gegen Attrappe (K9); local ohne `hub:` (K10); Abweichungsliste in Etappe 6 (K11, N3);
+  Tests in Etappe 3 und 4 ergänzt.
+
+### Offen (nicht gefixt)
+- —
