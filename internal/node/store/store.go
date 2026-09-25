@@ -22,7 +22,7 @@ const Role = string(config.Node)
 // SchemaVersion ist die Schemafassung, die dieses Binary erwartet. Es gibt
 // noch keine Migrationen: Passt die Fassung nicht, ist die Datenbank neu
 // anzulegen.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // Info beschreibt eine geöffnete Node-Datenbank.
 type Info struct {
@@ -38,8 +38,24 @@ type Store interface {
 	Close() error
 }
 
-// sqliteSchema ist das DDL des Nodes über den Unterbau hinaus; noch leer.
-const sqliteSchema = ``
+// sqliteSchema ist das DDL des Nodes über den Unterbau hinaus, nach
+// „Datenmodell“ im Konzept: seine Hubs und die Collections, die er von ihnen
+// haben will. Beides gleicht sich nicht ab.
+const sqliteSchema = `
+CREATE TABLE hubs (
+  name        TEXT PRIMARY KEY,
+  transport   TEXT NOT NULL,
+  address     TEXT,
+  token       TEXT,
+  ssh_key     TEXT,
+  hub_id      TEXT
+);
+CREATE TABLE hub_collections (
+  hub         TEXT NOT NULL REFERENCES hubs(name),
+  collection  TEXT NOT NULL,
+  PRIMARY KEY (hub, collection)
+);
+`
 
 // Open öffnet eine vorhandene Node-Datenbank und prüft Rolle und
 // Schemafassung. Eine fehlende Datei wird nicht angelegt.

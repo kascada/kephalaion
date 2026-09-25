@@ -77,19 +77,35 @@ var Queries = struct {
 func q(text string) string { return sqlq.Bind(sqlq.SQLite, text) }
 
 // dsn liefert die Adresse für den Treiber: URI-Form, damit mode=rw gilt und
-// eine fehlende Datei nicht angelegt wird, dazu WAL, Fremdschlüssel und
-// busy_timeout für jede Verbindung.
-func dsn(path string) string {
+// eine fehlende Datei nicht angelegt wird, dazu Fremdschlüssel und
+// busy_timeout für jede Verbindung — beides ändert die Datei nicht.
+// _txlock=immediate lässt jede Transaktion als BEGIN IMMEDIATE beginnen: Sie
+// nimmt die Schreibsperre sofort, sodass ein späterer Wechsel vom Lesen zum
+// Schreiben nicht an SQLITE_BUSY scheitert. Das gilt auch für Transaktionen,
+// die nur lesen; reine Lesezugriffe laufen deshalb ohne Transaktion.
+//
+// withWAL setzt zusätzlich journal_mode(WAL). Das bleibt in der Datei stehen
+// und gehört deshalb nur zu Create, nie zum Öffnen einer vorhandenen Datei.
+func dsn(path string, withWAL bool) string {
 	u := url.URL{Scheme: "file", Path: path}
-	return u.String() + "?mode=rw" +
+	s := u.String() + "?mode=rw" +
+		"&_txlock=immediate" +
 		"&_pragma=foreign_keys(1)" +
-		"&_pragma=busy_timeout(" + strconv.Itoa(busyTimeout) + ")" +
-		"&_pragma=journal_mode(WAL)"
+		"&_pragma=busy_timeout(" + strconv.Itoa(busyTimeout) + ")"
+	if withWAL {
+		s += "&_pragma=journal_mode(WAL)"
+	}
+	return s
 }
 
 // Open öffnet eine vorhandene Datenbankdatei. Fehlt sie, liefert Open
-// ErrNotFound und legt nichts an.
+// ErrNotFound und legt nichts an. Open ändert die Datei nicht, auch nicht
+// ihren journal_mode.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
+	return open(ctx, path, false)
+}
+
+func open(ctx context.Context, path string, withWAL bool) (*sql.DB, error) {
 	fi, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, path)
@@ -100,7 +116,7 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 	if !fi.Mode().IsRegular() {
 		return nil, fmt.Errorf("Datenbankdatei %s ist keine Datei", path)
 	}
-	db, err := sql.Open("sqlite", dsn(path))
+	db, err := sql.Open("sqlite", dsn(path, withWAL))
 	if err != nil {
 		return nil, fmt.Errorf("Datenbank %s: %w", path, err)
 	}
@@ -111,8 +127,8 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Create legt eine neue, leere Datenbankdatei mit 0600 an und öffnet sie.
-// Existiert die Datei schon, liefert Create ErrExists und ändert nichts.
+// Create legt eine neue, leere Datenbankdatei mit 0600 an, stellt sie auf WAL
+// und öffnet sie. Existiert die Datei schon, liefert Create ErrExists und ändert nichts.
 func Create(ctx context.Context, path string) (*sql.DB, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, fs.ErrExist) {
@@ -125,7 +141,7 @@ func Create(ctx context.Context, path string) (*sql.DB, error) {
 		_ = Remove(path)
 		return nil, fmt.Errorf("Datenbankdatei %s nicht anlegbar: %w", path, err)
 	}
-	db, err := Open(ctx, path)
+	db, err := open(ctx, path, true)
 	if err != nil {
 		_ = Remove(path)
 		return nil, err

@@ -3,9 +3,13 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/kascada/kephalaion/internal/config"
 	"github.com/kascada/kephalaion/internal/sqlitedb"
@@ -89,4 +93,86 @@ func TestWrongRole(t *testing.T) {
 	if _, err := Open(ctx, addr); !errors.As(err, &wr) {
 		t.Fatalf("Open: %v, erwartet WrongRoleError", err)
 	}
+}
+
+func TestSchemaVersion1Rejected(t *testing.T) {
+	ctx := context.Background()
+	addr := newDB(t)
+	s, err := Create(ctx, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlitedb.SetInfo(ctx, s.(*sqliteStore).db, sqlitedb.KeySchemaVersion, "1"); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	_, err = Open(ctx, addr)
+	var sv *sqlitedb.SchemaVersionError
+	if !errors.As(err, &sv) {
+		t.Fatalf("Open: %v, erwartet SchemaVersionError", err)
+	}
+	for _, want := range []string{"Schemafassung 1", "erwartet 2", "node init", "config export"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Meldung ohne %q: %v", want, err)
+		}
+	}
+}
+
+// Zwei gleichzeitige Transaktionen, die erst lesen und dann schreiben,
+// scheitern nicht an SQLITE_BUSY.
+func TestReadThenWriteConcurrent(t *testing.T) {
+	ctx := context.Background()
+	addr := newDB(t)
+	s, err := Create(ctx, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	other, err := Open(ctx, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+
+	const rounds = 5
+	var wg sync.WaitGroup
+	errs := make(chan error, 2*rounds)
+	for w, st := range []Store{s, other} {
+		wg.Add(1)
+		go func(w int, db *sqliteStore) {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				if err := readThenWrite(ctx, db, fmt.Sprintf("k%d-%d", w, i)); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(w, st.(*sqliteStore))
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	got, err := s.Settings(ctx)
+	if err != nil || len(got) != 2*rounds {
+		t.Errorf("settings = %v, %v", got, err)
+	}
+}
+
+func readThenWrite(ctx context.Context, s *sqliteStore, key string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings`).Scan(&n); err != nil {
+		return err
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`, key, "v"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

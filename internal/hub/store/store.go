@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/oklog/ulid/v2"
+
 	"github.com/kascada/kephalaion/internal/config"
 	"github.com/kascada/kephalaion/internal/sqlitedb"
 	"github.com/kascada/kephalaion/internal/sqlq"
@@ -23,15 +25,21 @@ const Role = string(config.Hub)
 // SchemaVersion ist die Schemafassung, die dieses Binary erwartet. Es gibt
 // noch keine Migrationen: Passt die Fassung nicht, ist die Datenbank neu
 // anzulegen.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
-// keyRevision ist die Zeile in db_info, die die Revision des Hubs zählt.
-const keyRevision = "revision"
+// Zeilen in db_info, die nur der Hub hat.
+const (
+	// keyRevision zählt die Revision des Hubs.
+	keyRevision = "revision"
+	// keyHubID ist die Kennung des Hubs, eine ULID, vergeben beim Anlegen.
+	keyHubID = "hub_id"
+)
 
 // Info beschreibt eine geöffnete Hub-Datenbank.
 type Info struct {
 	SchemaVersion int
 	Revision      int64
+	HubID         string
 }
 
 // Stats sind die Kennzahlen für status.
@@ -56,10 +64,15 @@ type Store interface {
 var queries = struct {
 	CountDocuments   string
 	CountCollections string
+	LockRevision     string
 }{
 	CountDocuments: `SELECT COUNT(*) FROM documents
 		WHERE deleted = 0 AND substr(name, 1, 7) <> 'SYSTEM:'`,
 	CountCollections: `SELECT COUNT(DISTINCT collection) FROM documents`,
+	// LockRevision sperrt die Zeile der Revision schreibend, bevor sie gelesen
+	// wird — für PostgreSQL, wo sonst zwei Schreiber dieselbe Revision
+	// vergäben. Unter SQLite sperrt schon BEGIN IMMEDIATE.
+	LockRevision: `UPDATE db_info SET value = value WHERE key = $1`,
 }
 
 // sqliteSchema ist das DDL des Hubs für SQLite, nach „Datenmodell“ im
@@ -88,7 +101,28 @@ CREATE TABLE actions (
   carrier     TEXT,
   action      TEXT NOT NULL,
   document_id TEXT,
+  subject     TEXT,
   revision    INTEGER
+);
+
+CREATE TABLE collections (
+  name        TEXT PRIMARY KEY,
+  description TEXT,
+  created_at  INTEGER NOT NULL,
+  created_by  TEXT NOT NULL
+);
+CREATE TABLE nodes (
+  name        TEXT PRIMARY KEY,
+  description TEXT,
+  token_hash  TEXT NOT NULL,
+  locked      INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL,
+  created_by  TEXT NOT NULL
+);
+CREATE TABLE node_collections (
+  node        TEXT NOT NULL REFERENCES nodes(name),
+  collection  TEXT NOT NULL REFERENCES collections(name),
+  PRIMARY KEY (node, collection)
 );
 `
 
@@ -120,7 +154,7 @@ func Create(ctx context.Context, addr config.DB) (Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		extra := map[string]string{keyRevision: "0"}
+		extra := map[string]string{keyRevision: "0", keyHubID: ulid.Make().String()}
 		if err := sqlitedb.CreateSchema(ctx, db, sqliteSchema, Role, SchemaVersion, extra); err != nil {
 			_ = db.Close()
 			_ = sqlitedb.Remove(addr.Path)
@@ -152,7 +186,7 @@ func (s *sqliteStore) Info(ctx context.Context) (Info, error) {
 	if err != nil {
 		return Info{}, err
 	}
-	return Info{SchemaVersion: v, Revision: rev}, nil
+	return Info{SchemaVersion: v, Revision: rev, HubID: info[keyHubID]}, nil
 }
 
 func (s *sqliteStore) Stats(ctx context.Context) (Stats, error) {
@@ -177,11 +211,16 @@ func (s *sqliteStore) ReplaceSettings(ctx context.Context, settings map[string]s
 func (s *sqliteStore) Close() error { return s.db.Close() }
 
 // nextRevision zählt die Revision innerhalb der schreibenden Transaktion
-// hoch und liefert die neue. Gelesen und geschrieben wird in derselben
-// Transaktion, gerechnet im Code — keine SEQUENCE, kein Autoincrement, keine
-// Umwandlung in SQL. Noch schreibt niemand; die Funktion steht für die
-// Schreibvorgänge bereit.
+// hoch und liefert die neue. Gesperrt, gelesen und geschrieben wird in
+// derselben Transaktion, gerechnet im Code — keine SEQUENCE, kein
+// Autoincrement, keine Umwandlung in SQL. Die Zeile wird zuerst schreibend
+// gesperrt (für PostgreSQL; unter SQLite hält die Transaktion die Sperre seit
+// BEGIN IMMEDIATE). Noch schreibt niemand Dokumente; die Funktion steht für
+// die Schreibvorgänge bereit.
 func nextRevision(ctx context.Context, tx *sql.Tx) (int64, error) {
+	if _, err := tx.ExecContext(ctx, q(queries.LockRevision), keyRevision); err != nil {
+		return 0, fmt.Errorf("Revision sperren: %w", err)
+	}
 	v, err := sqlitedb.GetInfo(ctx, tx, keyRevision)
 	if err != nil {
 		return 0, err

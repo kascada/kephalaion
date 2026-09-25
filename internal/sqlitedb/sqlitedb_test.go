@@ -2,6 +2,7 @@ package sqlitedb
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -70,6 +71,10 @@ func TestCreateOpenCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	// WAL steht seit Create in der Datei.
+	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
+		t.Errorf("journal_mode nach Open = %q, %v", mode, err)
+	}
 	info, err := CheckInfo(ctx, db, "hub", 3)
 	if err != nil {
 		t.Fatal(err)
@@ -177,5 +182,49 @@ func TestPathWithSpecialChars(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("Datei nicht am erwarteten Ort: %v", entries)
+	}
+}
+
+// Open auf eine fremde SQLite-Datei stellt sie nicht auf WAL um, bevor
+// CheckInfo sie ablehnt.
+func TestOpenForeignKeepsJournalMode(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "fremd.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, "CREATE TABLE fremd (a TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	journalMode := func(db *sql.DB) string {
+		t.Helper()
+		var mode string
+		if err := db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+			t.Fatal(err)
+		}
+		return mode
+	}
+	if m := journalMode(raw); m != "delete" {
+		t.Fatalf("Ausgangslage journal_mode = %q", m)
+	}
+	_ = raw.Close()
+
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CheckInfo(ctx, db, "hub", 1); err == nil {
+		t.Error("fremde Datei hätte abgelehnt werden sollen")
+	}
+	_ = db.Close()
+
+	raw, err = sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if m := journalMode(raw); m != "delete" {
+		t.Errorf("journal_mode nach Open = %q, erwartet delete", m)
 	}
 }

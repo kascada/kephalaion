@@ -5,7 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/oklog/ulid/v2"
 
 	"github.com/kascada/kephalaion/internal/config"
 	"github.com/kascada/kephalaion/internal/sqlitedb"
@@ -54,6 +59,9 @@ func TestCreateAndReopen(t *testing.T) {
 	}
 	if info.SchemaVersion != SchemaVersion || info.Revision != 0 {
 		t.Errorf("Info = %+v", info)
+	}
+	if _, err := ulid.ParseStrict(info.HubID); err != nil {
+		t.Errorf("hub_id %q ist keine ULID: %v", info.HubID, err)
 	}
 	st, err := s.Stats(ctx)
 	if err != nil {
@@ -183,4 +191,125 @@ func TestWrongRole(t *testing.T) {
 	if !errors.As(err, &wr) {
 		t.Fatalf("Open: %v, erwartet WrongRoleError", err)
 	}
+}
+
+// Jede neue Datenbank bekommt ihre eigene hub_id.
+func TestHubIDDiffers(t *testing.T) {
+	ctx := context.Background()
+	ids := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		s, err := Create(ctx, newDB(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := s.Info(ctx)
+		_ = s.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[info.HubID] = true
+	}
+	if len(ids) != 2 {
+		t.Errorf("hub_id doppelt: %v", ids)
+	}
+}
+
+// Eine Datenbank der Schemafassung 1 wird mit der bekannten Meldung
+// abgewiesen, die auf export/import verweist.
+func TestSchemaVersion1Rejected(t *testing.T) {
+	ctx := context.Background()
+	addr := newDB(t)
+	s, err := Create(ctx, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlitedb.SetInfo(ctx, s.(*sqliteStore).db, sqlitedb.KeySchemaVersion, "1"); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	_, err = Open(ctx, addr)
+	var sv *sqlitedb.SchemaVersionError
+	if !errors.As(err, &sv) {
+		t.Fatalf("Open: %v, erwartet SchemaVersionError", err)
+	}
+	for _, want := range []string{"Schemafassung 1", "erwartet 2", "hub init", "config export", "config import"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Meldung ohne %q: %v", want, err)
+		}
+	}
+}
+
+// Zwei gleichzeitige Transaktionen, die erst lesen und dann die Revision
+// hochzählen, scheitern nicht an SQLITE_BUSY und bekommen verschiedene
+// Revisionen.
+func TestNextRevisionConcurrent(t *testing.T) {
+	ctx := context.Background()
+	addr := newDB(t)
+	s, err := Create(ctx, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// Zwei getrennte Verbindungen wie zwei Prozesse.
+	other, err := Open(ctx, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	dbs := []*sqliteStore{s.(*sqliteStore), other.(*sqliteStore)}
+
+	const rounds = 5
+	var wg sync.WaitGroup
+	revs := make(chan int64, 2*rounds)
+	errs := make(chan error, 2*rounds)
+	for _, st := range dbs {
+		wg.Add(1)
+		go func(db *sqliteStore) {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				rev, err := readThenNext(ctx, db)
+				if err != nil {
+					errs <- err
+					return
+				}
+				revs <- rev
+			}
+		}(st)
+	}
+	wg.Wait()
+	close(revs)
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	seen := map[int64]bool{}
+	for r := range revs {
+		if seen[r] {
+			t.Errorf("Revision %d doppelt vergeben", r)
+		}
+		seen[r] = true
+	}
+	if len(seen) != 2*rounds {
+		t.Errorf("%d Revisionen, erwartet %d", len(seen), 2*rounds)
+	}
+}
+
+// readThenNext liest in einer Transaktion erst, wartet, und zählt dann die
+// Revision hoch — der Fall, der unter DEFERRED an SQLITE_BUSY scheitert.
+func readThenNext(ctx context.Context, s *sqliteStore) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var n int
+	if err := tx.QueryRowContext(ctx, q(queries.CountDocuments)).Scan(&n); err != nil {
+		return 0, err
+	}
+	time.Sleep(5 * time.Millisecond)
+	rev, err := nextRevision(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	return rev, tx.Commit()
 }
