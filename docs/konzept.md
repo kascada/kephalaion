@@ -98,21 +98,37 @@ k-playbook        ──MCP über HTTP──────► node
 nicht.
 
 **Hub und Node im selben Prozess — entschieden am 2026-09-25.** Das wird der häufige Fall
-sein. Stehen in der Konfiguration beide Abschnitte, trägt ein Prozess beide Rollen:
+sein. Stehen in der Konfiguration beide Abschnitte, trägt ein Prozess beide Rollen.
+
+**Konfiguration — entschieden am 2026-09-25: eine kleine Datei für „was und wo“, alles
+andere in der Datenbank.** Die Datei sagt, welche Rollen auf diesem Rechner eingerichtet sind
+und wo ihre Datenbank liegt — mehr nicht:
 
 ```yaml
+# ~/.config/kephalaion/config.yaml   (abweichend: --config oder KEPHALAION_CONFIG)
 hub:                          # nur auf dem Rechner des Hubs
-  listen: 0.0.0.0:8443        # extern erreichbar, wenn eingestellt
-  data: ~/.local/share/kephalaion/hub.db
+  db: sqlite:///home/kleist/.local/share/kephalaion/hub.db
+  # später: postgres://keph@db.intern/kephalaion
 node:
-  listen: 127.0.0.1:7433
-  hubs:
-    - name: privat
-      transport: local        # derselbe Prozess: Funktionsaufruf
-    - name: cloudeteer
-      url: https://keph.intern.cloudeteer.de
-      token_file: ~/.config/kephalaion/cloudeteer.token
+  db: sqlite:///home/kleist/.local/share/kephalaion/node.db
 ```
+
+- **Fehlt ein Abschnitt, fehlt die Rolle.** `status` und `serve` lesen das direkt ab.
+- **Alles andere steht in der Datenbank der Rolle** und wird nur über die CLI geändert:
+  Adressen zum Lauschen, die Hubs eines Nodes mit Transport und Token, die Collections, die
+  ein Node haben will, am Hub Collections und Accounts. Eine Quelle, eine Prüfung.
+- **Die Datei enthält kein Geheimnis** und wird einfach mitgesichert. Die Einstellungen in
+  der Datenbank sichert `kephalaion config export` getrennt von den Inhalten. Ein Passwort für
+  PostgreSQL steht nicht in der Datei, sondern kommt aus `~/.pgpass` oder der Umgebung.
+- **Eingerichtet wird je Rolle mit einem Aufruf:** `kephalaion hub init [--db …]` und
+  `kephalaion node init [--db …]`. Ohne Angabe gilt der Standard unter
+  `~/.local/share/kephalaion/`. `init` legt Datenbank und Schema an und trägt den Abschnitt
+  in die Datei ein, die es bei Bedarf anlegt. Keine Rückfragen, nur Parameter — das läuft
+  auch in Skripten und Devcontainern. Gibt es die Rolle schon, bricht `init` ab, statt zu
+  überschreiben. Bei PostgreSQL legt `init` nur das Schema an; Datenbank und Benutzer
+  richtet der Betrieb ein.
+- **Die Replicas eines Nodes** liegen als eine Datenbank je Hub neben `node.db`; `node.db`
+  selbst hält die Einstellungen des Nodes.
 
 - **Zwei Umsetzungen des Vertrags:** über HTTP — direkt per TLS oder durch SSH getunnelt, das
   ist derselbe Client mit anderem Verbindungsaufbau — und lokal als Funktionsaufruf. Der Node
@@ -461,7 +477,7 @@ Starten braucht. Ein Account — für einen Node oder für einen Menschen, eine 
 Programm — bekommt Name, Kurzbeschreibung und Scopes
 (`kephalaion hub account add <name> --scope team-x:write …`). Der Hub
 erzeugt ein Token, zeigt es einmal an und speichert nur den Hash. Das Token wird vorerst von
-Hand übergeben. Ein Node trägt es in seine Konfiguration ein (`0600`).
+Hand übergeben. Ein Node trägt es in seine Datenbank ein (`kephalaion node hub add …`).
 
 **Der erste Vorgang jedes Accounts ist ein `rotate`.** Einrichtung und Rotation sind derselbe
 Vorgang:
@@ -508,10 +524,10 @@ Dienste, mehrere Ports, mehrere MCP-Einträge je Client.
   treffen sich nur im Node.
 - **Adressen sind zweistufig.** Auf dem Hub bleibt alles hub-lokal (`team-x:write`). Im Node
   und für Clients gilt `<hub>:<collection>`; den Hub-Namen vergibt der Node als Alias in
-  seiner Konfiguration.
+  seiner Datenbank.
 - **Der Node ist auf jedem Hub ein eigener Account**, mit eigenem Token und eigener Rotation.
-  Die Konfiguration führt im Abschnitt `node:` eine Liste von Hubs: Name, Adresse, Transport
-  (`https`, `ssh`, `local`), SSH-Schlüssel, Token-Datei.
+  Seine Datenbank führt eine Liste von Hubs: Name, Adresse, Transport (`https`, `ssh`,
+  `local`), SSH-Schlüssel, Token.
 - **Abgleich je Hub.** Ist ein Hub nicht erreichbar, laufen die anderen weiter.
 - **Ein Client trägt mehrere Paare aus Name und Token**, je Hub höchstens eins. Die Suche
   geht über alle Collections, die diese Accounts lesen dürfen.
@@ -549,9 +565,15 @@ Lesen eines einzelnen Dokuments ist dagegen kein Unterscheidungsmerkmal: aus Dat
 SQLite gleichermaßen unter einer Millisekunde.
 
 Auf dem Node ist das SQLite über einen reinen Go-Treiber (`modernc.org/sqlite`), weil ohne C
-gebaut wird. Im Hub anfangs ebenfalls SQLite — ein einziger Schreiber passt
-dazu —, PostgreSQL erst, wenn Nutzerverwaltung, Volltext und Vektoren aus einer Hand kommen sollen. Der Wechsel ist
-möglich, ohne den Vertrag zu ändern.
+gebaut wird. Die Replica bleibt lokal: Sie ist abgeleitet, jederzeit neu abzugleichen, und
+lokal am schnellsten.
+
+**Der Hub soll eine richtige Datenbank bekommen können** — PostgreSQL, betrieben und
+regelmäßig gesichert wie jede andere. Anfangs ist es SQLite, einstellbar bei der
+Einrichtung. Damit der Weg offen bleibt, ist der Datenbankzugriff des Hubs von Anfang an
+hinter einer eigenen Schnittstelle gekapselt, und seine Abfragen bleiben in beiden
+Datenbanken ausführbar. Der Hub sucht nicht, braucht also weder FTS5 noch ein
+Gegenstück. Der Wechsel ändert den Vertrag nicht.
 
 - **Ein Ausweg nach Markdown bleibt — als Export.** Ein Store, den man nur über einen
   laufenden Dienst lesen kann, ist ein Store, den man verlieren kann. Markdown mit
@@ -637,6 +659,11 @@ CREATE TABLE actions (                 -- Protokoll, befristet
 - **Eine Folge je Hub, eine Revision je Collection.** Die Revision zählt über alle
   Collections des Hubs fort. Der Node merkt sich je Collection die letzte — meist sind
   alle gleich, aber eine neu hinzugekommene Collection beginnt bei 0.
+- **Die Revision ist ein Zähler in einer Tabellenzeile**, erhöht innerhalb der schreibenden
+  Transaktion — keine `SEQUENCE` und kein Autoincrement. Eine Sequenz in PostgreSQL vergibt
+  Nummern beim Ziehen, nicht beim Commit: Zieht A die 11 und B die 12, committet B zuerst und
+  gleicht ein Node dann ab, merkt er sich 12 und sieht A nie. Die Sperre auf der Zeile reiht
+  die Schreiber hintereinander; so gilt in SQLite und PostgreSQL dasselbe.
 - **Eine Abfrage für alle Collections.** Der Node schickt eine Liste von Paaren (Collection,
   seit); der Hub fragt einmal ab, nach Revision sortiert, jede Collection über den Index
   `(collection, revision)`:
