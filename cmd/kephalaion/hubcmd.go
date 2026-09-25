@@ -160,7 +160,7 @@ func runHubNode(args []string, stdout, stderr io.Writer) int {
 					return err
 				}
 				fmt.Fprintf(stdout, "Node %s angelegt.\n", pos[0])
-				printToken(stdout, token)
+				printToken(stdout, token, "kephalaion node hub add <alias> --transport … --token-stdin")
 				return nil
 			})
 		},
@@ -236,7 +236,8 @@ func runHubNode(args []string, stdout, stderr io.Writer) int {
 					return err
 				}
 				fmt.Fprintf(stdout, "Node %s: neues Token, das alte gilt nicht mehr.\n", pos[0])
-				printToken(stdout, token)
+				printToken(stdout, token, "kephalaion node hub token <alias> --token-stdin")
+				fmt.Fprintln(stdout, "Bis dahin weist der Hub den Node ab.")
 				return nil
 			})
 		},
@@ -261,12 +262,13 @@ func (c *command) hubDo(args []string, fn func(ctx context.Context, s hubstore.S
 	return 0
 }
 
-// printToken zeigt ein neues Token — das einzige Mal.
-func printToken(w io.Writer, token string) {
+// printToken zeigt ein neues Token — das einzige Mal — und wie es an den
+// Node kommt.
+func printToken(w io.Writer, token, nodeCmd string) {
 	fmt.Fprintln(w, "Token (wird nicht wieder angezeigt, gespeichert ist nur der Hash):")
 	fmt.Fprintf(w, "  %s\n", token)
 	fmt.Fprintln(w, "Am Node eintragen, über stdin, nie als Argument:")
-	fmt.Fprintln(w, "  kephalaion node hub add <alias> --transport … --token-stdin")
+	fmt.Fprintf(w, "  %s\n", nodeCmd)
 }
 
 func lockState(locked bool) string {

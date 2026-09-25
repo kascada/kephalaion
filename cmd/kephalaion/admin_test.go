@@ -82,7 +82,7 @@ func TestHubFlow(t *testing.T) {
 	runT(t, "hub", "node", "list", c).want(t, 0, "laptop", "gesperrt", "team-x")
 	runT(t, "hub", "node", "unlock", "laptop", c).want(t, 0, "entsperrt")
 	r = runT(t, "hub", "node", "token", "laptop", c)
-	r.want(t, 0, "das alte gilt nicht mehr", "wird nicht wieder angezeigt")
+	r.want(t, 0, "das alte gilt nicht mehr", "wird nicht wieder angezeigt", "node hub token <alias> --token-stdin")
 	if tok2 := tokenFrom(t, r.out); tok2 == tok {
 		t.Error("Token nicht neu")
 	}
@@ -112,6 +112,11 @@ func TestNodeFlow(t *testing.T) {
 		want(t, 1, "localhost")
 	runIn(t, tok, "node", "hub", "add", "ohne", "--transport", "https", "--address", "https://h", c).
 		want(t, 1, "--token-stdin")
+	for _, a := range []string{"--token", "-token", "--token=" + tok} {
+		runT(t, "node", "hub", "add", "arg", "--transport", "local", a, tok, c).
+			want(t, 2, "nie als Argument", "--token-stdin")
+	}
+	runT(t, "node", "hub", "token", "lokal", "--token", tok, c).want(t, 2, "nie als Argument")
 	runIn(t, "keph_falsch\n", "node", "hub", "add", "kaputt", "--transport", "https", "--address", "https://h", "--token-stdin", c).
 		want(t, 1, "ungültiges Token")
 	runIn(t, "", "node", "hub", "add", "leer", "--transport", "https", "--address", "https://h", "--token-stdin", c).

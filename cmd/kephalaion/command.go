@@ -59,6 +59,11 @@ func newCommand(name, usage string, stdout, stderr io.Writer, args ...string) *c
 
 // parse wertet Optionen und Positionsargumente aus.
 func (c *command) parse(args []string) (pos []string, code int, ok bool) {
+	if tokenAsArgument(args) {
+		fmt.Fprintf(c.stderr, "%s: das Token wird nie als Argument übergeben — es stünde sonst im "+
+			"Shell-Verlauf und in der Prozessliste; --token-stdin liest es von der Standardeingabe\n", c.name)
+		return nil, 2, false
+	}
 	pos, code, ok = parseFlags(c.fs, args, c.usage, len(c.args), c.stderr)
 	if !ok {
 		return nil, code, false
@@ -69,6 +74,22 @@ func (c *command) parse(args []string) (pos []string, code int, ok bool) {
 		return nil, 2, false
 	}
 	return pos, 0, true
+}
+
+// tokenAsArgument erkennt den naheliegenden Fehlgriff --token statt
+// --token-stdin, damit er eine eigene Meldung bekommt statt „flag provided but
+// not defined“. Nach -- ist alles Positionsargument.
+func tokenAsArgument(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if strings.HasPrefix(a, "-") && name == "token" {
+			return true
+		}
+	}
+	return false
 }
 
 // isSet sagt, ob eine Option angegeben wurde, auch mit leerem Wert.
