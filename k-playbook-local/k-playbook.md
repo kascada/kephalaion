@@ -21,8 +21,14 @@ Pakete unter `internal/`:
 - `config` — die config (`config.yaml`): Ort auflösen, strikt lesen, atomar schreiben,
   Rolle eintragen, db-Adressen zerlegen.
 - `sqlitedb` — gemeinsamer Unterbau beider Datenbanken, kennt weder Hub noch Node: SQLite
-  öffnen (WAL, `foreign_keys`, `busy_timeout`; eine fehlende Datei wird nie angelegt, nur
+  öffnen (`foreign_keys`, `busy_timeout`; eine fehlende Datei wird nie angelegt, nur
   `Create` legt an), `db_info` prüfen (Schemafassung, Rolle), `settings` lesen und schreiben.
+  WAL setzt nur `Create`; `Open` ändert die Datei nicht, auch nicht ihren `journal_mode`.
+  Transaktionen beginnen IMMEDIATE (DSN-Parameter `_txlock=immediate`, kein PRAGMA): Sie
+  nehmen die Schreibsperre sofort, auch wenn sie nur lesen — reine Lesezugriffe laufen
+  deshalb ohne Transaktion.
+- `ident` — neutral, für Hub und Node: Namensregel, Adresse `<hub>:<collection>`, Token
+  erzeugen, hashen, Format prüfen, gekürzt anzeigen.
 - `sqlq` — Hilfe für PostgreSQL-taugliche Abfragen: Platzhalter `$n`, `Bind` je Dialekt,
   `Check` auf verbotene Konstrukte.
 - `hub/store`, `node/store` — die gekapselten Datenbanken von Hub und Node, je eine
@@ -39,6 +45,16 @@ Regeln dazu:
   `?`. Ein Test je Paket prüft sie mit `sqlq.Check`. `PRAGMA` gibt es nur beim Öffnen der
   Verbindung. Das DDL steht je Dialekt. Zähler wie die Revision werden im Code
   hochgezählt, nicht per Umwandlung in SQL. Der Node darf SQLite-Eigenes benutzen.
+- **Token nie als Argument.** Ein Token kommt über `--token-stdin` (eine Zeile) herein, nie
+  über ein Argument — Shell-Verlauf und Prozessliste. Angezeigt wird es nur gekürzt
+  (`ident.MaskToken`); ein am Hub erzeugtes Token genau einmal, gespeichert nur als Hash.
+- **Namensregeln.** Collections, Nodes und Hub-Aliase: `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`,
+  kein Präfix `system` in beliebiger Schreibweise — geprüft mit `ident.CheckName` bzw.
+  `ident.ParseAddress`. Node-Namen sind gemeinsam mit Account-Namen eindeutig (jede Zeile
+  `SYSTEM:A:<name>` in `documents` belegt den Namen).
+- **Import prüft wie die CLI.** `config import` benutzt dieselben Prüffunktionen
+  (`CheckTables` je Store) und prüft alles, bevor geschrieben wird; erst der Hub, dann der
+  Node.
 - **Keine Migrationen, Schema neu anlegen** — befristet, solange es keine Daten gibt, die
   bleiben müssen. Ändert sich das Schema, wird `SchemaVersion` im Store-Paket erhöht;
   vorhandene Datenbanken werden dann abgelehnt und neu angelegt.

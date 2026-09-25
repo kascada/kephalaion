@@ -6,7 +6,9 @@ Was geplant ist und warum, steht in [`docs/konzept.md`](docs/konzept.md), die Be
 [`docs/begriffe.md`](docs/begriffe.md).
 
 **Stand:** Gebaut sind das Gerüst (`version`, `upgrade`) und das Einrichten der Rollen:
-`hub init`, `node init`, `status` und `config show|export|import`. Inhalte fließen noch nicht.
+`hub init`, `node init`, `status`, `config show|export|import`, dazu am Hub Collections und
+Nodes, am Node seine Hubs und die gewünschten Collections. Verbindungen und Inhalte gibt es
+noch nicht.
 
 ## Installation
 
@@ -64,6 +66,44 @@ kephalaion config import keph-config.yaml            # in eingerichtete Rollen z
 `init`. Migrationen gibt es noch nicht: Passt die Schemafassung einer Datenbank nicht zum
 Binary, ist sie neu anzulegen; die Einstellungen rettet `config export`/`import`, die Inhalte
 nicht.
+
+### Hub und Node auf einem Rechner
+
+Der Hub legt Collections und einen Node-Eintrag an und erlaubt ihm Collections; das Token
+des Nodes zeigt er genau einmal und speichert nur den Hash. Der Node trägt den Hub unter
+einem Alias ein, mit seinem Token über die Standardeingabe — nie als Argument, sonst stünde
+es im Shell-Verlauf und in der Prozessliste.
+
+```sh
+kephalaion hub init
+kephalaion node init
+
+kephalaion hub collection add team-x --description "Wissen von Team X"
+kephalaion hub node add laptop --description "dieser Rechner"   # zeigt das Token einmal
+kephalaion hub node grant laptop team-x
+
+# Transport local: Hub im selben Prozess, verlangt den Hub in derselben config
+read -rs TOKEN            # Token einfügen, Enter
+printf '%s\n' "$TOKEN" | kephalaion node hub add privat --transport local --token-stdin
+kephalaion node collection add privat:team-x
+
+# oder http auf localhost — verhält sich wie eine getrennte Installation
+printf '%s\n' "$TOKEN" | kephalaion node hub add test --transport http \
+  --address http://localhost:8080 --token-stdin
+unset TOKEN
+
+kephalaion status       # Collections und Nodes am Hub, Hubs und Collections am Node
+```
+
+Weitere Transporte sind `https` (`--address https://…`) und `ssh` (`--address
+[user@]host[:port]`, optional `--ssh-key`). Namen von Collections, Nodes und Hub-Aliasen
+bestehen aus `a–z`, `0–9`, `.`, `_` und `-`, beginnen mit Buchstabe oder Ziffer, haben
+höchstens 63 Zeichen und nicht den Präfix `system`. Die Hilfe zeigt alle Kommandos:
+`kephalaion hub node --help`, `kephalaion node hub --help`.
+
+`config export` sichert auch die Collections, Nodes (nur mit Hash) und die Hubs des Nodes
+samt ihrem Token im Klartext — die Datei entsteht deshalb mit `0600`. Ein Export aus einer
+älteren Fassung (Format 1) lässt sich weiter importieren; er ersetzt nur die `settings`.
 
 ## Bauen
 

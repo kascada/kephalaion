@@ -7,7 +7,9 @@ description: Entwurf für eine geteilte Wissensdatenbank mehrerer Nutzer und Pro
 
 **Stand: Entwurf.** Gebaut sind das Gerüst — Build, Release, Installation und
 `kephalaion upgrade`, siehe [`README.md`](../README.md) — und das Einrichten der Rollen
-(`hub init`, `node init`, `status`, `config show|export|import`); vom Übrigen noch nichts. Die
+(`hub init`, `node init`, `status`, `config show|export|import`) samt den lokalen Tabellen —
+Collections und Nodes am Hub, Hubs und gewünschte Collections am Node, alles über die
+Kommandozeile; vom Übrigen, auch jeder Verbindung, noch nichts. Die
 Überlegungen entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
 Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
 
@@ -667,8 +669,11 @@ CREATE TABLE actions (                 -- Protokoll, befristet
   at          INTEGER NOT NULL,
   account     TEXT NOT NULL,
   carrier     TEXT,                    -- welcher Node es gebracht hat
-  action      TEXT NOT NULL,           -- create, update, rename, delete, rotate …
+  action      TEXT NOT NULL,           -- create, update, rename, delete, rotate,
+                                       -- collection.add, node.grant, config.import …
   document_id TEXT,
+  subject     TEXT,                    -- Ziel ohne Dokument: Collection, Node,
+                                       -- bei grant/revoke <node>:<collection>
   revision    INTEGER
 );
 
@@ -714,7 +719,12 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
 
 - **Lokale Tabellen:** Einzelne Werte stehen in `settings` (Schlüssel, Wert); Listen mit
   Struktur bekommen eigene Tabellen. Nichts davon gleicht sich ab. `config export` und
-  `config import` nehmen sie mit.
+  `config import` nehmen sie mit (Exportformat 2, `tables:` je Rolle), `db_info` und
+  `actions` nicht. Änderungen an ihnen zählen keine Revision hoch.
+- **Namen** von Collections, Nodes und Hub-Aliasen: `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`
+  (Adressen sind `<hub>:<collection>`), kein Präfix `system`. `documents.collection` hat
+  keinen Fremdschlüssel auf `collections`; eine Collection lässt sich aber nur entfernen,
+  solange keine Zeile in `documents` sie nennt und kein Node sie abgleichen darf.
 - **Namen von Accounts und Nodes sind am Hub gemeinsam eindeutig.** Das Protokoll nennt nur
   Namen (`account`, `carrier`); „laptop“ darf dort nicht zweierlei bedeuten. Der Hub prüft
   das beim Anlegen.
@@ -780,7 +790,10 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   Transaktion; die Umwandlung des Textwerts in SQL wäre je Dialekt verschieden. Eine Sequenz in PostgreSQL vergibt
   Nummern beim Ziehen, nicht beim Commit: Zieht A die 11 und B die 12, committet B zuerst und
   gleicht ein Node dann ab, merkt er sich 12 und sieht A nie. Die Sperre auf der Zeile reiht
-  die Schreiber hintereinander; so gilt in SQLite und PostgreSQL dasselbe.
+  die Schreiber hintereinander; so gilt in SQLite und PostgreSQL dasselbe. Umgesetzt: In
+  PostgreSQL sperrt ein `UPDATE db_info SET value = value` die Zeile, bevor sie gelesen
+  wird; in SQLite beginnt jede Transaktion als `BEGIN IMMEDIATE` und hält die Sperre von
+  Anfang an.
 - **Der Hub hat eine Identität.** `hub init` vergibt eine `hub_id` (ULID, in `db_info`); jede
   Antwort an einen Node trägt sie, der Node speichert sie in `hubs`. Weicht sie ab — etwa
   weil die Datenbank des Hubs neu angelegt wurde und die Revision wieder bei 0 beginnt —,

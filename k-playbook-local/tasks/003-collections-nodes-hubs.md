@@ -227,7 +227,7 @@ Dazu `hub_id` bei `hub init`, erweitertes `status`, erweitertes `config export|i
 | 3 — Node: Hubs und Collections im Store | erledigt | 2026-09-25 | Node-Store: Hub-Einträge mit Transportregeln (`CheckHub`, höchstens ein local, `hubInConfig` aus der config), `SetHub` über `ApplyUpdate`, gewünschte Collections; `Tables`/`Import` für Etappe 5 |
 | 4 — CLI | erledigt | 2026-09-25 | `hub collection …`, `hub node …`, `node hub …`, `node collection …` mit Hilfetexten je Gruppe; `parseFlags` parst nach Positionsargumenten weiter (`--` beendet); `run` bekommt stdin für `--token-stdin` |
 | 5 — status und config | erledigt | 2026-09-25 | `status` mit hub_id, Collections, Nodes samt Sperre/Rechten bzw. Hubs samt Transport, hub_id und Collections; Export Format 2 (`tables:` je Rolle, jeder Teil immer), Import Format 1 und 2 mit Vorabprüfung, Hub vor Node, `config.import`, Meldung je Rolle; Eingriffspunkt `nodeImport` |
-| 6 — Doku | offen | | |
+| 6 — Doku | erledigt | 2026-09-25 | README: Hub + Node auf einem Rechner (local, http), am Binary nachgespielt; begriffe: grant/revoke, lock, admin, actions, --token-stdin, Namensregel, export/import Format 2; k-playbook.md: sqlitedb, ident, Token, Namen, Import; konzept: `actions.subject`, Stand, Sperre, lokale Tabellen |
 
 ---
 ## Review-Log (2026-09-25)

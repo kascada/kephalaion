@@ -14,10 +14,12 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **config** — `~/.config/kephalaion/config.yaml`. Sagt nur, welche Rollen eingerichtet sind
   und wo ihre Datenbank liegt (`db:`). Alles andere steht in der Datenbank der Rolle.
   `kephalaion config show` zeigt sie samt den `settings` je Rolle.
-  - **export** — `kephalaion config export`: sichert config und `settings` je Rolle als YAML
-    mit einer Fassung des Formats, getrennt von den Inhalten.
-  - **import** — `kephalaion config import <datei>`: schreibt die `settings` eines Exports in
-    bereits eingerichtete Rollen und ersetzt sie dort; die config bleibt unverändert.
+  - **export** — `kephalaion config export`: sichert config, `settings` und lokale Tabellen
+    je Rolle als YAML mit einer Fassung des Formats (`format: 2`, darin `tables:`), getrennt
+    von den Inhalten; ohne `db_info` und `actions`.
+  - **import** — `kephalaion config import <datei>`: schreibt einen Export in bereits
+    eingerichtete Rollen und ersetzt dort je Rolle `settings` und lokale Tabellen; ein
+    Export im Format 1 ersetzt nur die `settings`. Die config bleibt unverändert.
 - **db address** (db-Adresse) — der Wert von `db:` in der config: `sqlite:///<absoluter
   Pfad>`; `postgres://…` ist vorgesehen.
 - **settings** (Einstellungen) — Tabelle `settings (key, value)` in der Datenbank jeder Rolle:
@@ -77,8 +79,21 @@ Ausführlich: [`konzept.md`](konzept.md).
   (nur der Hash), gesperrt ja/nein. Name gemeinsam mit den Accounts eindeutig.
 - **hub entry** (Hub-Eintrag) — ein Hub am Node: Zeile in `hubs` in `node.db`, Alias vom
   Node, Transport, Adresse, Token, `hub_id`.
-- **hub_id** — Kennung des Hubs, von `hub init` vergeben. Weicht sie ab, gleicht der Node
-  von vorn ab.
+- **hub_id** — Kennung des Hubs, eine ULID, von `hub init` vergeben und in `db_info`
+  gehalten; `status` zeigt sie. Weicht sie ab, gleicht der Node von vorn ab.
+- **grant** / **revoke** — `kephalaion hub node grant <node> <collection>`: gibt einem Node
+  `replicate` auf eine Collection; `revoke` nimmt es zurück.
+- **lock** / **unlock** — `kephalaion hub node lock <name>`: sperrt einen Node; `unlock` hebt
+  die Sperre auf.
+- **admin** — der Account, als der die CLI am Hub handelt; steht in `created_by` und in
+  `actions`.
+- **actions** (Protokoll) — Tabelle des Hubs: wer wann was getan hat. `subject` nennt das
+  Ziel einer Handlung ohne Dokument — Collection, Node oder `<node>:<collection>`.
+- **--token-stdin** — liest ein Token als eine Zeile von der Standardeingabe. Ein Token wird
+  nie als Argument übergeben und nur gekürzt angezeigt (`keph_…` und die letzten vier
+  Zeichen).
+- **name rule** (Namensregel) — Namen von Collections, Nodes und Hub-Aliasen:
+  `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`, kein Präfix `system` in beliebiger Schreibweise.
 - **SYSTEM:** — reservierter Präfix im Namen eines Dokuments, nur der Hub schreibt ihn.
   `SYSTEM:A:<account>` ist die Zeile eines Accounts in einer Collection.
 - **carrier** (Träger) — der Node, der eine Anfrage an den Hub trägt; meldet sich mit seinem
