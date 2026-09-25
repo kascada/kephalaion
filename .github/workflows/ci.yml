@@ -52,3 +52,12 @@ jobs:
 
       - name: make dist
         run: make dist
+
+      # shellcheck ist auf den Ubuntu-Runnern vorinstalliert; lokal läuft
+      # in make check nur sh -n.
+      - name: shellcheck install.sh
+        run: |
+          set -eu
+          command -v shellcheck >/dev/null 2>&1 || { sudo apt-get update -q && sudo apt-get install -y -q shellcheck; }
+          shellcheck --version | head -n 2
+          shellcheck install.sh

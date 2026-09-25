@@ -76,7 +76,9 @@ dist: ## Baut alle vier Plattformen nach ./dist/ und schreibt SHA256SUMS
 test: ## Führt die Tests aus
 	go test ./...
 
-check: ## gofmt-Prüfung, go vet und Tests
+# install.sh bekommt hier nur die Syntaxprüfung; shellcheck läuft in CI.
+check: ## gofmt-Prüfung, go vet, Tests und Syntax von install.sh
+	sh -n install.sh
 	@set -eu; \
 	  unformatted="$$(gofmt -l $(GO_DIRS))"; \
 	  if [ -n "$$unformatted" ]; then \
