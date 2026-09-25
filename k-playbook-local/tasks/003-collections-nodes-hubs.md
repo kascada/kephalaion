@@ -117,7 +117,35 @@ Dazu `hub_id` bei `hub init`, erweitertes `status`, erweitertes `config export|i
   (wie in Task 002 für `settings`): Namensregel, `keph_`-Format, Transportregeln,
   Eindeutigkeit samt `SYSTEM:A:`. Er bricht auch ab, wenn er eine Collection entfernen
   würde, in der Dokumente stehen — dieselbe Regel wie bei `rm`.
-- **Nicht in diesem Task:** Accounts, `serve`, jede Verbindung, `rotate`, Abgleich.
+- **Nachbesserungen aus der Code-Review von Task 002** (Befunde im Ausführungsbericht von
+  `tasks/done/002-datenbank-config-status.md`):
+  1. **Revision sicher hochzählen.** `nextRevision` im Hub-Store liest erst und schreibt dann;
+     unter PostgreSQL vergeben zwei Schreiber so dieselbe Revision, unter SQLite scheitert der
+     Wechsel vom Lesen zum Schreiben mit `SQLITE_BUSY` — das trifft jede Transaktion, die erst
+     liest und dann schreibt, auch die aus Etappe 2 und 3. Unter SQLite öffnet der Unterbau
+     Transaktionen daher als IMMEDIATE, über den DSN-Parameter `_txlock=immediate` von modernc
+     (kein PRAGMA; gilt für Hub und Node). Für PostgreSQL sperrt `nextRevision` die Zeile
+     zuerst schreibend (`UPDATE db_info SET value = value WHERE key = $1`), liest dann und
+     schreibt den neuen Wert, ohne `FOR UPDATE`.
+  2. **WAL nur beim Anlegen.** `journal_mode(WAL)` bleibt in der Datei stehen; heute setzt
+     jedes Öffnen es, sodass `status` eine fremde SQLite-Datei umstellt, bevor `CheckInfo` sie
+     ablehnt. WAL steht nur in der DSN von `Create` (heute im gemeinsamen `dsn()` in
+     `internal/sqlitedb/sqlitedb.go`, das auch `Open` nutzt), kein eigenes PRAGMA danach.
+     `Open` setzt nur die verbindungsbezogenen `foreign_keys` und `busy_timeout`, die die Datei
+     nicht ändern. Der bestehende Test, der nach `Open` `wal` erwartet, gilt künftig für mit
+     `Create` angelegte Dateien.
+  3. **Import sagt, was geschrieben ist.** Import schreibt erst den Hub, dann den Node; die
+     Zeile `config.import` steht in derselben Hub-Transaktion wie das Ersetzen. Scheitert das
+     Schreiben des Node, nachdem der Hub schon committet ist, nennt die Meldung je Rolle
+     „ersetzt“ bzw. „nicht geschrieben“.
+  4. **Kein stilles Leeren beim Import.** Steht eine Rolle in der config des Exports, fehlt
+     aber ihr Teil (`settings`, in Format 2 auch die Tabellen) oder ist er `null`, bricht der
+     Import vor dem Schreiben ab. Nur ein ausdrücklich leerer Teil (`{}` bzw. `[]`) leert.
+     Dafür schreibt der Export jeden Teil jeder Rolle immer, auch leer (kein `omitempty`,
+     kein fehlender Schlüssel), und das Einlesen unterscheidet „fehlt“, `null` und leer
+     (heute werden alle drei zu `nil`).
+- **Nicht in diesem Task:** Accounts, `serve`, jede Verbindung, `rotate`, Abgleich; `status`
+  auf eine schreibgeschützte Datenbank (scheitert heute an `mode=rw`, Befund 3 aus Task 002).
 
 ## Zu bauen
 
@@ -128,6 +156,11 @@ Dazu `hub_id` bei `hub init`, erweitertes `status`, erweitertes `config export|i
 - Node: `hubs`, `hub_collections`.
 - Schemafassung beider auf 2. Tests: anlegen, Fassung 1 wird mit der bekannten Meldung
   abgewiesen.
+- Nachbesserungen 1 und 2 aus dem Kontext. Tests: zwei gleichzeitige Transaktionen mit
+  `nextRevision` erhalten verschiedene Revisionen; zwei gleichzeitige schreibende
+  Transaktionen, die vorher lesen (am Hub Lesen + `nextRevision`, am Node Lesen + Schreiben),
+  scheitern nicht an `SQLITE_BUSY`; `Open` auf eine fremde SQLite-Datei ohne WAL lässt deren
+  `journal_mode` unverändert; `Create` legt die Datei mit `wal` an.
 
 ### Etappe 2 — Hub: Collections und Nodes im Store
 
@@ -166,18 +199,35 @@ Dazu `hub_id` bei `hub init`, erweitertes `status`, erweitertes `config export|i
   „noch kein Kontakt“) und seinen gewünschten Collections.
 - `config export|import` Format 2 wie im Kontext; Format 1 importierbar (ersetzt nur
   `settings`).
+- Nachbesserungen 3 und 4 aus dem Kontext, für Format 1 und 2.
 - Tests: Export → neue Datenbanken → Import ergibt dieselben Tabellen (neue `hub_id`);
   ungültiger Import schreibt nichts; Import, der eine Collection mit Dokumenten entfernen
   würde, bricht ab; Import in Format 1 lässt die neuen Tabellen unberührt; `config.import` in
-  `actions` am Hub, nur bei Export mit Hub-Teil.
+  `actions` am Hub, nur bei Export mit Hub-Teil; Rolle ohne `settings`-Teil oder mit `null`
+  bricht ab und lässt alles unverändert, `settings: {}` leert; Rundlauf mit leeren Tabellen
+  und leeren `settings`; scheitert das Schreiben des Node (über einen ersetzbaren
+  Eingriffspunkt, Wahl dem Ausführenden), nennt die Meldung den Hub als ersetzt, samt
+  `config.import`, und den Node als nicht geschrieben.
 
 ### Etappe 6 — Doku
 
 - `README.md`: Beispiel Einrichtung Hub + Node auf einem Rechner (`local` und `http`).
 - `docs/begriffe.md`: nur, was neu ist.
-- `k-playbook-local/k-playbook.md`: Token nie als Argument; Namensregeln.
+- `k-playbook-local/k-playbook.md`: Token nie als Argument; Namensregeln; Eintrag `sqlitedb`
+  nachziehen (WAL nur bei `Create`, Transaktionen IMMEDIATE über `_txlock`).
 - `docs/konzept.md`: `actions.subject` ins „Datenmodell“; sonst nur nachziehen, wo die
   Umsetzung abweicht.
+
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — Schema und hub_id | offen | | |
+| 2 — Hub: Collections und Nodes im Store | offen | | |
+| 3 — Node: Hubs und Collections im Store | offen | | |
+| 4 — CLI | offen | | |
+| 5 — status und config | offen | | |
+| 6 — Doku | offen | | |
 
 ---
 ## Review-Log (2026-09-25)
@@ -284,3 +334,72 @@ Runde 3: **Ja** — alle Intent-Punkte abgedeckt. Randnotiz: nicht ausdrücklich
 
 ### Offen (nicht gefixt)
 - WARNUNG-06: bewusst übersprungen (Hinweis im Hilfetext von `config export` wäre möglich).
+
+---
+## Review-Log (2026-09-25, Nachprüfung)
+
+**Pfad:** k-playbook-local/tasks/003-collections-nodes-hubs.md
+**Intent:** inline (`## Intent`)
+**Runden:** 2
+**Anlass:** Task ergänzt um „Nachbesserungen aus der Code-Review von Task 002“ (Kontext 1–4,
+Etappe 1 und 5).
+
+### Diskussion
+- **IMMEDIATE statt Sperrzeile (R2-FEHLER-01):** Das `UPDATE … SET value = value` zuerst hilft
+  unter SQLite nur, wenn es die erste Anweisung der DEFERRED-Transaktion ist; die Methoden aus
+  Etappe 2/3 lesen aber vorher. Moderator entschied `_txlock=immediate` in der DSN (modernc
+  v1.59 unterstützt es, kein PRAGMA) für SQLite; die Sperrzeile bleibt für PostgreSQL.
+- **Format-1-Exporte nach Nachbesserung 4:** Critic prüfte, dass der Export aus Task 002 für
+  jede Rolle ein nicht leeres Map-Objekt schreibt (`{}` bei leer); echte Format-1-Exporte
+  bleiben importierbar, abgewiesen werden nur handgebaute Dateien ohne `settings`-Teil.
+
+### Critic-Issues
+| ID | Kategorie | Datei | Stelle | Problem | Empfehlung |
+|---|---|---|---|---|---|
+| R2-FEHLER-01 | FEHLER | 003 | Nachbesserung 1 / Etappe 1 | Sperrzeile vermeidet `SQLITE_BUSY` nur als erste Anweisung; Lesen-dann-Schreiben in Etappe 2/3 betroffen | Sperre als erste Anweisung oder `_txlock=immediate` |
+| R2-WARNUNG-01 | WARNUNG | 003 | Nachbesserung 4 | Export muss jeden Teil immer schreiben; Decodieren unterscheidet fehlt/`null`/leer nicht | festlegen, Rundlauf-Test mit leeren Tabellen |
+| R2-WARNUNG-02 | WARNUNG | 003 | Nachbesserung 3 / Etappe 5 | Reihenfolge der Rollen, Ort von `config.import`, Herbeiführen des Scheiterns offen | Hub zuerst, gleiche Transaktion, Eingriffspunkt |
+| R2-WARNUNG-03 | WARNUNG | 003 | Nachbesserung 2 | WAL im gemeinsamen `dsn()`, bestehender Test erwartet `wal` nach `Open` | WAL nur in DSN von `Create`, Test anpassen |
+| R2-FEHLEND-01 | FEHLEND | 003 | Nachbesserung 2 | Rest von Befund 3 (schreibgeschützte DB, `CheckInfo` vor Pragmas) offen | übernehmen oder ausschließen |
+| R2-NEU-01 | WARNUNG | 003 | Etappe 6 | `k-playbook.md` beschreibt `sqlitedb` mit WAL beim Öffnen | Eintrag nachziehen |
+
+### Moderator-Routing
+| ID | Route | Begründung | Ergebnis |
+|---|---|---|---|
+| R2-FEHLER-01 | decide + pass | blockiert jede schreibende Transaktion unter Last | `_txlock=immediate`, Sperrzeile für PG |
+| R2-WARNUNG-01 | decide + pass | sonst scheitert der Rundlauf | umgesetzt |
+| R2-WARNUNG-02 | decide + pass | Test sonst nicht bestimmbar | umgesetzt |
+| R2-WARNUNG-03 | decide + pass | klein, bestehender Test betroffen | umgesetzt |
+| R2-FEHLEND-01 | decide + pass | Pragmas beim Öffnen ändern die Datei nicht mehr | „Nicht in diesem Task“ |
+| R2-NEU-01 | decide, Moderator-Edit | eine Zeile in Etappe 6 | umgesetzt |
+
+### Editor-Entscheidungen
+| ID | Aktion | Begründung |
+|---|---|---|
+| R2-FEHLER-01 | umgesetzt | Nachbesserung 1 umformuliert, Test Etappe 1 (Lesen + `nextRevision` im Unterbau, da Etappe-2-Methoden dort noch fehlen) |
+| R2-WARNUNG-01 | umgesetzt | Nachbesserung 4, Test Etappe 5 |
+| R2-WARNUNG-02 | umgesetzt | Nachbesserung 3, Test Etappe 5 an Reihenfolge angepasst |
+| R2-WARNUNG-03 | umgesetzt | Nachbesserung 2, Test Etappe 1 „`Create` legt mit `wal` an“ |
+| R2-FEHLEND-01 | umgesetzt | „Nicht in diesem Task“ ergänzt |
+
+### Moderator-Entscheidungen
+- R2-FEHLER-01: `_txlock=immediate` statt „Sperre als erste Anweisung“ — gilt ohne Disziplin in
+  jeder Methode; Treiberunterstützung in modernc v1.59 geprüft.
+- R2-FEHLEND-01: `status` auf schreibgeschützte DB verschoben; bei Bedarf als Todo erfassen.
+- R2-NEU-01 ohne Editor-Runde direkt eingearbeitet (eine Zeile).
+- Intent-Check-Randnotizen übergangen: fehlende Schritte im CLI-Testablauf (revoke, unlock,
+  hub token/show) decken die Store-Tests; die Trennung prüft `internal/separation_test.go`
+  bereits.
+
+### Intent-Alignment
+**Ja** — alle Intent-Punkte abgedeckt; die Nachbesserungen widersprechen dem Intent nicht,
+Punkte 3/4 stützen export/import, Punkte 1/2 vergrößern Etappe 1. Hinweis beim Ausführen:
+Mit `_txlock=immediate` nimmt auch eine lesende Transaktion eine Schreibsperre.
+
+### Geänderte Dateien
+- 003-collections-nodes-hubs.md: Nachbesserungen 1–4 präzisiert, „Nicht in diesem Task“,
+  Tests Etappe 1 und 5, Etappe 6 `sqlitedb`-Eintrag (R2-FEHLER-01, R2-WARNUNG-01..03,
+  R2-FEHLEND-01, R2-NEU-01)
+
+### Offen (nicht gefixt)
+- `status` auf eine schreibgeschützte Datenbank (bewusst verschoben).
