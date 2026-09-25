@@ -97,39 +97,68 @@ func newFlagSet(name, usage string, stderr io.Writer) *flag.FlagSet {
 	return fs
 }
 
-// parseFlags wertet die Optionen aus. ok ist false, wenn das Kommando mit
-// code enden soll.
-func parseFlags(fs *flag.FlagSet, args []string, usage string, maxArgs int, stderr io.Writer) (code int, ok bool) {
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0, false
+// parseFlags wertet die Optionen aus, vor und nach Positionsargumenten:
+// `hub node add laptop --description …` geht wie `hub node add --description …
+// laptop`. Nach `--` ist alles Positionsargument. pos sind die
+// Positionsargumente; ok ist false, wenn das Kommando mit code enden soll.
+func parseFlags(fs *flag.FlagSet, args []string, usage string, maxArgs int, stderr io.Writer) (pos []string, code int, ok bool) {
+	rest := args
+	for {
+		if err := fs.Parse(rest); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil, 0, false
+			}
+			return nil, 2, false
 		}
-		return 2, false
+		next := fs.Args()
+		if len(next) == 0 {
+			break
+		}
+		// Hat Parse an `--` aufgehört, ist der Rest Positionsargument.
+		if used := len(rest) - len(next); used > 0 && rest[used-1] == "--" {
+			pos = append(pos, next...)
+			break
+		}
+		pos = append(pos, next[0])
+		rest = next[1:]
 	}
-	if fs.NArg() > maxArgs {
-		fmt.Fprintf(stderr, "Unerwartetes Argument: %s\n\n", fs.Arg(maxArgs))
+	if len(pos) > maxArgs {
+		fmt.Fprintf(stderr, "Unerwartetes Argument: %s\n\n", pos[maxArgs])
 		fmt.Fprint(stderr, usage)
-		return 2, false
+		return nil, 2, false
 	}
-	return 0, true
+	return pos, 0, true
 }
 
 const hubUsage = `Aufruf:
   kephalaion hub init [--db sqlite:///pfad/hub.db] [--config pfad]
+  kephalaion hub collection add|list|set|rm …
+  kephalaion hub node add|list|show|set|rm|lock|unlock|grant|revoke|token …
 
 Kommandos:
-  init   richtet den Hub ein: Datenbank, Schema, Abschnitt hub: in der config
+  init         richtet den Hub ein: Datenbank, Schema, Abschnitt hub: in der config
+  collection   legt die Collections des Hubs an, ändert und entfernt sie
+  node         legt Nodes an, erlaubt ihnen Collections, sperrt sie, erneuert
+               ihr Token
+
+Hilfe: kephalaion hub collection --help, kephalaion hub node --help
 `
 
 const nodeUsage = `Aufruf:
   kephalaion node init [--db sqlite:///pfad/node.db] [--config pfad]
+  kephalaion node hub add|list|show|set|rm|token …
+  kephalaion node collection add|list|rm …
 
 Kommandos:
-  init   richtet den Node ein: Datenbank, Schema, Abschnitt node: in der config
+  init         richtet den Node ein: Datenbank, Schema, Abschnitt node: in der config
+  hub          trägt die Hubs dieses Nodes ein: Transport, Adresse, Token
+  collection   die Collections, die der Node von seinen Hubs haben will
+
+Hilfe: kephalaion node hub --help, kephalaion node collection --help
 `
 
 // runRole verteilt die Kommandos unter hub bzw. node.
-func runRole(r config.Role, args []string, stdout, stderr io.Writer) int {
+func runRole(r config.Role, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	usage := hubUsage
 	if r == config.Node {
 		usage = nodeUsage
@@ -138,12 +167,20 @@ func runRole(r config.Role, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
-	switch args[0] {
-	case "help", "-h", "--help":
+	switch {
+	case args[0] == "help" || args[0] == "-h" || args[0] == "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
-	case "init":
+	case args[0] == "init":
 		return runInit(r, args[1:], stdout, stderr)
+	case r == config.Hub && args[0] == "collection":
+		return runHubCollection(args[1:], stdout, stderr)
+	case r == config.Hub && args[0] == "node":
+		return runHubNode(args[1:], stdout, stderr)
+	case r == config.Node && args[0] == "hub":
+		return runNodeHub(args[1:], stdin, stdout, stderr)
+	case r == config.Node && args[0] == "collection":
+		return runNodeCollection(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unbekanntes Kommando: %s %s\n\n", r, args[0])
 		fmt.Fprint(stderr, usage)
@@ -176,7 +213,7 @@ func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet(string(r)+" init", usage, stderr)
 	dbFlag := fs.String("db", "", "")
 	cfgFlag := fs.String("config", "", "")
-	if code, ok := parseFlags(fs, args, usage, 0, stderr); !ok {
+	if _, code, ok := parseFlags(fs, args, usage, 0, stderr); !ok {
 		return code
 	}
 	fail := func(format string, a ...any) int {
@@ -248,7 +285,7 @@ Optionen:
 func runStatus(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("status", statusUsage, stderr)
 	cfgFlag := fs.String("config", "", "")
-	if code, ok := parseFlags(fs, args, statusUsage, 0, stderr); !ok {
+	if _, code, ok := parseFlags(fs, args, statusUsage, 0, stderr); !ok {
 		return code
 	}
 	cfgPath, err := config.Path(*cfgFlag)

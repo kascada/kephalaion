@@ -83,7 +83,7 @@ Optionen:
 func runConfigShow(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("config show", configShowUsage, stderr)
 	cfgFlag := fs.String("config", "", "")
-	if code, ok := parseFlags(fs, args, configShowUsage, 0, stderr); !ok {
+	if _, code, ok := parseFlags(fs, args, configShowUsage, 0, stderr); !ok {
 		return code
 	}
 	cfgPath, err := config.Path(*cfgFlag)
@@ -187,7 +187,7 @@ func runConfigExport(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("config export", configExportUsage, stderr)
 	cfgFlag := fs.String("config", "", "")
 	output := fs.String("output", "", "")
-	if code, ok := parseFlags(fs, args, configExportUsage, 0, stderr); !ok {
+	if _, code, ok := parseFlags(fs, args, configExportUsage, 0, stderr); !ok {
 		return code
 	}
 	fail := func(err error) int {
@@ -271,15 +271,16 @@ func parseExport(data []byte) (exportFile, error) {
 func runConfigImport(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("config import", configImportUsage, stderr)
 	cfgFlag := fs.String("config", "", "")
-	if code, ok := parseFlags(fs, args, configImportUsage, 1, stderr); !ok {
+	pos, code, ok := parseFlags(fs, args, configImportUsage, 1, stderr)
+	if !ok {
 		return code
 	}
-	if fs.NArg() != 1 {
+	if len(pos) != 1 {
 		fmt.Fprint(stderr, "Es fehlt die Exportdatei.\n\n")
 		fmt.Fprint(stderr, configImportUsage)
 		return 2
 	}
-	file := fs.Arg(0)
+	file := pos[0]
 	fail := func(err error) int {
 		fmt.Fprintf(stderr, "config import: %v\n", err)
 		return 1

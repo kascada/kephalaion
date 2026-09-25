@@ -18,7 +18,7 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 const usage = `kephalaion — geteilte Wissensdatenbank mehrerer Nutzer und Projekte
@@ -30,8 +30,10 @@ Kommandos:
   help        zeigt diese Übersicht
   version     zeigt Version, Commit, Go-Version und Plattform
   upgrade     aktualisiert dieses Binary auf das neueste Release
-  hub init    richtet den Hub ein: Datenbank, Schema, Abschnitt in der config
-  node init   richtet den Node ein: Datenbank, Schema, Abschnitt in der config
+  hub         richtet den Hub ein und pflegt seine Collections und Nodes
+              (init, collection, node)
+  node        richtet den Node ein und pflegt seine Hubs und gewünschten
+              Collections (init, hub, collection)
   status      zeigt, welche Rollen eingerichtet sind und wo ihre Datenbank liegt
   config      zeigt, sichert und stellt die Einstellungen wieder her
               (show, export, import)
@@ -41,8 +43,9 @@ Hilfe zu einem Kommando: kephalaion <kommando> --help
 Siehe https://github.com/kascada/kephalaion
 `
 
-// run verteilt auf die Unterkommandos und liefert den Exit-Code.
-func run(args []string, stdout, stderr io.Writer) int {
+// run verteilt auf die Unterkommandos und liefert den Exit-Code. stdin
+// liest nur, wer es ausdrücklich verlangt (--token-stdin).
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stdout, usage)
 		return 0
@@ -57,9 +60,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "upgrade":
 		return runUpgrade(args[1:], stdout, stderr)
 	case "hub":
-		return runRole(config.Hub, args[1:], stdout, stderr)
+		return runRole(config.Hub, args[1:], stdin, stdout, stderr)
 	case "node":
-		return runRole(config.Node, args[1:], stdout, stderr)
+		return runRole(config.Node, args[1:], stdin, stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
 	case "config":

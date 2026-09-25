@@ -18,7 +18,7 @@ func TestRunHelpAndVersion(t *testing.T) {
 	}
 	for _, c := range cases {
 		var out, errOut bytes.Buffer
-		if got := run(c.args, &out, &errOut); got != c.code {
+		if got := run(c.args, strings.NewReader(""), &out, &errOut); got != c.code {
 			t.Errorf("run(%v) = %d, erwartet %d", c.args, got, c.code)
 		}
 		if !strings.Contains(out.String(), c.want) {
@@ -29,7 +29,7 @@ func TestRunHelpAndVersion(t *testing.T) {
 
 func TestRunUnknown(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if got := run([]string{"gibtsnicht"}, &out, &errOut); got != 2 {
+	if got := run([]string{"gibtsnicht"}, strings.NewReader(""), &out, &errOut); got != 2 {
 		t.Fatalf("Exit-Code %d, erwartet 2", got)
 	}
 	if !strings.Contains(errOut.String(), "Unbekanntes Kommando: gibtsnicht") {

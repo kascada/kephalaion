@@ -28,8 +28,14 @@ type result struct {
 
 func runT(t *testing.T, args ...string) result {
 	t.Helper()
+	return runIn(t, "", args...)
+}
+
+// runIn ruft run mit stdin auf.
+func runIn(t *testing.T, stdin string, args ...string) result {
+	t.Helper()
 	var out, errOut bytes.Buffer
-	code := run(args, &out, &errOut)
+	code := run(args, strings.NewReader(stdin), &out, &errOut)
 	return result{code, out.String(), errOut.String()}
 }
 
