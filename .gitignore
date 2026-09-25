@@ -1,1 +1,6 @@
 /k-playbook/
+
+# Von k-playbook je Rechner geschrieben, enthält den Pfad des Binarys
+/.mcp.json
+/.cursor/mcp.json
+/opencode.json
