@@ -140,7 +140,7 @@ Ein lauffähiges Go-Modul `github.com/kascada/kephalaion` mit:
 | 3 — Release | erledigt | 2026-09-25 | release.yml (Entwurf → Assets → veröffentlichen, Vorabversion, latest nur für höchste stabile Version, Wiederholungslauf per workflow_dispatch), `release`-Target in k-playbook-local/Makefile |
 | 4 — `upgrade` | erledigt | 2026-09-25 | internal/upgrade (Semver, API latest/tags, SHA256SUMS, atomarer Austausch mit `.kephalaion-upgrade-*`, Abbruch per SIGINT/SIGTERM räumt auf), 21 httptest-Tests grün |
 | 5 — Installationsskript | erledigt | 2026-09-25 | install.sh (POSIX, curl/wget, sha256sum/shasum, KEPHALAION_VERSION, 403/429); lokal mit sh, dash, busybox sh gegen einen lokalen Testserver geprüft; shellcheck nur in CI |
-| 6 — Doku und erster Durchlauf | offen | 2026-09-25 | Doku erledigt, Durchlauf offen |
+| 6 — Doku und erster Durchlauf | erledigt | 2026-09-25 | v0.1.0 + v0.1.1 veröffentlicht, install.sh und upgrade auf diesem Rechner geprüft |
 
 ---
 ## Review-Log (2026-09-25)
@@ -213,3 +213,68 @@ Ja. Jeder Intent-Punkt hat einen konkreten Bauschritt: Tag → Entwurf → volls
 ### Offen (nicht gefixt)
 - WARNUNG-02: Signatur statt nur Prüfsumme — späteres Thema.
 - FEHLEND-04: Dienstpfad und Neustart nach `upgrade` — ins Konzept, wenn es den Dienst gibt.
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-25  
+**Zusammenfassung:** Go-Modul `github.com/kascada/kephalaion` (toolchain go1.27.1) mit `help`, `version` und `upgrade` (Semver, SHA256SUMS, atomarer rename mit Aufräumen bei Fehler/SIGINT/SIGTERM), POSIX-`install.sh`, Makefile (check/dist/dev-install), CI mit shellcheck, Release-Workflow (Entwurf → Assets → veröffentlichen, Vorabversion, Wiederholungslauf) und Dependabot; `release`-Target in `k-playbook-local/Makefile`, README und Projektregeln. Durchlauf: v0.1.0 und v0.1.1 veröffentlicht, auf diesem Rechner per `curl … | sh` installiert und mit `kephalaion upgrade` von v0.1.0 auf v0.1.1 gebracht; CI und Release grün.
+
+**Entscheidungen während der Ausführung:**
+- Namensprüfung: v0.x gilt nicht als Veröffentlichung (vermerkt in `docs/konzept.md`).
+- Etappe 1–5 und Doku per Sub-Agent (ein Commit je Etappe), Durchlauf im Hauptkontext.
+- Commits/Push/v0.x-Releases sind in der Frühphase ohne Rückfrage freigegeben.
+- Nachbesserung vor v0.1.1: `git describe --long`, damit `Commit:` auch auf einem getaggten Stand einen Hash zeigt (`v0.1.1-0-g1cae340`).
+- Actions per SHA auf v7 gepinnt (`actions/checkout` v7.0.1, `actions/setup-go` v7.0.0); das Vorbild pinnt nur per Major-Tag.
+
+**Geänderte Dateien:**
+```
+ .github/dependabot.yml                             |  11 +
+ .github/workflows/ci.yml                           |  63 +++
+ .github/workflows/release.yml                      | 139 ++++++
+ .gitignore                                         |   3 +
+ Makefile                                           | 115 +++++
+ README.md                                          |  56 +++
+ cmd/kephalaion/main.go                             | 111 +++++
+ cmd/kephalaion/main_test.go                        |  38 ++
+ docs/begriffe.md                                   |  27 +
+ docs/konzept.md                                    |  71 ++-
+ go.mod                                             |   8 +
+ install.sh                                         | 222 +++++++++
+ internal/buildinfo/buildinfo.go                    |  54 ++
+ internal/upgrade/github.go                         | 140 ++++++
+ internal/upgrade/semver.go                         | 131 +++++
+ internal/upgrade/upgrade.go                        | 294 +++++++++++
+ internal/upgrade/upgrade_test.go                   | 550 +++++++++++++++++++++
+ k-playbook-local/Makefile                          |  48 +-
+ k-playbook-local/k-playbook.md                     |  49 ++
+ .../material/befunde/install-sh-downloader.md      |  21 +
+ 20 files changed, 2129 insertions(+), 22 deletions(-)
+```
+(`docs/konzept.md` enthält zusätzlich die parallel entstandenen Konzeptänderungen zur Konfiguration, die mitgesichert wurden.)
+
+**Code-Änderungen:** Der Diff umfasst rund 2100 Zeilen, davon 550 Testcode. Hier nur die Kernpunkte:
+- `internal/upgrade/upgrade.go` — `replace()`: `os.CreateTemp(dir, ".kephalaion-upgrade-*")` neben dem aufgelösten `os.Executable`, Download über `io.MultiWriter(tmp, sha256)`, Summenvergleich, `Chmod 0755`, `Sync`, `Close`, dann ein letzter `ctx.Err()`-Check vor `os.Rename`. Ein `defer` entfernt die Temp-Datei bei jedem Fehler.
+- `internal/upgrade/github.go` — `do()` übersetzt 404, Rate-Limit (429 oder 403 mit `X-RateLimit-Remaining: 0`/`Retry-After`), 403 und Netzfehler in deutsche Meldungen.
+- `internal/upgrade/semver.go` — Vergleich nach Semver 2.0.0 samt Vorrang der Pre-Release-Kennungen.
+- `.github/workflows/release.yml` — `gh release create --draft --verify-tag`, dann `gh release upload --clobber` (6 Assets), dann `gh release edit --draft=false --latest=<höchste Version ohne Suffix>`.
+- `Makefile` — `LDFLAGS = -s -w -X …Version=$(VERSION) -X …Commit=$(COMMIT)`, `CGO_ENABLED=0 go build -trimpath -buildvcs=false`.
+
+**Code-Review:** Grundlage war allein der Diff. Urteil: **Approve**, kein kritischer Befund.
+
+| # | Datei | Hinweis | Kategorie |
+|---|---|---|---|
+| 1 | `install.sh` (`install_binary`) | `mv -f` ersetzt einen Symlink unter `~/.local/bin/kephalaion` durch die Datei. `upgrade` löst Links dagegen auf und ersetzt das Ziel. Das ist uneinheitlich, bei der Standardinstallation aber folgenlos. | Correctness (gering) |
+| 2 | `internal/upgrade/upgrade.go` (`replace`) | Der Download ist in der Größe nicht begrenzt, nur durch den Client-Timeout von 10 min. Die Prüfsumme greift erst nach dem Schreiben. Ein fehlerhafter Server könnte also die Platte füllen. Das Risiko ist gering, weil der Kanal derselbe ist wie für `SHA256SUMS`. | Robustheit |
+| 3 | `.github/workflows/ci.yml` | `push: branches: "**"` zusammen mit `pull_request` lässt CI für PRs aus Branches des eigenen Repos doppelt laufen. Das kostet nur Laufzeit. | Effizienz |
+| 4 | `internal/upgrade` | Reste `.kephalaion-upgrade-*` nach SIGKILL oder Stromausfall räumt niemand weg; sie sind nur am Muster erkennbar. Das ist bewusst so und dokumentiert. | Wartung |
+| 5 | `release.yml` | `latest` richtet sich nach allen Git-Tags ohne Suffix, nicht nach den veröffentlichten Releases. Ein Tag ohne Release könnte `latest` für ein Release unterdrücken. Beim vorgesehenen Ablauf über das `release`-Target passiert das nicht. | Correctness (gering) |
+
+Positiv fallen auf:
+- Temp-Datei, Prüfsumme und Abbruch sind sauber gekapselt.
+- `SHA256SUMS` deckt nur die Binaries.
+- Die Rechte der Workflows sind knapp: global `contents: read`, nur der Release-Job hat `write`.
+- Der Semver-Vergleich ist vollständig getestet.
+- `install.sh` ruft `main` erst in der letzten Zeile auf, ein abgebrochenes `curl | sh` führt also kein halbes Skript aus.
+
+**Intent-Alignment:** Teilweise - Release per Tag, Installation mit einem Befehl, atomares `upgrade` mit Prüfsumme, CI/Dependabot und ein gemeinsames Makefile sind umgesetzt und auf Linux echt durchgespielt. Offen: Auf macOS wurde nichts echt getestet, es gibt nur die Binaries und den Rosetta-Pfad im Skript. Der Abbruch mitten im `upgrade` ist nur durch httptest-Tests belegt, nicht durch einen echten Abbruch.
