@@ -18,7 +18,8 @@ GO_DIRS := cmd internal
 VERSION ?= dev
 # Mit = statt := : git und go laufen erst, wenn ein Target den Wert braucht,
 # und nicht schon bei `make help`.
-COMMIT ?= $(shell git describe --tags --always --dirty 2>/dev/null)
+# --long: auch auf einem getaggten Commit steht der Hash dabei (v0.1.0-0-g<sha>).
+COMMIT ?= $(shell git describe --tags --long --always --dirty 2>/dev/null)
 GO_TOOLCHAIN = $(shell awk '$$1 == "toolchain" { print $$2 }' go.mod)
 HOST_TARGET = $(shell go env GOOS)-$(shell go env GOARCH)
 
