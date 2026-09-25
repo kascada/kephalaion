@@ -403,3 +403,139 @@ Mit `_txlock=immediate` nimmt auch eine lesende Transaktion eine Schreibsperre.
 
 ### Offen (nicht gefixt)
 - `status` auf eine schreibgeschützte Datenbank (bewusst verschoben).
+
+---
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-25  
+**Zusammenfassung:** Hub und Node stehen auf Schemafassung 2. Der Hub hat die Tabellen `collections`, `nodes` und `node_collections`, dazu `actions.subject`. Er bekommt bei `hub init` eine `hub_id` (ULID, `oklog/ulid/v2`). Der Node hat die Tabellen `hubs` und `hub_collections`. Das neutrale Paket `internal/ident` enthält Namensregel, Adresse, Token, Hash und gekürzte Anzeige. Alle Kommandos aus „Ziel“ laufen über die CLI. `parseFlags` parst jetzt auch nach Positionsargumenten, das Token kommt über `--token-stdin`. `status` zeigt die Verbindungen. `config export|import` beherrscht Format 2 und liest weiter Format 1. Die Nachbesserungen 1–4 aus Task 002 sind umgesetzt (`_txlock=immediate`, WAL nur bei `Create`, Meldung je Rolle, kein stilles Leeren). README, Begriffe, Konzept und Projektregeln sind nachgezogen. Es gibt sechs Commits, einen je Etappe (98dfafa … 91403cd). `make check` ist grün.
+
+**Abweichungen/Ermessen (laut Sub-Agent):**
+- `Stats.Collections`/`CountCollections` entfernt, weil `status` jetzt die Namen zeigt.
+- Zusätzliche `actions`: `collection.rm`, `node.rm`, `node.unlock`, `node.revoke`. `config.import` hat `subject` NULL.
+- Änderungen an lokalen Tabellen zählen keine Revision hoch.
+- Der Export schreibt `hubs.hub_id` am Node mit; der Import prüft sie als ULID oder leer. `db_info` wird weiter nicht exportiert.
+- Doppelte Einträge sowie `revoke`/`rm` auf Fehlendes gelten als Fehler.
+- Der Import verlangt jeden Teil jeder Rolle, die im Export vorkommt. Format 1 mit `tables:` wird abgewiesen.
+- Hilfetexte stehen je Gruppe, nicht je Blatt-Kommando.
+- Reine Lesezugriffe laufen ohne Transaktion, weil `_txlock=immediate` sonst auch beim Lesen sperrt.
+
+**Geänderte Dateien:**
+```
+ README.md                                          |  42 +-
+ cmd/kephalaion/admin_test.go                       | 174 ++++++
+ cmd/kephalaion/command.go                          | 171 ++++++
+ cmd/kephalaion/configcmd.go                        | 237 +++++---
+ cmd/kephalaion/configcmd_test.go                   |   4 +-
+ cmd/kephalaion/configimport_test.go                | 418 ++++++++++++++
+ cmd/kephalaion/exportfile.go                       | 259 +++++++++
+ cmd/kephalaion/hubcmd.go                           | 281 ++++++++++
+ cmd/kephalaion/main.go                             |  17 +-
+ cmd/kephalaion/main_test.go                        |   4 +-
+ cmd/kephalaion/nodecmd.go                          | 285 ++++++++++
+ cmd/kephalaion/roles.go                            | 152 +++--
+ cmd/kephalaion/roles_test.go                       |  12 +-
+ docs/begriffe.md                                   |  27 +-
+ docs/konzept.md                                    |  21 +-
+ go.mod                                             |   1 +
+ go.sum                                             |   3 +
+ internal/hub/store/admin.go                        | 615 +++++++++++++++++++++
+ internal/hub/store/admin_test.go                   | 392 +++++++++++++
+ internal/hub/store/store.go                        | 164 +++++-
+ internal/hub/store/store_test.go                   | 131 ++++-
+ internal/ident/ident.go                            | 109 ++++
+ internal/ident/ident_test.go                       |  75 +++
+ internal/node/store/hubs.go                        | 498 +++++++++++++++++
+ internal/node/store/hubs_test.go                   | 252 +++++++++
+ internal/node/store/store.go                       |  51 +-
+ internal/node/store/store_test.go                  |  86 +++
+ internal/sqlitedb/sqlitedb.go                      |  53 +-
+ internal/sqlitedb/sqlitedb_test.go                 |  49 ++
+ k-playbook-local/k-playbook.md                     |  18 +-
+ .../tasks/003-collections-nodes-hubs.md            |  12 +-
+ 31 files changed, 4416 insertions(+), 197 deletions(-)
+```
+
+**Code-Änderungen (Auszug):**
+Der Diff umfasst rund 5200 Zeilen, davon etwa 3300 ohne Tests. Die wichtigsten Stellen:
+
+```diff
+// internal/sqlitedb/sqlitedb.go — IMMEDIATE-Transaktionen, WAL nur bei Create
+-func dsn(path string) string {
++func dsn(path string, withWAL bool) string {
+ 	u := url.URL{Scheme: "file", Path: path}
+-	return u.String() + "?mode=rw" +
++	s := u.String() + "?mode=rw" +
++		"&_txlock=immediate" +
+ 		"&_pragma=foreign_keys(1)" +
+-		"&_pragma=busy_timeout(" + strconv.Itoa(busyTimeout) + ")" +
+-		"&_pragma=journal_mode(WAL)"
++		"&_pragma=busy_timeout(" + strconv.Itoa(busyTimeout) + ")"
++	if withWAL {
++		s += "&_pragma=journal_mode(WAL)"
++	}
+```
+
+```diff
+// internal/hub/store/store.go — Sperrzeile für PostgreSQL, hub_id
++	LockRevision: `UPDATE db_info SET value = value WHERE key = $1`,
+ func nextRevision(ctx context.Context, tx *sql.Tx) (int64, error) {
++	if _, err := tx.ExecContext(ctx, q(queries.LockRevision), keyRevision); err != nil {
++		return 0, fmt.Errorf("Revision sperren: %w", err)
++	}
+-		extra := map[string]string{keyRevision: "0"}
++		extra := map[string]string{keyRevision: "0", keyHubID: ulid.Make().String()}
+```
+
+```diff
+// internal/hub/store/admin.go — jede Änderung in einer Transaktion samt actions
++func (s *sqliteStore) write(ctx context.Context, action, subject string, fn func(tx *sql.Tx) error) error {
++	tx, err := s.db.BeginTx(ctx, nil)
++	...
++	if err := fn(tx); err != nil { return err }
++	if err := logAction(ctx, tx, action, subject); err != nil { return err }
++	return tx.Commit()
++}
+```
+
+```diff
+// cmd/kephalaion/roles.go — Flags vor und nach Positionsargumenten
++	for {
++		if err := fs.Parse(rest); err != nil { ... }
++		next := fs.Args()
++		if len(next) == 0 { break }
++		if used := len(rest) - len(next); used > 0 && rest[used-1] == "--" {
++			pos = append(pos, next...)
++			break
++		}
++		pos = append(pos, next[0])
++		rest = next[1:]
++	}
+```
+
+Der Rest in Prosa:
+- `internal/ident`: Namensregel samt reserviertem Präfix `system`, `ParseAddress`, `NewToken` (`crypto/rand`, base64url), `HashToken` (sha256 hex), `CheckToken`, `MaskToken`.
+- `internal/node/store/hubs.go`: `CheckHub` mit den Transportregeln, `ApplyUpdate`, Methoden für Hubs und Wünsche, `Import` in einer Transaktion.
+- `cmd/kephalaion/hubcmd.go`, `nodecmd.go`, `command.go`: die Kommandos.
+- `exportfile.go`: Format 2, dazu `requirePart` über `yaml.Node`, um „fehlt“, `null` und leer zu unterscheiden.
+- `configcmd.go`: Import schreibt erst den Hub, dann den Node, mit Meldung je Rolle; Eingriffspunkt `nodeImport`.
+
+**Code-Review:**
+Grundlage ist nur der Diff ohne Tests. Keine kritischen Befunde.
+
+Die SQL-Abfragen sind parametrisiert, das Hub-SQL ist zentral und läuft über `sqlq.Check`. Tokens werden mit `crypto/rand` erzeugt, am Hub nur als Hash gespeichert und in keiner Fehlermeldung genannt. Der Import prüft vollständig, bevor er schreibt, und die Trennung zwischen Hub und Node bleibt gewahrt.
+
+| # | Datei | Hinweis | Kategorie |
+|---|---|---|---|
+| 1 | internal/hub/store/admin.go | Die Eindeutigkeit (`AddNode`, `AddCollection`, `Grant`) prüft ein Lesen vor dem Einfügen. Unter PostgreSQL schützt bei gleichzeitigen Schreibern nur der Primärschlüssel; der Fehler käme dann als roher Treiberfehler statt als `ErrExists`. Ungetestet gegen PostgreSQL. | Korrektheit (später) |
+| 2 | cmd/kephalaion/nodecmd.go | `node hub add` liest das Token, bevor die Transportregeln geprüft sind. Ein Fehler bei `--transport` oder `--address` zeigt sich erst nach der Eingabe. `CheckHub` vor `readToken` mit Platzhalter-Token würde das vorziehen. | UX |
+| 3 | cmd/kephalaion/roles.go | `parseFlags` versteht einen Flag-Wert, der wörtlich `--` ist (`--description --`), als Ende der Optionen. Das ist ein Randfall. | Korrektheit (gering) |
+| 4 | cmd/kephalaion/configcmd.go | `config export` ohne `--output` schreibt Node-Tokens im Klartext auf stdout (WARNUNG-06, bewusst so). Der Hilfetext weist jetzt darauf hin. | Sicherheit (akzeptiert) |
+| 5 | internal/hub/store/admin.go, node/store/hubs.go | `Node()`/`Hub()` lesen Eintrag und Rechte in zwei Abfragen ohne Transaktion. Bei gleichzeitigem Schreiben ist eine inkonsistente Anzeige theoretisch möglich; für die CLI ist das unerheblich. | Korrektheit (gering) |
+| 6 | cmd/kephalaion/command.go | `readToken` liest mit `ReadString('\n')` ohne Längengrenze. Das ist unkritisch, weil stdin lokal ist. | Robustheit (gering) |
+| 7 | internal/hub/store/store.go | `CollectionCountDocs` und `AccountRows` zählen über `documents` nach `collection` bzw. `name`. Sobald es Dokumente gibt, einen Index prüfen. | Performance (später) |
+
+Urteil: **Approve.** Die Hinweise 1 und 7 betreffen spätere Etappen (PostgreSQL, Dokumente), 2 und 3 sind kleine Verbesserungen.
+
+**Intent-Alignment:** Ja. Alle Punkte des Intents sind abgedeckt: Die Tabellen sind per CLI anlegbar, lesbar, änderbar und entfernbar. Das Token wird einmal angezeigt und nur als Hash gespeichert, am Node kommt es nur über stdin. `status` zeigt die Verbindungen, export/import sichern die Tabellen in Format 2. Die Trennung ist per Test gesichert, `local` liest nur die config.
