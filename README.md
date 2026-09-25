@@ -10,6 +10,30 @@ Was geplant ist und warum, steht in [`docs/konzept.md`](docs/konzept.md), die Be
 Nodes, am Node seine Hubs und die gewünschten Collections. Verbindungen und Inhalte gibt es
 noch nicht.
 
+## Was gebraucht wird (grob)
+
+Vorläufige Übersicht, damit nichts fehlt; ausgearbeitet wird sie später. Einzelheiten stehen
+im Konzept.
+
+- **Hub** — einmal je Installation, einziger Schreiber. Hält Store, Collections, Accounts,
+  Nodes, Protokoll. Datenbank SQLite, später wahlweise PostgreSQL. Kein MCP, sucht nicht.
+- **Node** — einmal je Rechner, als Dienst. MCP-Server über HTTP für Clients (Claude Code,
+  Cursor, OpenCode, k-playbook). Hält je Hub eine Replica, indiziert und sucht lokal (FTS5).
+- **Beide in einem Prozess** ist der häufige Fall; der Node erreicht einen Hub über `local`,
+  `http` (nur `localhost`, zum Testen), `https` oder `ssh`.
+- **Collections** — Einheit für Rechte und Abgleich. **Accounts** mit Token für Menschen, KIs
+  und Programme; **Nodes** mit eigenem Token und den Collections, die sie abgleichen dürfen.
+- **Dokumente** — Name ist ein Pfad, stabile `id`, Revision. Löschen als Löschmarke.
+- **Abgleich** — der Node fragt „alles seit Revision X“, in Seiten; `hub_id` erkennt einen neu
+  angelegten Hub.
+- **Werkzeuge** — lesen (`search`, `read`, `list`), schreiben (`create`, `create_numbered`,
+  `write`, `append`, `replace_section`, `rename`, `supersede`, `delete`,
+  `replace_directory`), dazu eigene für k-playbook (Eingang, Warteschlange, Todos, Tasks).
+- **Kommandozeile** — `init`, `status`, `config`, Verwaltung von Collections, Nodes und Hubs;
+  später Accounts, `serve`, `sync`, `search`.
+- **Stufen** — 1 lesen, 2 schreiben mit Rechten, 3 Vorgänge auf Dateien, 4 Schnipsel
+  (zurückgestellt), 5 semantische Suche.
+
 ## Installation
 
 Linux und macOS, jeweils amd64 und arm64:

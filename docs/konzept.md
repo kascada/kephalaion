@@ -635,8 +635,32 @@ Ranking-Korrektur aus Task 056 (Zeiger-Dokumente vor ihren Zielen) ist neu nachz
 Zerlegung in Abschnitte bleibt eigener Code; FTS5 indiziert nur, was sie liefert.
 
 **Wo die Replica liegt: nicht im Projekt.** Fremdes Wissen hat in der Versionierung eines
-Projekts nichts verloren. Ein Ort je Rechner, eine Datenbank je Hub, etwa unter
-`~/.local/share/kephalaion/`, gemeinsam für alle Projekte dieses Rechners.
+Projekts nichts verloren. Ein Ort je Rechner, eine Datenbank je Hub, gemeinsam für alle
+Projekte dieses Rechners.
+
+**Orte nach XDG — entschieden am 2026-09-25**, auf Linux und macOS gleich:
+
+| Verzeichnis | Zweck | Kephalaion |
+|---|---|---|
+| `~/.config/kephalaion/` (`XDG_CONFIG_HOME`) | Konfiguration, klein, lesbar | `config.yaml` |
+| `~/.local/share/kephalaion/` (`XDG_DATA_HOME`) | Daten, die bleiben müssen | `hub.db`, `node.db` |
+| `~/.local/share/kephalaion/replicas/` | wiederherstellbar durch Abgleich | `<hub>.db` je Hub |
+| `~/.local/state/kephalaion/` (`XDG_STATE_HOME`) | Zustand, Logs | später |
+
+- **Die Replicas liegen in einem eigenen Unterverzeichnis**, nicht neben `node.db`: So ist
+  sichtbar, was sich neu abgleichen lässt und was nicht. Eine Sicherung kann `replicas/`
+  auslassen. Nicht unter `~/.cache`: Aufräumprogramme leeren es bedenkenlos, und jedes Leeren
+  hieße einen vollständigen Abgleich.
+- **macOS folgt ebenfalls XDG**, nicht `~/Library/Application Support`: dieselbe Doku,
+  dieselben Tests, derselbe Pfad im Devcontainer.
+- **Ein Hub als Serverdienst** unter eigenem Systembenutzer gehört nach
+  `/var/lib/kephalaion/` (systemd `StateDirectory=`). Das ist kein Standard von `init`,
+  sondern kommt mit der Einrichtung als Dienst: `--db` oder `XDG_DATA_HOME` in der Unit.
+- **Nie auf einem synchronisierten oder Netzlaufwerk.** SQLite im WAL-Modus braucht ein
+  lokales Dateisystem mit funktionierenden Sperren. Ein Sync-Ordner (HiDrive, OneDrive,
+  Dropbox, iCloud) oder unter WSL `/mnt/<laufwerk>/` kann die Datenbank beschädigen oder sehr
+  langsam machen. `init` warnt bei solchen Pfaden: `/mnt/` unter WSL sicher, Sync-Ordner
+  über bekannte Namen im Pfad.
 
 ## Datenmodell
 
@@ -652,7 +676,7 @@ Hub.
 CREATE TABLE documents (
   id          TEXT PRIMARY KEY,        -- ULID, vom Hub vergeben
   collection  TEXT NOT NULL,
-  name        TEXT NOT NULL,           -- Pfad oder Bezeichner, frei
+  name        TEXT NOT NULL,           -- Pfad, siehe unten
   content     TEXT,                    -- NULL, wenn gelöscht
   meta        TEXT,                    -- freies JSON, der Hub deutet es nicht
   deleted     INTEGER NOT NULL DEFAULT 0,
@@ -739,8 +763,20 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   mit abgeglichen. Was hineingehört, entscheidet der nutzende Dienst. Das Frontmatter bleibt
   vorerst im Text; dieselbe Angabe steht nicht an beiden Stellen. SQLite kann JSON-Felder
   abfragen (`json_extract`) und über Ausdrücke indizieren, falls später gefiltert werden soll.
-- **Name** ist frei — Pfad oder anderer Bezeichner, je nach Collection und nutzendem Dienst —,
-  eindeutig je Collection. Die Logik schaut nicht hinein.
+- **Der Name ist ein Pfad — entschieden am 2026-09-25**, eindeutig je Collection. Früher
+  stand hier „frei“; eine Verzeichnisstruktur macht aber Vieles einfacher: Verzeichnisse
+  auflisten, fortlaufend nummerierte Namen, das Ersetzen eines ganzen Verzeichnisses, den
+  Export nach Markdown und die Übernahme der Ablage von k-playbook. Regeln, die der Hub beim
+  Schreiben prüft:
+  - relativ, Segmente durch `/` getrennt; kein `/` am Anfang oder Ende, kein leeres Segment,
+    kein `.` oder `..`;
+  - UTF-8 ohne Steuerzeichen und ohne `\`; Groß- und Kleinschreibung zählt; Länge begrenzt
+    (etwa 1024 Bytes gesamt, 255 je Segment);
+  - **Verzeichnisse gibt es nur implizit**, als Präfix vorhandener Namen — kein eigener
+    Eintrag, kein leeres Verzeichnis;
+  - wie im Dateisystem kann ein Name nicht zugleich Datei und Verzeichnis sein: Gibt es
+    `tasks`, kann es kein `tasks/001-a.md` geben, und umgekehrt.
+  Was ein Pfad inhaltlich bedeutet, entscheidet weiter der nutzende Dienst.
 - **Die `id` bleibt**, obwohl Collection und Name eindeutig sind: Ohne sie wäre Umbenennen für
   jeden Node „gelöscht und neu“, Verweise brächen, der Index würde neu gebaut. Mit ihr ist
   Umbenennen eine gewöhnliche Änderung — und der Hub darf später umsortieren.
@@ -825,7 +861,7 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
     Collections hat.
   - Sperren und Entziehen laufen über Löschmarken. `rotate` ändert den Content aller Zeilen
     eines Accounts in einer Transaktion.
-- **Der Präfix `SYSTEM:` ist reserviert** und die einzige Ausnahme von „der Name ist frei“.
+- **Der Präfix `SYSTEM:` ist reserviert** und die einzige Ausnahme von „der Name ist ein Pfad“.
   Am Hub darf kein Account einen solchen Namen anlegen, ändern oder löschen — nur der Hub
   selbst. Am Node kommen diese Zeilen nie in den Suchindex und nie in eine Antwort von
   `read` oder `list`.
@@ -843,6 +879,65 @@ Collections unterscheiden sich in Frische, in Zuständigkeit und darin, was ein 
 Die Werkzeuge bekommen ein Feld für die Collections (eine Adresse `<hub>:<collection>`, oder
 alle erlaubten) und liefern getrennte Trefferlisten. Der Rang zählt je Liste ab 1, wie heute. Ein Punktwert
 bleibt aus dem Vertrag heraus.
+
+## Werkzeuge
+
+**Sammelstelle, damit keines vergessen wird** — noch kein Vertrag. Gemeint sind die
+MCP-Werkzeuge des Nodes für Clients; die Kommandozeile und der Vertrag zwischen Node und Hub
+sind eigene Listen.
+
+**Allgemein und für k-playbook.** Kephalaion ist ein allgemeiner Store. Trotzdem braucht es
+Werkzeuge eigens für k-playbook, dem ersten und wichtigsten Nutzer. Grundsatz: Ein
+Werkzeug für k-playbook ist eine bequeme Form über den allgemeinen Vorgängen, kein Sonderweg
+im Hub. Wo die Grenze liegt und ob etwas allgemein taugt, wird je Werkzeug entschieden.
+
+### Allgemein — lesen
+
+| Werkzeug | Zweck | Anmerkungen |
+|---|---|---|
+| `search` | Volltextsuche | Collections wählbar; getrennte Trefferlisten je Collection, Rang ab 1, kein Punktwert |
+| `read` | ein Dokument lesen | per Name oder `id`; wahlweise ein Abschnitt |
+| `list` | Inhalt eines Verzeichnisses | siehe unten |
+| `status` / `whoami` | eigener Account, Hubs, lesbare Collections, Stand des Abgleichs | |
+
+**`list` — neu aufgenommen am 2026-09-25**, um etwa das Neueste zu finden:
+
+- `path`: das Verzeichnis; wahlweise mit Unterverzeichnissen;
+- `sort`: `name`, `created` oder `updated`; `order`: auf- oder absteigend;
+- `limit`: Anzahl der Ergebnisse, dazu ein Cursor zum Weiterblättern;
+- `mask`: wahlweise eine Maske auf das letzte Segment, als Glob (`*.md`, `0*-*.md`), nicht
+  als regulärer Ausdruck — einfacher für Aufrufer und in Go ausgewertet, unabhängig von der
+  Datenbank. `*` geht nicht über `/` hinweg;
+- Antwort je Eintrag: Name, `id`, angelegt und geändert (wann, von wem), Revision.
+
+### Allgemein — schreiben (Stufe 2 und 3)
+
+| Werkzeug | Zweck | Anmerkungen |
+|---|---|---|
+| `create` | Dokument anlegen | scheitert, wenn der Name vergeben ist (eigener Fehlercode) |
+| `create_numbered` | Dokument mit fortlaufender Nummer anlegen | siehe „Zwei Arten von Eingaben“; liefert den erzeugten Namen |
+| `write` | Dokument ersetzen | wahlweise mit der Revision, auf der es beruht |
+| `append` | an ein Dokument anhängen | der Hub serialisiert |
+| `replace_section` | einen Abschnitt ersetzen | Abschnitt über die Zerlegung, Anker |
+| `rename` | umbenennen, verschieben | Änderung am Namen, `id` bleibt |
+| `supersede` | ablösen | mit Nachfolger und Grund |
+| `delete` | löschen | Löschmarke; Eigenes mit `write`, Fremdes mit `supersede` |
+| `replace_directory` | ein ganzes Verzeichnis ersetzen | für Generatoren, in k-playbook heute `publish` |
+
+### Für k-playbook — Kandidaten
+
+Aus den heutigen Werkzeugen von k-playbook; je zu entscheiden, ob Kephalaion sie trägt, ob
+sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
+
+- **Eingang** für Rohmaterial: ablegen, auflisten, lesen (heute `knowledge_inbox_*`).
+- **Warteschlange** der offenen Fragen: hinzufügen, auflisten, verwerfen
+  (heute `knowledge_queue_*`).
+- **Todos:** hinzufügen, auflisten, ändern, löschen (heute `todo_*`).
+- **Tasks:** anlegen mit fortlaufender Nummer (`create_numbered`), auflisten, das Neueste
+  finden (`list` nach `created`).
+- **Veröffentlichen** der erzeugten Doku (heute `knowledge_publish`, allgemein
+  `replace_directory`).
+- **Stand der Ablage** (heute `knowledge_status`).
 
 ## Stufen
 
@@ -867,8 +962,9 @@ bleibt aus dem Vertrag heraus.
   (HTTPS, SSH, lokal im selben Prozess). Offen ist, welcher entfernte zuerst gebaut wird.
 - **Node als Dienst:** entschieden — er läuft ständig (Benutzerdienst), k-playbook prüft
   beim Briefing zusätzlich. Offen ist nur die Einrichtung je Betriebssystem.
-- **k-playbook ↔ Kephalaion im Einzelnen:** Welche Werkzeuge braucht k-playbook, die eine
-  KI-Sitzung nicht sehen soll, und hängt das am Token? Das Ersetzen eines ganzen Verzeichnisses
+- **k-playbook ↔ Kephalaion im Einzelnen:** Welche Werkzeuge eigens für k-playbook kommen
+  (Kandidaten unter „Werkzeuge“)? Welche braucht k-playbook, die eine KI-Sitzung nicht sehen
+  soll, und hängt das am Token? Das Ersetzen eines ganzen Verzeichnisses
   (heute `publish`) muss in den Vertrag. Die Projektablage und das Briefing regelt k-playbook.
 - **Token-Rotation (später):** Accounts von Menschen und KIs rotieren am Hub mit einer Frist,
   in der altes und neues Token gelten; der neue Hash gleicht sich zu den Nodes ab. Ein Node

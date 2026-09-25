@@ -54,7 +54,15 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **collection** (Sammlung) — unabhängige Einheit des Stores, gemeint ist der Inhalt, nicht
   der Speicherort. Keine Überschneidung mit anderen. Einheit für Rechte und Abgleich. Ein Hub
   hat mehrere. Ersetzt den Begriff „Bereich“ aus dem Konzept.
-- **document** (Dokument) — eine Datei im Store. Stabile `id`; der Pfad ist nur ein Merkmal.
+- **document** (Dokument) — eine Datei im Store. Stabile `id`; der Name ist sein Pfad und
+  kann sich ändern.
+- **name** (Name) — Pfad eines Dokuments in seiner Collection, Segmente durch `/` getrennt;
+  eindeutig je Collection. Verzeichnisse gibt es nur als Präfix vorhandener Namen. Regeln in
+  `konzept.md`, „Datenmodell“. Einzige Ausnahme: `SYSTEM:`-Zeilen.
+- **mask** (Maske) — Glob auf das letzte Segment eines Namens (`*.md`, `0*-*.md`), etwa bei
+  `list`; kein regulärer Ausdruck.
+- **tool** (Werkzeug) — ein MCP-Werkzeug des Nodes für Clients. Gesammelt in `konzept.md`,
+  „Werkzeuge“.
 - **id** (Kennung) — stabile Kennung eines Dokuments, vom Hub vergeben.
 - **journal** (Journal) — fortlaufende Folge der Änderungen eines Hubs.
 - **revision** (Stand) — fortlaufende Nummer je Hub über alle Collections, vergeben beim
