@@ -99,14 +99,14 @@ func TestRoundTrip(t *testing.T) {
 
 func TestAddRoleKeepsOther(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := AddRole(path, Node, "sqlite:///data/node.db"); err != nil {
+	if err := AddRole(path, Node, Section{DB: "sqlite:///data/node.db"}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := AddRole(path, Hub, "sqlite:///data/hub.db"); err != nil {
+	if err := AddRole(path, Hub, Section{DB: "sqlite:///data/hub.db", Listen: "0.0.0.0:7434"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _, err := Load(path)
@@ -119,7 +119,7 @@ func TestAddRoleKeepsOther(t *testing.T) {
 	if cfg.Hub == nil || cfg.Hub.DB != "sqlite:///data/hub.db" {
 		t.Fatalf("Hub fehlt: %+v", cfg.Hub)
 	}
-	if err := AddRole(path, Hub, "sqlite:///anders/hub.db"); err == nil {
+	if err := AddRole(path, Hub, Section{DB: "sqlite:///anders/hub.db"}); err == nil {
 		t.Fatal("zweites Eintragen derselben Rolle hätte scheitern sollen")
 	}
 	cfg, _, _ = Load(path)
@@ -134,6 +134,11 @@ func TestParseRejects(t *testing.T) {
 		"unbekannt: {}\n",
 		"hub: {}\n",
 		"hub: [\n",
+		"hub:\n  db: sqlite:///a\n  listen: 7434\n",
+		"hub:\n  db: sqlite:///a\n  listen: :7434\n",
+		"node:\n  db: sqlite:///a\n  listen: localhost:0\n",
+		"node:\n  db: sqlite:///a\n  listen: localhost:http\n",
+		"node:\n  db: sqlite:///a\n  listen: localhost:70000\n",
 	} {
 		if _, err := Parse([]byte(in)); err == nil {
 			t.Errorf("Parse(%q) hätte scheitern sollen", in)
@@ -176,4 +181,52 @@ func TestParseDB(t *testing.T) {
 			t.Errorf("ParseDB(%q): ungültig, nicht nur nicht unterstützt: %v", bad, err)
 		}
 	}
+}
+
+func TestListen(t *testing.T) {
+	cfg, err := Parse([]byte("hub:\n  db: sqlite:///a/hub.db\nnode:\n  db: sqlite:///a/node.db\n  listen: '[::1]:8000'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fehlt listen in einer bestehenden config, gilt der Standard.
+	if got := cfg.Listen(Hub); got != DefaultListenHub {
+		t.Errorf("Listen(hub) = %q, erwartet %q", got, DefaultListenHub)
+	}
+	if got := cfg.Listen(Node); got != "[::1]:8000" {
+		t.Errorf("Listen(node) = %q", got)
+	}
+	if DefaultListen(Node) != "127.0.0.1:7433" || DefaultListen(Hub) != "127.0.0.1:7434" {
+		t.Error("Standardadressen verändert")
+	}
+	if got := (&Config{}).Listen(Hub); got != "" {
+		t.Errorf("nicht eingerichtete Rolle: %q", got)
+	}
+	for _, ok := range []string{"127.0.0.1:7433", "0.0.0.0:1", "localhost:65535", "[::1]:7434"} {
+		if err := CheckListen(ok); err != nil {
+			t.Errorf("CheckListen(%q): %v", ok, err)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := AddRole(path, Node, Section{DB: "sqlite:///a/node.db", Listen: "nix"}); err == nil {
+		t.Fatal("ungültiges listen angenommen")
+	}
+	if exists(path) {
+		t.Fatal("config trotz Fehler geschrieben")
+	}
+	if err := AddRole(path, Node, Section{DB: "sqlite:///a/node.db", Listen: DefaultListenNode}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "node:\n  db: sqlite:///a/node.db\n  listen: 127.0.0.1:7433\n"; string(data) != want {
+		t.Fatalf("config:\n%s\nerwartet:\n%s", data, want)
+	}
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

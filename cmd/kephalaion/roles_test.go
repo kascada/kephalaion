@@ -105,6 +105,41 @@ func TestInitBoth(t *testing.T) {
 	}
 }
 
+func TestInitListen(t *testing.T) {
+	dir := isolate(t)
+	cfg := filepath.Join(dir, "k.yaml")
+	c := "--config=" + cfg
+	runT(t, "hub", "init", c, "--listen", "0.0.0.0:9000").want(t, 0, "listen:    0.0.0.0:9000")
+	runT(t, "node", "init", c).want(t, 0, "listen:    127.0.0.1:7433")
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"listen: 0.0.0.0:9000", "listen: 127.0.0.1:7433"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("config ohne %q:\n%s", want, data)
+		}
+	}
+	runT(t, "status", c).want(t, 0, "listen:        0.0.0.0:9000", "listen:        127.0.0.1:7433")
+
+	// Ungültiges --listen: nichts angelegt.
+	cfg2 := filepath.Join(dir, "k2.yaml")
+	db2 := filepath.Join(dir, "hub2.db")
+	runT(t, "hub", "init", "--config", cfg2, "--db", "sqlite://"+db2, "--listen", ":7434").want(t, 1, "host:port")
+	if exists(cfg2) || exists(db2) {
+		t.Fatal("init trotz ungültigem --listen angelegt")
+	}
+
+	// Fehlt listen in einer bestehenden config, gilt der Standard.
+	cfg3 := filepath.Join(dir, "k3.yaml")
+	db3 := filepath.Join(dir, "hub3.db")
+	runT(t, "hub", "init", "--config", cfg3, "--db", "sqlite://"+db3).want(t, 0, "listen:    127.0.0.1:7434")
+	if err := os.WriteFile(cfg3, []byte("hub:\n  db: sqlite://"+db3+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runT(t, "status", "--config", cfg3).want(t, 0, "listen:        127.0.0.1:7434 (Standard, nicht in der config)")
+}
+
 func TestInitTwiceFails(t *testing.T) {
 	dir := isolate(t)
 	cfg := filepath.Join(dir, "k.yaml")

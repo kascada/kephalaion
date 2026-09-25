@@ -33,7 +33,10 @@ var Transports = []string{TransportLocal, TransportHTTP, TransportHTTPS, Transpo
 // Hub ist ein Hub-Eintrag: eine Zeile in hubs. Collections sind die
 // gewünschten Collections aus hub_collections; Tables führt sie getrennt.
 type Hub struct {
-	Name      string
+	Name string
+	// NodeName ist der Name, unter dem der Hub diesen Node kennt; mit ihm
+	// und dem Token meldet sich der Node beim Hub an.
+	NodeName  string
 	Transport string
 	Address   string
 	Token     string
@@ -46,6 +49,7 @@ type Hub struct {
 // HubUpdate nennt die Felder, die node hub set ändert; nil bleibt, wie es
 // ist.
 type HubUpdate struct {
+	NodeName  *string
 	Transport *string
 	Address   *string
 	SSHKey    *string
@@ -75,6 +79,12 @@ var localHosts = map[string]bool{"localhost": true, "127.0.0.1": true, "::1": tr
 func CheckHub(h Hub, hubInConfig bool) error {
 	if err := ident.CheckName("Hub", h.Name); err != nil {
 		return err
+	}
+	if h.NodeName == "" {
+		return fmt.Errorf("Hub %s: es fehlt der Name, unter dem der Hub diesen Node kennt (--node)", h.Name)
+	}
+	if err := ident.CheckName("Node", h.NodeName); err != nil {
+		return fmt.Errorf("Hub %s: %w", h.Name, err)
 	}
 	if err := ident.CheckToken(h.Token); err != nil {
 		return fmt.Errorf("Hub %s: %w", h.Name, err)
@@ -170,13 +180,13 @@ func CheckTables(t Tables, hubInConfig bool) error {
 
 // Abfragen des Nodes. Hier ist SQLite-Eigenes erlaubt; nötig ist es nicht.
 const (
-	qHubsAll = `SELECT name, transport, COALESCE(address, ''), COALESCE(token, ''),
+	qHubsAll = `SELECT name, node_name, transport, COALESCE(address, ''), COALESCE(token, ''),
 		COALESCE(ssh_key, ''), COALESCE(hub_id, '') FROM hubs ORDER BY name`
-	qHubGet = `SELECT name, transport, COALESCE(address, ''), COALESCE(token, ''),
+	qHubGet = `SELECT name, node_name, transport, COALESCE(address, ''), COALESCE(token, ''),
 		COALESCE(ssh_key, ''), COALESCE(hub_id, '') FROM hubs WHERE name = ?`
-	qHubInsert = `INSERT INTO hubs (name, transport, address, token, ssh_key, hub_id)
-		VALUES (?, ?, ?, ?, ?, ?)`
-	qHubUpdate = `UPDATE hubs SET transport = ?, address = ?, ssh_key = ? WHERE name = ?`
+	qHubInsert = `INSERT INTO hubs (name, node_name, transport, address, token, ssh_key, hub_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	qHubUpdate = `UPDATE hubs SET node_name = ?, transport = ?, address = ?, ssh_key = ? WHERE name = ?`
 	qHubToken  = `UPDATE hubs SET token = ? WHERE name = ?`
 	qHubDelete = `DELETE FROM hubs WHERE name = ?`
 	qHubsClear = `DELETE FROM hubs`
@@ -199,7 +209,7 @@ func nullable(v string) any {
 
 func scanHub(sc interface{ Scan(...any) error }) (Hub, error) {
 	var h Hub
-	err := sc.Scan(&h.Name, &h.Transport, &h.Address, &h.Token, &h.SSHKey, &h.HubID)
+	err := sc.Scan(&h.Name, &h.NodeName, &h.Transport, &h.Address, &h.Token, &h.SSHKey, &h.HubID)
 	return h, err
 }
 
@@ -336,7 +346,7 @@ func (s *sqliteStore) AddHub(ctx context.Context, h Hub, hubInConfig bool) error
 		if err := checkWithOthers(ctx, tx, h, hubInConfig); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, qHubInsert, h.Name, h.Transport, nullable(h.Address), h.Token,
+		_, err := tx.ExecContext(ctx, qHubInsert, h.Name, h.NodeName, h.Transport, nullable(h.Address), h.Token,
 			nullable(h.SSHKey), nil)
 		return err
 	})
@@ -362,6 +372,9 @@ func ApplyUpdate(h Hub, u HubUpdate) Hub {
 	if u.SSHKey != nil {
 		h.SSHKey = *u.SSHKey
 	}
+	if u.NodeName != nil {
+		h.NodeName = *u.NodeName
+	}
 	return h
 }
 
@@ -375,7 +388,7 @@ func (s *sqliteStore) SetHub(ctx context.Context, name string, u HubUpdate, hubI
 		if err := checkWithOthers(ctx, tx, h, hubInConfig); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, qHubUpdate, h.Transport, nullable(h.Address), nullable(h.SSHKey), name)
+		_, err = tx.ExecContext(ctx, qHubUpdate, h.NodeName, h.Transport, nullable(h.Address), nullable(h.SSHKey), name)
 		return err
 	})
 }
@@ -483,7 +496,7 @@ func (s *sqliteStore) Import(ctx context.Context, settings map[string]string, ta
 			}
 		}
 		for _, h := range tables.Hubs {
-			if _, err := tx.ExecContext(ctx, qHubInsert, h.Name, h.Transport, nullable(h.Address), h.Token,
+			if _, err := tx.ExecContext(ctx, qHubInsert, h.Name, h.NodeName, h.Transport, nullable(h.Address), h.Token,
 				nullable(h.SSHKey), nullable(h.HubID)); err != nil {
 				return fmt.Errorf("Hub %s: %w", h.Name, err)
 			}

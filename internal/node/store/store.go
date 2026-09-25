@@ -22,7 +22,7 @@ const Role = string(config.Node)
 // SchemaVersion ist die Schemafassung, die dieses Binary erwartet. Es gibt
 // noch keine Migrationen: Passt die Fassung nicht, ist die Datenbank neu
 // anzulegen.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // Info beschreibt eine geöffnete Node-Datenbank.
 type Info struct {
@@ -71,6 +71,7 @@ type Store interface {
 const sqliteSchema = `
 CREATE TABLE hubs (
   name        TEXT PRIMARY KEY,
+  node_name   TEXT NOT NULL,
   transport   TEXT NOT NULL,
   address     TEXT,
   token       TEXT,

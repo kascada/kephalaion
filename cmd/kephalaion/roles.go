@@ -190,28 +190,32 @@ func runRole(r config.Role, args []string, stdin io.Reader, stdout, stderr io.Wr
 
 func initUsage(r config.Role) string {
 	return fmt.Sprintf(`Aufruf:
-  kephalaion %[1]s init [--db sqlite:///pfad/%[1]s.db] [--config pfad]
+  kephalaion %[1]s init [--db sqlite:///pfad/%[1]s.db] [--listen host:port] [--config pfad]
 
 Richtet die Rolle %[1]s ein: legt die Datenbank samt Schema an und trägt den
-Abschnitt %[1]s: in die config ein, die bei Bedarf entsteht. Keine Rückfragen.
-Steht die Rolle schon in der config oder gibt es die Datenbankdatei schon,
-bricht init ab, statt zu überschreiben.
+Abschnitt %[1]s: in die config ein, die bei Bedarf entsteht — mit db und
+listen. Keine Rückfragen. Steht die Rolle schon in der config oder gibt es die
+Datenbankdatei schon, bricht init ab, statt zu überschreiben.
 
 Optionen:
-  --db adresse    Datenbank, sqlite:///<absoluter Pfad>; ohne Angabe
-                  $XDG_DATA_HOME/kephalaion/%[1]s.db bzw.
-                  ~/.local/share/kephalaion/%[1]s.db
-                  (postgres://… ist noch nicht unterstützt)
-  --config pfad   Ort der config; sonst $KEPHALAION_CONFIG,
-                  $XDG_CONFIG_HOME/kephalaion/config.yaml bzw.
-                  ~/.config/kephalaion/config.yaml
-`, r)
+  --db adresse        Datenbank, sqlite:///<absoluter Pfad>; ohne Angabe
+                      $XDG_DATA_HOME/kephalaion/%[1]s.db bzw.
+                      ~/.local/share/kephalaion/%[1]s.db
+                      (postgres://… ist noch nicht unterstützt)
+  --listen host:port  wo der Dienst dieser Rolle später lauscht; ohne Angabe
+                      %[2]s (nur dieser Rechner). Nach außen lauscht nur,
+                      wer es ausdrücklich einträgt, etwa 0.0.0.0:<port>.
+  --config pfad       Ort der config; sonst $KEPHALAION_CONFIG,
+                      $XDG_CONFIG_HOME/kephalaion/config.yaml bzw.
+                      ~/.config/kephalaion/config.yaml
+`, r, config.DefaultListen(r))
 }
 
 func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
 	usage := initUsage(r)
 	fs := newFlagSet(string(r)+" init", usage, stderr)
 	dbFlag := fs.String("db", "", "")
+	listenFlag := fs.String("listen", config.DefaultListen(r), "")
 	cfgFlag := fs.String("config", "", "")
 	if _, code, ok := parseFlags(fs, args, usage, 0, stderr); !ok {
 		return code
@@ -219,6 +223,9 @@ func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
 	fail := func(format string, a ...any) int {
 		fmt.Fprintf(stderr, "%s init: "+format+"\n", append([]any{r}, a...)...)
 		return 1
+	}
+	if err := config.CheckListen(*listenFlag); err != nil {
+		return fail("%v", err)
 	}
 
 	cfgPath, err := config.Path(*cfgFlag)
@@ -257,7 +264,7 @@ func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
 	}
 	// Erst die Datenbank, dann die config. Scheitert die config, darf keine
 	// halbe Einrichtung zurückbleiben, die ein zweites init blockiert.
-	if err := config.AddRole(cfgPath, r, addr.String()); err != nil {
+	if err := config.AddRole(cfgPath, r, config.Section{DB: addr.String(), Listen: *listenFlag}); err != nil {
 		if rmErr := removeDB(addr); rmErr != nil {
 			return fail("%v; die angelegte Datenbank ließ sich nicht entfernen: %v", err, rmErr)
 		}
@@ -267,6 +274,7 @@ func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "%s eingerichtet.\n", roleTitle(r))
 	fmt.Fprintf(stdout, "  Datenbank: %s (Schemafassung %d)\n", addr.Path, version)
 	fmt.Fprintf(stdout, "  config:    %s (Abschnitt %s:)\n", cfgPath, r)
+	fmt.Fprintf(stdout, "  listen:    %s (noch lauscht nichts)\n", *listenFlag)
 	return 0
 }
 
@@ -274,7 +282,7 @@ const statusUsage = `Aufruf:
   kephalaion status [--config pfad]
 
 Zeigt, welche Rollen auf diesem Rechner eingerichtet sind, wo ihre Datenbank
-liegt und ihre Kennzahlen. Öffnet die Datenbanken nur, legt nichts an. Der
+liegt, wo ihr Dienst lauschen wird, und ihre Kennzahlen. Öffnet die Datenbanken nur, legt nichts an. Der
 Exit-Code ist nur dann ungleich 0, wenn die Datenbank einer eingerichteten
 Rolle fehlt oder nicht passt.
 
@@ -311,6 +319,11 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "%s: eingerichtet\n", r)
 		fmt.Fprintf(stdout, "  db:            %s\n", sec.DB)
+		listen := cfg.Listen(r)
+		if sec.Listen == "" {
+			listen += " (Standard, nicht in der config)"
+		}
+		fmt.Fprintf(stdout, "  listen:        %s\n", listen)
 		if err := printRoleStatus(ctx, stdout, r, sec); err != nil {
 			fmt.Fprintf(stdout, "  Fehler:        %v\n", err)
 			failed = true

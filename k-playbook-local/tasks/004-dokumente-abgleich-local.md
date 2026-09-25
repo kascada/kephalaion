@@ -162,6 +162,17 @@ Node:
   Abgleich-Verfeinerungen aus `vertrag.md` (max(seit, R), `bis` bei leerer Seite, Grenze bei
   Wiederherstellung aus einer Sicherung).
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — listen und node_name | offen | | |
+| 2 — Dokumente am Hub | offen | | |
+| 3 — Vertrag und Hub-Seite | offen | | |
+| 4 — Replica und Abgleich am Node | offen | | |
+| 5 — CLI und status am Node | offen | | |
+| 6 — Doku | offen | | |
+
 ---
 ## Review-Log (2026-09-25)
 

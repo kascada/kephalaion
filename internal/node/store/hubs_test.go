@@ -60,17 +60,27 @@ func TestTransportRules(t *testing.T) {
 	}
 	for _, c := range cases {
 		c.h.Name = "privat"
+		c.h.NodeName = "laptop"
 		c.h.Token = tok
 		err := CheckHub(c.h, c.local)
 		if (err == nil) != c.ok {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}
-	if err := CheckHub(Hub{Name: "privat", Transport: "local", Token: "keph_kurz"}, true); err == nil {
+	if err := CheckHub(Hub{Name: "privat", NodeName: "laptop", Transport: "local", Token: "keph_kurz"}, true); err == nil {
 		t.Error("ungültiges Token angenommen")
 	}
-	if err := CheckHub(Hub{Name: "System", Transport: "local", Token: tok}, true); err == nil {
+	if err := CheckHub(Hub{Name: "System", NodeName: "laptop", Transport: "local", Token: tok}, true); err == nil {
 		t.Error("ungültiger Name angenommen")
+	}
+	if err := CheckHub(Hub{Name: "privat", Transport: "local", Token: tok}, true); err == nil ||
+		!strings.Contains(err.Error(), "--node") {
+		t.Errorf("fehlender Node-Name: %v", err)
+	}
+	for _, bad := range []string{"Laptop", "system-x", "a:b"} {
+		if err := CheckHub(Hub{Name: "privat", NodeName: bad, Transport: "local", Token: tok}, true); err == nil {
+			t.Errorf("ungültiger Node-Name %q angenommen", bad)
+		}
 	}
 }
 
@@ -78,20 +88,20 @@ func TestHubs(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	tok := token(t)
-	if err := s.AddHub(ctx, Hub{Name: "lokal", Transport: "local", Token: tok}, false); err == nil {
+	if err := s.AddHub(ctx, Hub{Name: "lokal", NodeName: "laptop", Transport: "local", Token: tok}, false); err == nil {
 		t.Error("local ohne Hub in der config angenommen")
 	}
-	if err := s.AddHub(ctx, Hub{Name: "lokal", Transport: "local", Token: tok}, true); err != nil {
+	if err := s.AddHub(ctx, Hub{Name: "lokal", NodeName: "laptop", Transport: "local", Token: tok}, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddHub(ctx, Hub{Name: "zweit", Transport: "local", Token: tok}, true); err == nil ||
+	if err := s.AddHub(ctx, Hub{Name: "zweit", NodeName: "laptop", Transport: "local", Token: tok}, true); err == nil ||
 		!strings.Contains(err.Error(), "local") {
 		t.Errorf("zweites local: %v", err)
 	}
-	if err := s.AddHub(ctx, Hub{Name: "lokal", Transport: "http", Address: "http://localhost:1", Token: tok}, true); !errors.Is(err, ErrExists) {
+	if err := s.AddHub(ctx, Hub{Name: "lokal", NodeName: "laptop", Transport: "http", Address: "http://localhost:1", Token: tok}, true); !errors.Is(err, ErrExists) {
 		t.Errorf("doppelt: %v", err)
 	}
-	if err := s.AddHub(ctx, Hub{Name: "test", Transport: "http", Address: "http://localhost:8080", Token: tok}, true); err != nil {
+	if err := s.AddHub(ctx, Hub{Name: "test", NodeName: "laptop", Transport: "http", Address: "http://localhost:8080", Token: tok}, true); err != nil {
 		t.Fatal(err)
 	}
 	hubs, err := s.Hubs(ctx)
@@ -127,8 +137,8 @@ func TestSetHub(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.AddHub(ctx, Hub{Name: "lokal", Transport: "local", Token: tok}, true))
-	must(s.AddHub(ctx, Hub{Name: "fern", Transport: "ssh", Address: "keph@hub", SSHKey: "/k/id", Token: tok}, true))
+	must(s.AddHub(ctx, Hub{Name: "lokal", NodeName: "laptop", Transport: "local", Token: tok}, true))
+	must(s.AddHub(ctx, Hub{Name: "fern", NodeName: "laptop", Transport: "ssh", Address: "keph@hub", SSHKey: "/k/id", Token: tok}, true))
 	must(s.AddCollection(ctx, "fern", "team-x"))
 	// hub_id von Hand, wie nach einem Kontakt.
 	db := s.(*sqliteStore).db
@@ -174,6 +184,19 @@ func TestSetHub(t *testing.T) {
 	if err := s.SetHub(ctx, "fehlt", HubUpdate{Address: ptr("x")}, true); !errors.Is(err, ErrNotFound) {
 		t.Errorf("set auf Fehlendes: %v", err)
 	}
+	// Node-Name ändern, Rest bleibt; ein ungültiger wird abgewiesen.
+	must(s.SetHub(ctx, "fern", HubUpdate{NodeName: ptr("rechner-2")}, true))
+	if h, _ := s.Hub(ctx, "fern"); h.NodeName != "rechner-2" || h.Transport != "https" || h.HubID != hubID {
+		t.Errorf("nach Node-Name: %+v", h)
+	}
+	for _, bad := range []string{"", "System", "a:b"} {
+		if err := s.SetHub(ctx, "fern", HubUpdate{NodeName: ptr(bad)}, true); err == nil {
+			t.Errorf("Node-Name %q angenommen", bad)
+		}
+	}
+	if h, _ := s.Hub(ctx, "fern"); h.NodeName != "rechner-2" {
+		t.Errorf("nach Abweisung verändert: %+v", h)
+	}
 }
 
 func TestCollections(t *testing.T) {
@@ -183,7 +206,7 @@ func TestCollections(t *testing.T) {
 	if err := s.AddCollection(ctx, "privat", "team-x"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("ohne Hub-Eintrag: %v", err)
 	}
-	if err := s.AddHub(ctx, Hub{Name: "privat", Transport: "https", Address: "https://h", Token: tok}, false); err != nil {
+	if err := s.AddHub(ctx, Hub{Name: "privat", NodeName: "laptop", Transport: "https", Address: "https://h", Token: tok}, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range [][2]string{{"privat", "Team"}, {"privat", "system"}, {"privat", "a:b"}, {"Privat", "x"}, {"privat", ""}} {
@@ -226,7 +249,7 @@ func TestCollections(t *testing.T) {
 func TestCheckTables(t *testing.T) {
 	tok := token(t)
 	ok := Tables{
-		Hubs:   []Hub{{Name: "a", Transport: "local", Token: tok}, {Name: "b", Transport: "https", Address: "https://h", Token: tok}},
+		Hubs:   []Hub{{Name: "a", NodeName: "laptop", Transport: "local", Token: tok}, {Name: "b", NodeName: "laptop", Transport: "https", Address: "https://h", Token: tok}},
 		Wanted: []Wanted{{"a", "x"}},
 	}
 	if err := CheckTables(ok, true); err != nil {
@@ -236,13 +259,15 @@ func TestCheckTables(t *testing.T) {
 		t.Error("local ohne Hub in der config angenommen")
 	}
 	bad := []Tables{
-		{Hubs: []Hub{ok.Hubs[0], {Name: "c", Transport: "local", Token: tok}}},
+		{Hubs: []Hub{ok.Hubs[0], {Name: "c", NodeName: "laptop", Transport: "local", Token: tok}}},
 		{Hubs: []Hub{ok.Hubs[1], ok.Hubs[1]}},
 		{Hubs: ok.Hubs, Wanted: []Wanted{{"x", "y"}}},
 		{Hubs: ok.Hubs, Wanted: []Wanted{{"a", "Y"}}},
 		{Hubs: ok.Hubs, Wanted: []Wanted{{"a", "x"}, {"a", "x"}}},
-		{Hubs: []Hub{{Name: "a", Transport: "https", Address: "https://h", Token: "keph_x"}}},
-		{Hubs: []Hub{{Name: "a", Transport: "https", Address: "https://h", Token: tok, HubID: "kaputt"}}},
+		{Hubs: []Hub{{Name: "a", NodeName: "laptop", Transport: "https", Address: "https://h", Token: "keph_x"}}},
+		{Hubs: []Hub{{Name: "a", NodeName: "laptop", Transport: "https", Address: "https://h", Token: tok, HubID: "kaputt"}}},
+		{Hubs: []Hub{{Name: "a", Transport: "https", Address: "https://h", Token: tok}}},
+		{Hubs: []Hub{{Name: "a", NodeName: "System-x", Transport: "https", Address: "https://h", Token: tok}}},
 	}
 	for i, b := range bad {
 		if err := CheckTables(b, true); err == nil {

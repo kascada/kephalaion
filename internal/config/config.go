@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -34,6 +36,39 @@ var Roles = []Role{Hub, Node}
 type Section struct {
 	// DB ist die db-Adresse, etwa sqlite:///home/…/hub.db.
 	DB string `yaml:"db"`
+	// Listen ist host:port, wo serve für diese Rolle lauscht. Leer heißt:
+	// nicht eingetragen, es gilt DefaultListen; siehe Config.Listen.
+	Listen string `yaml:"listen,omitempty"`
+}
+
+// Die Standardadressen, auf denen serve lauscht: nur dieser Rechner. Nach
+// außen lauscht nur, wer es ausdrücklich einträgt.
+const (
+	DefaultListenNode = "127.0.0.1:7433"
+	DefaultListenHub  = "127.0.0.1:7434"
+)
+
+// DefaultListen liefert die Standardadresse einer Rolle.
+func DefaultListen(r Role) string {
+	if r == Hub {
+		return DefaultListenHub
+	}
+	return DefaultListenNode
+}
+
+// CheckListen prüft eine listen-Adresse: host:port mit Host und einem Port
+// von 1 bis 65535. Ein leerer Host (":7434") gilt nicht — wer auf allen
+// Schnittstellen lauschen will, schreibt es aus (0.0.0.0:7434).
+func CheckListen(addr string) error {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return fmt.Errorf("listen %q: erwartet host:port, etwa %s", addr, DefaultListenNode)
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("listen %q: Port %q ist keine Zahl von 1 bis 65535", addr, port)
+	}
+	return nil
 }
 
 // Config ist der Inhalt der config. Fehlt ein Abschnitt, fehlt die Rolle.
@@ -61,6 +96,20 @@ func (c *Config) SetSection(r Role, s *Section) {
 	case Node:
 		c.Node = s
 	}
+}
+
+// Listen liefert, wo serve für eine eingerichtete Rolle lauscht: den Wert aus
+// der config oder, fehlt er dort, den Standard. Ist die Rolle nicht
+// eingerichtet, ist das Ergebnis leer.
+func (c *Config) Listen(r Role) string {
+	s := c.Section(r)
+	if s == nil {
+		return ""
+	}
+	if s.Listen == "" {
+		return DefaultListen(r)
+	}
+	return s.Listen
 }
 
 // Empty sagt, ob keine Rolle eingerichtet ist.
@@ -127,8 +176,17 @@ func Parse(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("ungültiges YAML: %w", err)
 	}
 	for _, r := range Roles {
-		if s := cfg.Section(r); s != nil && s.DB == "" {
+		s := cfg.Section(r)
+		if s == nil {
+			continue
+		}
+		if s.DB == "" {
 			return Config{}, fmt.Errorf("Abschnitt %s: db fehlt", r)
+		}
+		if s.Listen != "" {
+			if err := CheckListen(s.Listen); err != nil {
+				return Config{}, fmt.Errorf("Abschnitt %s: %w", r, err)
+			}
 		}
 	}
 	return cfg, nil
@@ -169,7 +227,15 @@ func Save(path string, cfg Config) error {
 
 // AddRole trägt eine Rolle in die config ein. Steht die Rolle schon darin, ist
 // das ein Fehler. Die andere Rolle bleibt unberührt.
-func AddRole(path string, r Role, db string) error {
+func AddRole(path string, r Role, s Section) error {
+	if s.DB == "" {
+		return fmt.Errorf("Abschnitt %s: db fehlt", r)
+	}
+	if s.Listen != "" {
+		if err := CheckListen(s.Listen); err != nil {
+			return fmt.Errorf("Abschnitt %s: %w", r, err)
+		}
+	}
 	cfg, _, err := Load(path)
 	if err != nil {
 		return err
@@ -177,7 +243,7 @@ func AddRole(path string, r Role, db string) error {
 	if cfg.Section(r) != nil {
 		return fmt.Errorf("Rolle %s steht schon in der config %s", r, path)
 	}
-	cfg.SetSection(r, &Section{DB: db})
+	cfg.SetSection(r, &s)
 	return Save(path, cfg)
 }
 
