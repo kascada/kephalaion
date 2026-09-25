@@ -527,8 +527,8 @@ Umzügen und Löschmarken. Git als interner Speicher scheidet aus, weil das echt
 Löschen durch den Admin dann ein Umschreiben der Historie wäre.
 
 **Entschieden am 2026-09-25: Auch die Inhalte liegen in der Datenbank**, nicht in
-Markdown-Dateien daneben; Markdown gibt es als Export. Die Messung unten prüft, ob die Suche
-damit schnell genug bleibt. Die Gründe:
+Markdown-Dateien daneben; Markdown gibt es als Export. Die Entscheidung steht: Ist die Suche
+zu langsam, wird am Index oder an der Suche gearbeitet, nicht an der Datenbank. Die Gründe:
 
 - **Index nachziehen.** Der lokale Index von k-playbook lädt heute bei jedem Schreiben den
   ganzen Index und schreibt ihn zurück; gemessen 48 ms je Dokument bei 640 Dokumenten, ein
@@ -558,21 +558,6 @@ möglich, ohne den Vertrag zu ändern.
 **Was dabei zu beachten ist:** FTS5 rechnet BM25 anders als der Index von k-playbook. Die
 Ranking-Korrektur aus Task 056 (Zeiger-Dokumente vor ihren Zielen) ist neu nachzuweisen. Die
 Zerlegung in Abschnitte bleibt eigener Code; FTS5 indiziert nur, was sie liefert.
-
-### Erste Messung — der erste Arbeitsschritt
-
-Vor jeder weiteren Festlegung wird gemessen: der heutige BM25-Index von k-playbook gegen
-`modernc.org/sqlite` mit FTS5, auf demselben Korpus — `squad-km-dev-setup` (506 Abschnitte),
-hochgezogen auf rund 2 246 und rund 20 000 Abschnitte.
-
-| Messgröße | Warum |
-|---|---|
-| Suchzeit | die nicht verhandelbare Größe |
-| Delta mit 1 und mit 50 Dokumenten anwenden | der Normalfall des Abgleichs |
-| Suchzeit, während ein Delta angewendet wird | der Node liest und gleicht parallel ab |
-| Start des Nodes bis zur ersten Antwort | nach Neustart des Rechners |
-
-Hält FTS5 bei der Suche nicht mit, ist die Entscheidung oben neu zu prüfen.
 
 **Wo die Replica liegt: nicht im Projekt.** Fremdes Wissen hat in der Versionierung eines
 Projekts nichts verloren. Ein Ort je Rechner, eine Datenbank je Hub, etwa unter
@@ -628,6 +613,12 @@ CREATE TABLE actions (                 -- Protokoll, befristet
 - **Gelöschtes bleibt als Löschmarke** stehen, ohne Inhalt, mit neuer Revision. Eine
   verschwundene Zeile erführe kein Node. Der eindeutige Index gilt nur für nicht Gelöschtes,
   damit ein Name wieder vergeben werden kann. Ablösen kommt später auf demselben Weg.
+- **Auf dem Node zählt allein die `id`.** Die Eindeutigkeit der Namen sichert der Hub; die
+  Replica hat keinen eindeutigen Index auf `(collection, name)`. Ein Delta liefert je Dokument
+  nur den letzten Stand, und dabei kann ein Name vorübergehend doppelt vergeben sein: A wird
+  von `x` in `y` umbenannt, B neu als `x` angelegt, danach A geändert — das Delta bringt B vor
+  A, und B hieße `x`, solange A dort noch `x` heißt. Ein eindeutiger Index ließe den Abgleich
+  scheitern.
 - **Wer erzeugt und geändert hat** steht zweifach: `created_by`/`updated_by` in der Tabelle
   beantworten „wer war zuletzt dran“ ohne Umweg; das Protokoll `actions` den Rest, solange es
   zurückreicht. Es ist befristet; Einträge über echtes Löschen durch den Admin bleiben
@@ -689,7 +680,6 @@ bleibt aus dem Vertrag heraus.
 ## Stufen
 
 1. **Nur lesen.** Node liefert Suchen, Lesen, Abgleich; eine Collection, ein Token, ein Recht.
-   Hier wird gemessen, ob die Antwortzeiten halten.
 2. **Schreiben mit Rechten, ohne KI.** Dateien werden deterministisch abgelegt, der Hub prüft
    Recht und Form. Accounts, `rotate`, Ablehnungen, Fehlschläge.
 3. **Vorgänge auf Dateien.** Anhängen, Abschnitt ändern, abschließen, Verzeichnis ersetzen.
