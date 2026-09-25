@@ -136,7 +136,7 @@ Ein lauffähiges Go-Modul `github.com/kascada/kephalaion` mit:
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
 | 1 — Modul und Binary | erledigt | 2026-09-25 | go.mod (toolchain go1.27.1), `help`/`version`, buildinfo, Begriffe „Auslieferung“ |
-| 2 — Makefile und CI | offen | | |
+| 2 — Makefile und CI | erledigt | 2026-09-25 | Makefile (help, build, test, check, check-toolchain, dist, dist-host, dev-install, clean), ci.yml, dependabot.yml; make check/dist lokal grün |
 | 3 — Release | offen | | |
 | 4 — `upgrade` | offen | | |
 | 5 — Installationsskript | offen | | |
