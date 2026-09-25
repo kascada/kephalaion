@@ -1,0 +1,139 @@
+name: Release
+
+# Ein Tag v* wird ohne Handarbeit zum GitHub-Release: prüfen, bauen, als
+# Entwurf anlegen, die Assets anhängen und erst dann veröffentlichen. Solange
+# der Entwurf steht, zeigt releases/latest weiter auf das vorige, vollständige
+# Release — `upgrade` und install.sh sehen nie ein halbes.
+#
+# Assets: die vier Binaries kephalaion-<os>-<arch>, SHA256SUMS (deckt nur die
+# Binaries) und install.sh.
+#
+# Wiederholungslauf: workflow_dispatch mit dem Tag. Gibt es das Release schon,
+# werden die Assets mit --clobber ersetzt und das Release veröffentlicht.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag, zu dem das Release gebaut wird (z. B. v0.1.0)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      # Kein stiller Griff zu einer anderen Toolchain.
+      GOTOOLCHAIN: local
+
+    steps:
+      - name: Tag prüfen
+        run: |
+          set -eu
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
+            echo "Kein gültiger Versions-Tag: $TAG (erwartet vX.Y.Z oder vX.Y.Z-suffix)." >&2
+            exit 1
+          fi
+
+      # Volle Historie mit Tags: der letzte Schritt vergleicht mit den übrigen
+      # Versions-Tags, um latest richtig zu setzen.
+      - name: Getaggten Stand auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
+      # Die toolchain-Zeile, nicht die go-Direktive — wie in ci.yml.
+      - name: Toolchain-Version lesen
+        id: toolchain
+        run: |
+          set -eu
+          version="$(awk '$1 == "toolchain" { sub(/^go/, "", $2); print $2 }' go.mod)"
+          test -n "$version" || { echo "In go.mod fehlt die toolchain-Zeile." >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Go einrichten
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache-dependency-path: go.mod
+
+      - name: Toolchain prüfen
+        run: make check-toolchain
+
+      # Ein Tag auf einem roten Commit wird nicht veröffentlicht.
+      - name: make check
+        run: make check
+
+      - name: make dist
+        run: make dist VERSION="$TAG"
+
+      - name: Assets prüfen
+        run: |
+          set -eu
+          cd dist
+          sha256sum -c SHA256SUMS
+          test -f ../install.sh || { echo "install.sh fehlt im getaggten Stand." >&2; exit 1; }
+          ./kephalaion-linux-amd64 version | grep -F "kephalaion $TAG"
+
+      - name: Release anlegen, Assets anhängen, veröffentlichen
+        run: |
+          set -eu
+          prerelease=false
+          case "$TAG" in *-*) prerelease=true ;; esac
+
+          # latest trägt nur die höchste Version ohne Suffix. Ein Wiederholungslauf
+          # für einen älteren Tag darf latest nicht zurückdrehen.
+          highest="$(git tag -l 'v*' | grep -Ev -- '-' | sort -V | tail -n 1)"
+          latest=false
+          if [ "$prerelease" = false ] && [ "$TAG" = "$highest" ]; then
+            latest=true
+          fi
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            notes="$(cat <<'EOF'
+          ## Installieren
+
+          ```sh
+          curl -fsSL https://github.com/kascada/kephalaion/releases/latest/download/install.sh | sh
+          ```
+
+          Ein installiertes Binary aktualisiert sich mit `kephalaion upgrade`.
+          EOF
+            )"
+            gh release create "$TAG" \
+              --draft \
+              --verify-tag \
+              --title "$TAG" \
+              --notes "$notes" \
+              --generate-notes \
+              --prerelease="$prerelease"
+          fi
+
+          gh release upload "$TAG" --clobber \
+            dist/kephalaion-linux-amd64 \
+            dist/kephalaion-linux-arm64 \
+            dist/kephalaion-darwin-amd64 \
+            dist/kephalaion-darwin-arm64 \
+            dist/SHA256SUMS \
+            install.sh
+
+          gh release edit "$TAG" \
+            --draft=false \
+            --prerelease="$prerelease" \
+            --latest="$latest"
+
+          echo "Release $TAG veröffentlicht (prerelease=$prerelease, latest=$latest)."
