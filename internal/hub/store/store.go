@@ -46,8 +46,6 @@ type Info struct {
 type Stats struct {
 	// Documents zählt Dokumente ohne Löschmarken und ohne SYSTEM:-Zeilen.
 	Documents int64
-	// Collections zählt die verschiedenen collection-Werte.
-	Collections int64
 }
 
 // Store ist der Zugriff des Hubs auf seine Datenbank. Jede Änderung läuft in
@@ -91,9 +89,8 @@ type Store interface {
 
 // queries sind die Abfragetexte des Hubs, Platzhalter $n.
 var queries = struct {
-	CountDocuments   string
-	CountCollections string
-	LockRevision     string
+	CountDocuments string
+	LockRevision   string
 
 	ActionInsert string
 
@@ -126,7 +123,6 @@ var queries = struct {
 }{
 	CountDocuments: `SELECT COUNT(*) FROM documents
 		WHERE deleted = 0 AND substr(name, 1, 7) <> 'SYSTEM:'`,
-	CountCollections: `SELECT COUNT(DISTINCT collection) FROM documents`,
 	// LockRevision sperrt die Zeile der Revision schreibend, bevor sie gelesen
 	// wird — für PostgreSQL, wo sonst zwei Schreiber dieselbe Revision
 	// vergäben. Unter SQLite sperrt schon BEGIN IMMEDIATE.
@@ -289,9 +285,6 @@ func (s *sqliteStore) Stats(ctx context.Context) (Stats, error) {
 	var st Stats
 	if err := s.db.QueryRowContext(ctx, q(queries.CountDocuments)).Scan(&st.Documents); err != nil {
 		return Stats{}, fmt.Errorf("Dokumente zählen: %w", err)
-	}
-	if err := s.db.QueryRowContext(ctx, q(queries.CountCollections)).Scan(&st.Collections); err != nil {
-		return Stats{}, fmt.Errorf("Collections zählen: %w", err)
 	}
 	return st, nil
 }

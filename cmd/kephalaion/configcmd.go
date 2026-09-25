@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
-
 	"github.com/kascada/kephalaion/internal/config"
+	hubstore "github.com/kascada/kephalaion/internal/hub/store"
+	nodestore "github.com/kascada/kephalaion/internal/node/store"
 )
 
 const configUsage = `Aufruf:
@@ -140,43 +139,16 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// exportFormat ist die Fassung des Exportformats, die dieses Binary schreibt
-// und liest.
-const exportFormat = 1
-
-// exportFile ist der Inhalt einer Exportdatei: die config und die settings
-// je Rolle, keine Inhalte.
-type exportFile struct {
-	Format   int                               `yaml:"format"`
-	Config   config.Config                     `yaml:"config"`
-	Settings map[config.Role]map[string]string `yaml:"settings"`
-}
-
-// roles liefert die Rollen eines Exports: die aus der config und die mit
-// settings.
-func (e *exportFile) roles() ([]config.Role, error) {
-	var out []config.Role
-	for _, r := range config.Roles {
-		_, hasSettings := e.Settings[r]
-		if e.Config.Section(r) != nil || hasSettings {
-			out = append(out, r)
-		}
-	}
-	for r := range e.Settings {
-		if r != config.Hub && r != config.Node {
-			return nil, fmt.Errorf("unbekannte Rolle %q", r)
-		}
-	}
-	return out, nil
-}
-
 const configExportUsage = `Aufruf:
   kephalaion config export [--config pfad] [--output datei]
 
-Schreibt die config und die settings jeder eingerichteten Rolle als YAML,
-samt Fassung des Formats — keine Inhalte. Ohne --output auf die
-Standardausgabe. Die Datei entsteht mit den Rechten 0600, weil settings
-Geheimnisse enthalten können.
+Schreibt die config und je eingerichteter Rolle die settings und die lokalen
+Tabellen als YAML, samt Fassung des Formats — keine Inhalte:
+  hub:   collections, nodes (nur der Hash des Tokens), node_collections
+  node:  hubs (samt dem eigenen Token beim Hub, im Klartext), hub_collections
+Nicht dabei sind db_info — ein neu angelegter Hub bekommt eine neue hub_id —
+und das Protokoll actions. Ohne --output auf die Standardausgabe. Die Datei
+entsteht mit den Rechten 0600, weil sie Geheimnisse enthält.
 
 Optionen:
   --config pfad     Ort der config (siehe kephalaion hub init --help)
@@ -202,18 +174,9 @@ func runConfigExport(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	exp := exportFile{Format: exportFormat, Config: cfg, Settings: map[config.Role]map[string]string{}}
-	ctx := context.Background()
-	for _, r := range config.Roles {
-		sec := cfg.Section(r)
-		if sec == nil {
-			continue
-		}
-		settings, err := readSettings(ctx, r, sec)
-		if err != nil {
-			return fail(fmt.Errorf("Rolle %s: %w", r, err))
-		}
-		exp.Settings[r] = settings
+	exp, err := buildExport(context.Background(), cfg)
+	if err != nil {
+		return fail(err)
 	}
 	data, err := config.EncodeYAML(&exp)
 	if err != nil {
@@ -230,42 +193,77 @@ func runConfigExport(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// buildExport liest settings und lokale Tabellen jeder eingerichteten Rolle.
+// Jeder Teil jeder Rolle steht im Export, auch leer.
+func buildExport(ctx context.Context, cfg config.Config) (exportFile, error) {
+	exp := exportFile{
+		Format:   exportFormat,
+		Config:   cfg,
+		Settings: map[config.Role]map[string]string{},
+		Tables:   &exportTables{},
+	}
+	for _, r := range config.Roles {
+		sec := cfg.Section(r)
+		if sec == nil {
+			continue
+		}
+		s, err := openSection(ctx, r, sec)
+		if err != nil {
+			return exportFile{}, fmt.Errorf("Rolle %s: %w", r, err)
+		}
+		err = func() error {
+			defer s.Close()
+			settings, err := s.Settings(ctx)
+			if err != nil {
+				return err
+			}
+			exp.Settings[r] = settings
+			switch st := s.(type) {
+			case hubstore.Store:
+				t, err := st.Tables(ctx)
+				if err != nil {
+					return err
+				}
+				exp.Tables.Hub = hubTablesToYAML(t)
+			case nodestore.Store:
+				t, err := st.Tables(ctx)
+				if err != nil {
+					return err
+				}
+				exp.Tables.Node = nodeTablesToYAML(t)
+			}
+			return nil
+		}()
+		if err != nil {
+			return exportFile{}, fmt.Errorf("Rolle %s: %w", r, err)
+		}
+	}
+	return exp, nil
+}
+
 const configImportUsage = `Aufruf:
   kephalaion config import [--config pfad] <datei>
 
-Schreibt die settings eines Exports in die bereits eingerichteten Rollen und
-ersetzt sie dort; die config selbst bleibt unverändert. Vorab wird alles
-geprüft: Fassung des Formats, jede Rolle des Exports eingerichtet, Datenbank
-vorhanden und passend. Erst dann wird geschrieben, je Rolle in einer
-Transaktion.
+Schreibt einen Export in die bereits eingerichteten Rollen und ersetzt dort je
+Rolle alles in einer Transaktion: die settings und, ab Format 2, die lokalen
+Tabellen. Ein Export im Format 1 ersetzt nur die settings und lässt die
+Tabellen unberührt. Die config selbst, db_info und das Protokoll bleiben; am
+Hub kommt eine Zeile config.import ins Protokoll.
+
+Vorab wird alles geprüft, mit denselben Regeln wie beim Anlegen über die
+Kommandozeile: Fassung des Formats, jede Rolle des Exports eingerichtet und mit
+allen ihren Teilen (ein fehlender Teil oder null bricht ab, nur ein leerer
+leert), Namen, Token, Transporte, keine Collection mit Dokumenten fiele weg.
+Geschrieben wird erst der Hub, dann der Node.
 
 Optionen:
   --config pfad   Ort der config (siehe kephalaion hub init --help)
 `
 
-// parseExport liest eine Exportdatei. Die Fassung wird zuerst geprüft, damit
-// ein Export einer anderen Fassung klar abgelehnt wird, statt an unbekannten
-// Feldern zu scheitern.
-func parseExport(data []byte) (exportFile, error) {
-	var head struct {
-		Format int `yaml:"format"`
-	}
-	if err := yaml.Unmarshal(data, &head); err != nil {
-		return exportFile{}, fmt.Errorf("kein gültiges YAML: %w", err)
-	}
-	if head.Format != exportFormat {
-		if head.Format == 0 {
-			return exportFile{}, errors.New("keine Fassung des Formats angegeben (format:) — kein Export von kephalaion?")
-		}
-		return exportFile{}, fmt.Errorf("unbekannte Fassung des Formats %d; dieses Binary kennt %d", head.Format, exportFormat)
-	}
-	var exp exportFile
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&exp); err != nil {
-		return exportFile{}, fmt.Errorf("Export nicht lesbar: %w", err)
-	}
-	return exp, nil
+// nodeImport schreibt den Node-Teil eines Imports. Ein Test ersetzt es, um das
+// Scheitern nach dem Hub herbeizuführen.
+var nodeImport = func(ctx context.Context, s nodestore.Store, settings map[string]string, t *nodestore.Tables, hubInConfig bool) error {
+	return s.Import(ctx, settings, t, hubInConfig)
 }
 
 func runConfigImport(args []string, stdout, stderr io.Writer) int {
@@ -285,6 +283,9 @@ func runConfigImport(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "config import: %v\n", err)
 		return 1
 	}
+	nothing := func(err error) int {
+		return fail(fmt.Errorf("%w\nNichts geschrieben", err))
+	}
 
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -292,11 +293,11 @@ func runConfigImport(args []string, stdout, stderr io.Writer) int {
 	}
 	exp, err := parseExport(data)
 	if err != nil {
-		return fail(fmt.Errorf("%s: %w", file, err))
+		return nothing(fmt.Errorf("%s: %w", file, err))
 	}
 	roles, err := exp.roles()
 	if err != nil {
-		return fail(fmt.Errorf("%s: %w", file, err))
+		return nothing(fmt.Errorf("%s: %w", file, err))
 	}
 
 	cfgPath, err := config.Path(*cfgFlag)
@@ -321,7 +322,28 @@ func runConfigImport(args []string, stdout, stderr io.Writer) int {
 		missing = append(missing, fmt.Sprintf("die Rolle %s ist nicht eingerichtet; zuerst: %s", r, hint))
 	}
 	if len(missing) > 0 {
-		return fail(fmt.Errorf("%s\nNichts geschrieben", strings.Join(missing, "\n")))
+		return nothing(errors.New(strings.Join(missing, "\n")))
+	}
+
+	// … die Tabellen nach denselben Regeln wie die CLI …
+	hubInConfig := cfg.Section(config.Hub) != nil
+	var hubTables *hubstore.Tables
+	var nodeTables *nodestore.Tables
+	if exp.Format >= 2 {
+		if exp.Tables.Hub != nil {
+			t := exp.Tables.Hub.toStore()
+			if err := hubstore.CheckTables(t); err != nil {
+				return nothing(fmt.Errorf("Rolle hub: %w", err))
+			}
+			hubTables = &t
+		}
+		if exp.Tables.Node != nil {
+			t := exp.Tables.Node.toStore()
+			if err := nodestore.CheckTables(t, hubInConfig); err != nil {
+				return nothing(fmt.Errorf("Rolle node: %w", err))
+			}
+			nodeTables = &t
+		}
 	}
 
 	// … und jede Datenbank öffnet und passt.
@@ -335,21 +357,51 @@ func runConfigImport(args []string, stdout, stderr io.Writer) int {
 	for _, r := range roles {
 		s, err := openSection(ctx, r, cfg.Section(r))
 		if err != nil {
-			return fail(fmt.Errorf("Rolle %s: %w\nNichts geschrieben", r, err))
+			return nothing(fmt.Errorf("Rolle %s: %w", r, err))
 		}
 		stores[r] = s
 	}
 
-	// Erst jetzt schreiben, je Rolle in einer Transaktion.
+	// Erst jetzt schreiben: erst den Hub, dann den Node, je in einer
+	// Transaktion. Was die Datenbank des Hubs braucht (Dokumente in
+	// wegfallenden Collections, Account-Namen), prüft seine Transaktion vor dem
+	// ersten Schreiben.
+	var done []string
 	for _, r := range roles {
 		settings := exp.Settings[r]
-		if settings == nil {
-			settings = map[string]string{}
+		var err error
+		var summary string
+		switch st := stores[r].(type) {
+		case hubstore.Store:
+			err = st.Import(ctx, settings, hubTables)
+			summary = fmt.Sprintf("settings ersetzt (%d Einträge)", len(settings))
+			if hubTables != nil {
+				summary += fmt.Sprintf(", %d Collections, %d Nodes, %d Rechte",
+					len(hubTables.Collections), len(hubTables.Nodes), len(hubTables.Grants))
+			}
+			summary += "; config.import im Protokoll"
+		case nodestore.Store:
+			err = nodeImport(ctx, st, settings, nodeTables, hubInConfig)
+			summary = fmt.Sprintf("settings ersetzt (%d Einträge)", len(settings))
+			if nodeTables != nil {
+				summary += fmt.Sprintf(", %d Hubs, %d Collections", len(nodeTables.Hubs), len(nodeTables.Wanted))
+			}
 		}
-		if err := stores[r].ReplaceSettings(ctx, settings); err != nil {
-			return fail(fmt.Errorf("Rolle %s: %w", r, err))
+		if exp.Format < 2 {
+			summary += "; Tabellen unberührt (Format 1)"
 		}
-		fmt.Fprintf(stdout, "%s: settings ersetzt (%d Einträge)\n", r, len(settings))
+		if err != nil {
+			if len(done) == 0 {
+				return nothing(fmt.Errorf("Rolle %s: %w", r, err))
+			}
+			lines := append([]string{fmt.Sprintf("Rolle %s: %v", r, err)}, done...)
+			for _, rest := range roles[len(done):] {
+				lines = append(lines, fmt.Sprintf("%s: nicht geschrieben", rest))
+			}
+			return fail(errors.New(strings.Join(lines, "\n")))
+		}
+		done = append(done, fmt.Sprintf("%s: ersetzt — %s", r, summary))
+		fmt.Fprintf(stdout, "%s: %s\n", r, summary)
 	}
 	return 0
 }

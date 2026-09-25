@@ -346,25 +346,68 @@ func printRoleStatus(ctx context.Context, w io.Writer, r config.Role, sec *confi
 	defer s.Close()
 	switch st := s.(type) {
 	case hubstore.Store:
-		info, err := st.Info(ctx)
-		if err != nil {
-			return err
-		}
-		stats, err := st.Stats(ctx)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "  Schemafassung: %d\n", info.SchemaVersion)
-		fmt.Fprintf(w, "  Revision:      %d\n", info.Revision)
-		fmt.Fprintf(w, "  Dokumente:     %d\n", stats.Documents)
-		fmt.Fprintf(w, "  Collections:   %d\n", stats.Collections)
+		return printHubStatus(ctx, w, st)
 	case nodestore.Store:
-		info, err := st.Info(ctx)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "  Schemafassung: %d\n", info.SchemaVersion)
+		return printNodeStatus(ctx, w, st)
+	}
+	return nil
+}
+
+func printHubStatus(ctx context.Context, w io.Writer, st hubstore.Store) error {
+	info, err := st.Info(ctx)
+	if err != nil {
+		return err
+	}
+	stats, err := st.Stats(ctx)
+	if err != nil {
+		return err
+	}
+	colls, err := st.Collections(ctx)
+	if err != nil {
+		return err
+	}
+	nodes, err := st.Nodes(ctx)
+	if err != nil {
+		return err
+	}
+	names := make([]string, 0, len(colls))
+	for _, c := range colls {
+		names = append(names, c.Name)
+	}
+	fmt.Fprintf(w, "  Schemafassung: %d\n", info.SchemaVersion)
+	fmt.Fprintf(w, "  hub_id:        %s\n", info.HubID)
+	fmt.Fprintf(w, "  Revision:      %d\n", info.Revision)
+	fmt.Fprintf(w, "  Dokumente:     %d\n", stats.Documents)
+	fmt.Fprintf(w, "  Collections:   %s\n", joinOrNone(names))
+	if len(nodes) == 0 {
+		fmt.Fprintf(w, "  Nodes:         keine\n")
+		return nil
+	}
+	fmt.Fprintf(w, "  Nodes:\n")
+	for _, n := range nodes {
+		fmt.Fprintf(w, "    %s: %s, erlaubt: %s\n", n.Name, lockState(n.Locked), joinOrNone(n.Collections))
+	}
+	return nil
+}
+
+func printNodeStatus(ctx context.Context, w io.Writer, st nodestore.Store) error {
+	info, err := st.Info(ctx)
+	if err != nil {
+		return err
+	}
+	hubs, err := st.Hubs(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "  Schemafassung: %d\n", info.SchemaVersion)
+	if len(hubs) == 0 {
 		fmt.Fprintf(w, "  Hubs:          keine\n")
+		return nil
+	}
+	fmt.Fprintf(w, "  Hubs:\n")
+	for _, h := range hubs {
+		fmt.Fprintf(w, "    %s: %s, hub_id: %s\n", h.Name, describeTransport(h), hubIDOrNone(h.HubID))
+		fmt.Fprintf(w, "      Collections: %s\n", joinOrNone(h.Collections))
 	}
 	return nil
 }

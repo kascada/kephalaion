@@ -225,8 +225,8 @@ Dazu `hub_id` bei `hub init`, erweitertes `status`, erweitertes `config export|i
 | 1 — Schema und hub_id | erledigt | 2026-09-25 | Fassung 2 (Hub: collections, nodes, node_collections, actions.subject; Node: hubs, hub_collections), hub_id als ULID; `_txlock=immediate`, WAL nur bei Create, Sperrzeile in nextRevision |
 | 2 — Hub: Collections und Nodes im Store | erledigt | 2026-09-25 | Paket `internal/ident` (Namen, Adresse, Token, Hash, Maske); Hub-Store-Methoden je Transaktion mit `actions` (admin, subject), `SYSTEM:A:`-Prüfung, `Tables`/`Import` für Etappe 5 vorbereitet |
 | 3 — Node: Hubs und Collections im Store | erledigt | 2026-09-25 | Node-Store: Hub-Einträge mit Transportregeln (`CheckHub`, höchstens ein local, `hubInConfig` aus der config), `SetHub` über `ApplyUpdate`, gewünschte Collections; `Tables`/`Import` für Etappe 5 |
-| 4 — CLI | erledigt | 2026-09-25 | `hub collection|node …`, `node hub|collection …` mit Hilfetexten je Gruppe; `parseFlags` parst nach Positionsargumenten weiter (`--` beendet); `run` bekommt stdin für `--token-stdin` |
-| 5 — status und config | offen | | |
+| 4 — CLI | erledigt | 2026-09-25 | `hub collection …`, `hub node …`, `node hub …`, `node collection …` mit Hilfetexten je Gruppe; `parseFlags` parst nach Positionsargumenten weiter (`--` beendet); `run` bekommt stdin für `--token-stdin` |
+| 5 — status und config | erledigt | 2026-09-25 | `status` mit hub_id, Collections, Nodes samt Sperre/Rechten bzw. Hubs samt Transport, hub_id und Collections; Export Format 2 (`tables:` je Rolle, jeder Teil immer), Import Format 1 und 2 mit Vorabprüfung, Hub vor Node, `config.import`, Meldung je Rolle; Eingriffspunkt `nodeImport` |
 | 6 — Doku | offen | | |
 
 ---

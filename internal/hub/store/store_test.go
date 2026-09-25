@@ -116,7 +116,7 @@ func TestStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (Stats{Documents: 3, Collections: 3}); st != want {
+	if want := (Stats{Documents: 3}); st != want {
 		t.Errorf("Stats = %+v, erwartet %+v", st, want)
 	}
 }

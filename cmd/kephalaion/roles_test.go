@@ -76,7 +76,7 @@ func TestInitHubOnly(t *testing.T) {
 	runT(t, "status", "--config", cfg).want(t, 0,
 		"config: "+cfg+" (vorhanden)",
 		"hub: eingerichtet", "sqlite://"+db, "Schemafassung: 2", "Revision:      0",
-		"Dokumente:     0", "Collections:   0", "node: nicht eingerichtet")
+		"hub_id:        ", "Dokumente:     0", "Collections:   keine", "Nodes:         keine", "node: nicht eingerichtet")
 }
 
 func TestInitBoth(t *testing.T) {
