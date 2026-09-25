@@ -924,6 +924,21 @@ im Hub. Wo die Grenze liegt und ob etwas allgemein taugt, wird je Werkzeug entsc
 | `delete` | löschen | Löschmarke; Eigenes mit `write`, Fremdes mit `supersede` |
 | `replace_directory` | ein ganzes Verzeichnis ersetzen | für Generatoren, in k-playbook heute `publish` |
 
+### Verwaltung über MCP (vorgemerkt am 2026-09-25)
+
+Was heute nur die Kommandozeile kann, soll auch über MCP gehen — nur mit dem passenden Recht:
+
+- **Hub:** Collections, Nodes, Grants, später Accounts und Scopes; `status` des Hubs. Der
+  Node reicht solche Aufrufe an den Hub durch, der Hub prüft das Recht des Accounts.
+- **Node:** seine Hub-Einträge und gewünschten Collections, Stand des Abgleichs, Abgleich
+  anstoßen.
+
+Offen: ein eigenes Recht für die Verwaltung (etwa `admin` je Hub, nicht je Collection), wer
+am Node verwalten darf — dort gibt es keine Accounts, nur die des Hubs —, und ob die
+Werkzeuge nur erscheinen, wenn der Account das Recht hat. Tokens dürfen dabei nie in einer
+Antwort an die KI stehen; `hub node add` über MCP bräuchte dafür einen anderen Weg als die
+Anzeige.
+
 ### Für k-playbook — Kandidaten
 
 Aus den heutigen Werkzeugen von k-playbook; je zu entscheiden, ob Kephalaion sie trägt, ob

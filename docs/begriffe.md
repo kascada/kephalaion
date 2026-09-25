@@ -10,7 +10,10 @@ Ausführlich: [`konzept.md`](konzept.md).
 
 - **kephalaion** — Produkt, Paket, Binary. Kurzform im Gespräch: Keph.
 - **serve** — `kephalaion serve`, der Dienst. Trägt die Rollen, die in der Konfiguration
-  stehen: `hub:`, `node:` oder beide in einem Prozess.
+  stehen: `hub:`, `node:` oder beide in einem Prozess. Keine eigene Rolle und kein eigener
+  Eintrag in der config, sondern der eine Aufruf, der nicht endet: Er lauscht auf Ports (MCP
+  für Clients, HTTP für Nodes), gleicht im Hintergrund ab und hält den Index warm. Alle
+  anderen Kommandos sind kurze Aufrufe und arbeiten ohne ihn direkt auf der Datenbank.
 - **config** — `~/.config/kephalaion/config.yaml`. Sagt nur, welche Rollen eingerichtet sind
   und wo ihre Datenbank liegt (`db:`). Alles andere steht in der Datenbank der Rolle.
   `kephalaion config show` zeigt sie samt den `settings` je Rolle.
