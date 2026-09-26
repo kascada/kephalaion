@@ -17,10 +17,10 @@ import (
 )
 
 // Accounts am Hub: Was sich abgleichen muss, steht in documents — je Account
-// und Collection eine Zeile SYSTEM:A:<name> mit dem Hash des Tokens und den
-// Rechten (contract.AccountContent). Was nur der Hub braucht, steht in der
-// Tabelle accounts: Beschreibung, gesperrt, die gemerkten Rechte eines
-// gesperrten Accounts, angelegt. Den Hash führt accounts maßgeblich und
+// und Collection eine Zeile SYSTEM:A:<name> mit dem Hash des Tokens, dem User
+// und den Rechten (contract.AccountContent). Was nur der Hub braucht, steht in
+// der Tabelle accounts: Beschreibung, gesperrt, die gemerkten Rechte eines
+// gesperrten Accounts, angelegt. Hash und User führt accounts maßgeblich und
 // immer, auch gesperrt und ohne Collection; die Zeilen tragen eine Kopie.
 //
 // Jede Änderung an den Zeilen ist ein Schreibvorgang mit Revision; eine Zeile
@@ -47,7 +47,9 @@ type AccountRight struct {
 
 // Account ist ein Account mit seinen Rechten.
 type Account struct {
-	Name        string
+	Name string
+	// User ist, wem der Account gehört; ohne Angabe beim Anlegen sein Name.
+	User        string
 	Description string
 	TokenHash   string
 	Locked      bool
@@ -68,7 +70,7 @@ type accountRow struct {
 func scanAccount(sc interface{ Scan(...any) error }) (accountRow, error) {
 	var a accountRow
 	var locked int64
-	if err := sc.Scan(&a.Name, &a.Description, &a.TokenHash, &locked, &a.lockedRights, &a.CreatedAt, &a.CreatedBy); err != nil {
+	if err := sc.Scan(&a.Name, &a.User, &a.Description, &a.TokenHash, &locked, &a.lockedRights, &a.CreatedAt, &a.CreatedBy); err != nil {
 		return accountRow{}, err
 	}
 	a.Locked = locked != 0
@@ -91,7 +93,11 @@ func getAccount(ctx context.Context, db sqlitedb.Querier, name string) (accountR
 }
 
 func readAccountRows(ctx context.Context, db sqlitedb.Querier) ([]accountRow, error) {
-	rows, err := db.QueryContext(ctx, q(queries.AccountsAll))
+	return queryAccountRows(ctx, db, queries.AccountsAll)
+}
+
+func queryAccountRows(ctx context.Context, db sqlitedb.Querier, query string, args ...any) ([]accountRow, error) {
+	rows, err := db.QueryContext(ctx, q(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("Accounts lesen: %w", err)
 	}
@@ -201,6 +207,22 @@ func (s *sqliteStore) Account(ctx context.Context, name string) (Account, error)
 
 func (s *sqliteStore) Accounts(ctx context.Context) ([]Account, error) {
 	return readAccounts(ctx, s.db)
+}
+
+func (s *sqliteStore) AccountsOfUser(ctx context.Context, user string) ([]Account, error) {
+	accounts, err := queryAccountRows(ctx, s.db, queries.AccountsOfUser, user)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Account, 0, len(accounts))
+	for _, a := range accounts {
+		acc, err := withRights(ctx, s.db, a)
+		if err != nil {
+			return nil, fmt.Errorf("Account %s: %w", a.Name, err)
+		}
+		out = append(out, acc)
+	}
+	return out, nil
 }
 
 // readAccounts liest alle Accounts samt Rechten: die lebenden Zeilen einmal
@@ -372,6 +394,9 @@ func lockedAccountsUsing(ctx context.Context, db sqlitedb.Querier, collection st
 // eine Revision, ein Zeitpunkt, eine Zeile in actions.
 type accountTx struct {
 	docTx
+	// by steht in created_by/updated_by der geschriebenen Zeilen: Admin für
+	// die CLI am Hub, bei rotate der User des Accounts.
+	by string
 }
 
 // writeAccount führt fn als einen Schreibvorgang am Account target aus und
@@ -400,7 +425,7 @@ func (s *sqliteStore) writeAccount(ctx context.Context, target, account, carrier
 			return fmt.Errorf("Account %s sperren: %w", target, err)
 		}
 	}
-	w := &accountTx{docTx{tx: tx, rev: &lazyRevision{tx: tx}, now: sqlitedb.NowMillis()}}
+	w := &accountTx{docTx: docTx{tx: tx, rev: &lazyRevision{tx: tx}, now: sqlitedb.NowMillis()}, by: Admin}
 	if err := fn(w); err != nil {
 		return err
 	}
@@ -447,11 +472,11 @@ func (w *accountTx) setRow(ctx context.Context, collection, account string, c co
 	switch {
 	case !found:
 		_, err = w.tx.ExecContext(ctx, q(queries.DocumentInsert),
-			ulid.Make().String(), collection, name, content, rev, w.now, Admin, w.now, Admin)
+			ulid.Make().String(), collection, name, content, rev, w.now, w.by, w.now, w.by)
 	case cur.Deleted:
-		_, err = w.tx.ExecContext(ctx, q(queries.AccountRowRevive), cur.ID, content, rev, w.now, Admin)
+		_, err = w.tx.ExecContext(ctx, q(queries.AccountRowRevive), cur.ID, content, rev, w.now, w.by)
 	default:
-		_, err = w.tx.ExecContext(ctx, q(queries.DocumentReplace), cur.ID, content, rev, w.now, Admin)
+		_, err = w.tx.ExecContext(ctx, q(queries.DocumentReplace), cur.ID, content, rev, w.now, w.by)
 	}
 	if err != nil {
 		return false, fmt.Errorf("%s in %s schreiben: %w", name, collection, err)
@@ -465,12 +490,22 @@ func (w *accountTx) deleteRow(ctx context.Context, d Document) error {
 	if err != nil {
 		return err
 	}
-	res, err := w.tx.ExecContext(ctx, q(queries.DocumentDelete), d.ID, rev, w.now, Admin)
+	res, err := w.tx.ExecContext(ctx, q(queries.DocumentDelete), d.ID, rev, w.now, w.by)
 	return mustAffect(res, err, d.Name+" in "+d.Collection)
 }
 
-func (s *sqliteStore) AddAccount(ctx context.Context, name, description string) (string, error) {
+// CheckUser prüft den User eines Accounts — dieselbe Prüfung für CLI und
+// Import: Namensregel wie Accounts, admin reserviert (Account und User der
+// CLI am Hub). Ein User darf wie ein Node oder ein anderer Account heißen.
+func CheckUser(user string) error {
+	return ident.CheckPrincipalName("User", user)
+}
+
+func (s *sqliteStore) AddAccount(ctx context.Context, name, user, description string) (string, error) {
 	if err := ident.CheckPrincipalName("Account", name); err != nil {
+		return "", err
+	}
+	if err := CheckUser(user); err != nil {
 		return "", err
 	}
 	token, err := ident.NewToken()
@@ -492,7 +527,7 @@ func (s *sqliteStore) AddAccount(ctx context.Context, name, description string) 
 			return err
 		}
 		_, err = w.tx.ExecContext(ctx, q(queries.AccountInsert),
-			name, nullable(description), ident.HashToken(token), 0, nil, w.now, Admin)
+			name, user, nullable(description), ident.HashToken(token), 0, nil, w.now, Admin)
 		return err
 	})
 	if err != nil {
@@ -501,12 +536,46 @@ func (s *sqliteStore) AddAccount(ctx context.Context, name, description string) 
 	return token, nil
 }
 
-func (s *sqliteStore) SetAccountDescription(ctx context.Context, name, description string) error {
-	return s.writeAccount(ctx, name, Admin, "", "account.set", name, func(w *accountTx) error {
-		if _, err := getAccount(ctx, w.tx, name); err != nil {
+// AccountChange sind die Änderungen von SetAccount; nil lässt das Feld.
+type AccountChange struct {
+	Description *string
+	User        *string
+}
+
+func (s *sqliteStore) SetAccount(ctx context.Context, name string, ch AccountChange) error {
+	if ch.Description == nil && ch.User == nil {
+		return errors.New("nichts zu ändern")
+	}
+	if ch.User != nil {
+		if err := CheckUser(*ch.User); err != nil {
 			return err
 		}
-		_, err := w.tx.ExecContext(ctx, q(queries.AccountSetDesc), name, nullable(description))
+	}
+	return s.writeAccount(ctx, name, Admin, "", "account.set", name, func(w *accountTx) error {
+		a, err := getAccount(ctx, w.tx, name)
+		if err != nil {
+			return err
+		}
+		if ch.Description != nil {
+			if _, err := w.tx.ExecContext(ctx, q(queries.AccountSetDesc), name, nullable(*ch.Description)); err != nil {
+				return err
+			}
+		}
+		if ch.User == nil || *ch.User == a.User {
+			return nil
+		}
+		if _, err := w.tx.ExecContext(ctx, q(queries.AccountSetUser), name, *ch.User); err != nil {
+			return err
+		}
+		// Gesperrt sind alle Zeilen Löschmarken und bleiben es; unlock legt
+		// sie mit dem User aus accounts an. Ohne Sperre ändern sich alle
+		// lebenden Zeilen, Löschmarken bleiben — auch die in entfernten
+		// Collections.
+		rows, err := liveAccountRows(ctx, w.tx, name)
+		if err != nil {
+			return err
+		}
+		_, err = w.rewriteRows(ctx, name, a.TokenHash, *ch.User, rows)
 		return err
 	})
 }
@@ -568,7 +637,7 @@ func (w *accountTx) unlock(ctx context.Context, a accountRow) error {
 		if err := requireCollection(ctx, w.tx, r.Collection); err != nil {
 			return fmt.Errorf("Account %s: %w", a.Name, err)
 		}
-		if _, err := w.setRow(ctx, r.Collection, a.Name, contract.AccountContent{Hash: a.TokenHash, Rights: r.Rights}); err != nil {
+		if _, err := w.setRow(ctx, r.Collection, a.Name, contract.AccountContent{Hash: a.TokenHash, User: a.User, Rights: r.Rights}); err != nil {
 			return err
 		}
 	}
@@ -576,28 +645,29 @@ func (w *accountTx) unlock(ctx context.Context, a accountRow) error {
 	return err
 }
 
-// setHash schreibt einen neuen Hash in accounts und alle lebenden Zeilen und
-// liefert die Zeilen danach.
-func (w *accountTx) setHash(ctx context.Context, name, hash string) ([]Document, error) {
-	if _, err := w.tx.ExecContext(ctx, q(queries.AccountSetToken), name, hash); err != nil {
+// setHash schreibt einen neuen Hash in accounts und alle lebenden Zeilen des
+// Accounts a und liefert die Zeilen danach.
+func (w *accountTx) setHash(ctx context.Context, a accountRow, hash string) ([]Document, error) {
+	if _, err := w.tx.ExecContext(ctx, q(queries.AccountSetToken), a.Name, hash); err != nil {
 		return nil, err
 	}
-	rows, err := liveAccountRows(ctx, w.tx, name)
+	rows, err := liveAccountRows(ctx, w.tx, a.Name)
 	if err != nil {
 		return nil, err
 	}
-	return w.setRowsHash(ctx, name, hash, rows)
+	return w.rewriteRows(ctx, a.Name, hash, a.User, rows)
 }
 
-// setRowsHash schreibt einen neuen Hash in die lebenden Zeilen rows eines
-// Accounts und liefert die Zeilen danach.
-func (w *accountTx) setRowsHash(ctx context.Context, name, hash string, rows []Document) ([]Document, error) {
+// rewriteRows schreibt Hash und User in die lebenden Zeilen rows eines
+// Accounts — die Rechte bleiben — und liefert die Zeilen danach. Eine Zeile,
+// die schon genau so lautet, bleibt unberührt.
+func (w *accountTx) rewriteRows(ctx context.Context, name, hash, user string, rows []Document) ([]Document, error) {
 	m, err := rowRights(rows)
 	if err != nil {
 		return nil, err
 	}
 	for _, d := range rows {
-		if _, err := w.setRow(ctx, d.Collection, name, contract.AccountContent{Hash: hash, Rights: m[d.Collection]}); err != nil {
+		if _, err := w.setRow(ctx, d.Collection, name, contract.AccountContent{Hash: hash, User: user, Rights: m[d.Collection]}); err != nil {
 			return nil, err
 		}
 	}
@@ -610,10 +680,11 @@ func (s *sqliteStore) NewAccountToken(ctx context.Context, name string) (string,
 		return "", err
 	}
 	err = s.writeAccount(ctx, name, Admin, "", "account.token", name, func(w *accountTx) error {
-		if _, err := getAccount(ctx, w.tx, name); err != nil {
+		a, err := getAccount(ctx, w.tx, name)
+		if err != nil {
 			return err
 		}
-		_, err := w.setHash(ctx, name, ident.HashToken(token))
+		_, err = w.setHash(ctx, a, ident.HashToken(token))
 		return err
 	})
 	if err != nil {
@@ -670,7 +741,7 @@ func (s *sqliteStore) GrantAccount(ctx context.Context, name, collection string,
 			_, err = w.tx.ExecContext(ctx, q(queries.AccountSetLocked), name, 1, saved)
 			return err
 		}
-		changed, err := w.setRow(ctx, collection, name, contract.AccountContent{Hash: a.TokenHash, Rights: rights})
+		changed, err := w.setRow(ctx, collection, name, contract.AccountContent{Hash: a.TokenHash, User: a.User, Rights: rights})
 		if err != nil {
 			return err
 		}
@@ -741,6 +812,13 @@ func (s *sqliteStore) RotateAccount(ctx context.Context, name, oldHash, newHash,
 			// nichts zurück, weil nichts geschrieben ist.
 			return ErrAccountAuth
 		}
+		// Erst nach der Sperre lesen: der User bleibt, wie er ist, und steht
+		// in updated_by der Zeilen; actions.account bleibt der Account.
+		a, err := getAccount(ctx, w.tx, name)
+		if err != nil {
+			return err
+		}
+		w.by = a.User
 		rows, err := liveAccountRows(ctx, w.tx, name)
 		if err != nil {
 			return err
@@ -748,7 +826,7 @@ func (s *sqliteStore) RotateAccount(ctx context.Context, name, oldHash, newHash,
 		if !slices.ContainsFunc(rows, func(d Document) bool { return slices.Contains(shared, d.Collection) }) {
 			return ErrNoSharedCollection
 		}
-		rows, err = w.setRowsHash(ctx, name, newHash, rows)
+		rows, err = w.rewriteRows(ctx, name, newHash, a.User, rows)
 		if err != nil {
 			return err
 		}
@@ -801,11 +879,11 @@ func (w *accountTx) replaceAccounts(ctx context.Context, accounts []Account) err
 			locked, saved = 1, enc
 		} else {
 			for c, r := range m {
-				want[key{c, a.Name}] = contract.AccountContent{Hash: a.TokenHash, Rights: r}
+				want[key{c, a.Name}] = contract.AccountContent{Hash: a.TokenHash, User: a.User, Rights: r}
 			}
 		}
 		if _, err := w.tx.ExecContext(ctx, q(queries.AccountInsert),
-			a.Name, nullable(a.Description), a.TokenHash, locked, saved, a.CreatedAt, a.CreatedBy); err != nil {
+			a.Name, a.User, nullable(a.Description), a.TokenHash, locked, saved, a.CreatedAt, a.CreatedBy); err != nil {
 			return fmt.Errorf("Account %s: %w", a.Name, err)
 		}
 	}

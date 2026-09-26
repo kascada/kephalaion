@@ -14,8 +14,8 @@ Kommandozeile. Dazu Dokumente am Hub (`hub doc`, `hub import`), der Vertrag
 über `transport local` oder `http` auf diesem Rechner (`node sync`, `node doc`). Accounts mit
 Rechten je Collection (`hub account …`), die ihr Token am Node tauschen (`node account
 rotate`), und `kephalaion serve`: der Hub für Nodes, der Node als MCP-Server mit dem Werkzeug
-`whoami` (Task 005). Noch nicht gebaut: `https` und `ssh`, der User am Account, Abgleich im
-Hintergrund, Suche und Schreiben über den Node. Die Überlegungen
+`whoami` (Task 005), dazu der User je Account (Task 006). Noch nicht gebaut: `https` und
+`ssh`, Abgleich im Hintergrund, Suche und Schreiben über den Node. Die Überlegungen
 entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
 Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
 
@@ -644,13 +644,13 @@ Generalschlüssel.
 **Einrichtung.** Collections und Accounts legt der Admin am Hub per Kommandozeile an; sie
 liegen in der Datenbank des Hubs, die Konfigurationsdatei enthält nur, was der Dienst zum
 Starten braucht. Ein Account — ein Zugang auf einem Rechner — bekommt Name, User,
-Kurzbeschreibung (`kephalaion hub account add <name> [--description …]`) und seine Rechte je
-Collection, gesetzt mit `kephalaion hub account grant <name> <collection> [--write]
+Kurzbeschreibung (`kephalaion hub account add <name> [--user …] [--description …]`) und seine
+Rechte je Collection, gesetzt mit `kephalaion hub account grant <name> <collection> [--write]
 [--supersede]` — `grant` setzt die Rechte der Collection vollständig, ohne `--write` wird
 `write` entzogen; `revoke` nimmt die Collection (umgesetzt in Task 005 statt `account add
---scope`). Der User (`--user`, ohne Angabe der Name des Accounts) ist entschieden, aber noch
-nicht gebaut. Ein
-Node bekommt einen Eintrag mit Name und Kurzbeschreibung (`kephalaion hub node add <name>`)
+--scope`). Der User (`--user`, ohne Angabe der Name des Accounts; ändern mit `hub account set
+--user`) ist mit Task 006 gebaut. Ein Node bekommt einen Eintrag mit Name und
+Kurzbeschreibung (`kephalaion hub node add <name>`)
 und die Collections, die er abgleichen darf (`kephalaion hub node grant <node>
 <collection>`). In beiden Fällen erzeugt der Hub ein Token, zeigt es einmal an und speichert
 nur den Hash. Das Token wird vorerst von Hand übergeben. Ein Node trägt sein Token in seine
@@ -1092,9 +1092,9 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
     `(collection, name)` sichert die Eindeutigkeit.
   - `content` = Hash des Tokens, der User und die Rechte in *dieser* Collection, etwa
     `{"hash": "…", "user": "kleist", "rights": {"write": true, "supersede": false}}`; `read`
-    ergibt sich aus der Zeile selbst. **Stand Task 005:** gebaut ist `{"hash": …, "rights":
-    …}` ohne `user` (Form in [`vertrag.md`](vertrag.md), „Account-Zeilen“); `accounts` hat noch
-    keine Spalte für den User.
+    ergibt sich aus der Zeile selbst (Form in [`vertrag.md`](vertrag.md), „Account-Zeilen“;
+    gebaut mit Task 006). `accounts` führt den User maßgeblich in der Spalte `"user"` —
+    in Anführungszeichen, weil `user` in PostgreSQL reserviert ist — mit Index `accounts_user`.
   - Der User steht in jeder Zeile des Accounts; ändert der Admin ihn, ändern sich alle Zeilen
     in einer Transaktion, wie bei `rotate`. Vorhandene Dokumente behalten ihren User. Alle
     Accounts eines Users findet der Admin über die Daten, die nur der Hub über Accounts führt

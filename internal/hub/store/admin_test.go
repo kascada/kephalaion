@@ -257,7 +257,7 @@ func TestGrants(t *testing.T) {
 func TestNodeNameTakenByAccount(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	if _, err := s.AddAccount(ctx, "laptop", ""); err != nil {
+	if _, err := s.AddAccount(ctx, "laptop", "laptop", ""); err != nil {
 		t.Fatal(err)
 	}
 	_, err := s.AddNode(ctx, "laptop", "")

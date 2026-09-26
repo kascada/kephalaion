@@ -107,6 +107,14 @@ gebaut.
 - `README.md` (Beispiel mit `--user`), `docs/vertrag.md`, `docs/begriffe.md` nur wo nötig,
   `docs/fortschritt.md` abhaken.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — User am Hub | erledigt | 2026-09-26 | Spalte `"user"` (quotiert, PostgreSQL) mit Index `accounts_user`, Hub-Schema 5; `add`/`set --user`, `list --user`, `show`; Zeilen `{hash,user,rights}`; `rotate` schreibt `updated_by` = User; Export Format 5 (`user` Pflicht, Prüfung am YAML-Knoten), Format 4 → User = Name; `sqlq.Check` weist `user` ohne Anführungszeichen ab |
+| 2 — Vertrag und Node | erledigt | 2026-09-26 | `AccountContent.User` (Pflicht beim Lesen, Zeile ohne `user` zählt nicht), `AccountStatus.User` nur bei `valid`; `mcpnode.Login`/`HubLogin` mit User; `node account rotate`/`check` nennen ihn; Tests über local, HTTP, MCP und `serve` (set --user → sync → whoami) |
+| 3 — Doku | erledigt | 2026-09-26 | README (Beispiel mit `--user`, Format 5), `vertrag.md` (`user` in `whoami`, `rotate`, Account-Zeilen; Fassung bleibt 1), `begriffe.md` (account, user), `fortschritt.md` abgehakt; dazu `konzept.md` (veraltete „noch nicht gebaut“-Stellen) und `k-playbook-local/k-playbook.md` (Regeln zu `"user"`, Accounts, Import) |
+
 ---
 ## Review-Log (2026-09-26)
 
@@ -168,3 +176,86 @@ gebaut, da Dokumente noch nicht geschrieben werden.
 
 ### Offen (nicht gefixt)
 - —
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** Jeder Account am Hub trägt einen User: Spalte `"user"` mit Index `accounts_user` (Hub-Schema 5) und in jeder `SYSTEM:A:`-Zeile. `hub account add|set --user`, `list --user` und `show` sind gebaut. `set --user` sperrt zuerst und schreibt nur die lebenden Zeilen unter einer Revision neu. `rotate` schreibt `updated_by` = User, `actions.account` bleibt der Account. `whoami` (`/v1/`, `local`, MCP) nennt den User nur bei gültiger Anmeldung; der Node liest ihn aus der Replica, eine Zeile ohne `user` zählt nicht. Export Format 5 mit `user` als Pflichtfeld, Import von Format 4 setzt ihn auf den Namen des Accounts. Die Doku ist nachgezogen.
+
+**Geänderte Dateien:**
+```
+ README.md                                 |  25 ++-
+ cmd/kephalaion/accountcmd.go              |  67 ++++++--
+ cmd/kephalaion/accountcmd_test.go         |  36 +++-
+ cmd/kephalaion/configcmd.go               |   9 +-
+ cmd/kephalaion/configcmd_test.go          |   4 +-
+ cmd/kephalaion/configimport_test.go       | 109 ++++++++++--
+ cmd/kephalaion/exportfile.go              | 102 +++++++++---
+ cmd/kephalaion/mcp_test.go                |  15 +-
+ cmd/kephalaion/nodeaccount_test.go        |  29 +++-
+ cmd/kephalaion/nodeaccountcmd.go          |  19 ++-
+ docs/begriffe.md                          |  17 +-
+ docs/fortschritt.md                       |   9 +-
+ docs/konzept.md                           |  20 +--
+ docs/vertrag.md                           |  33 +++-
+ internal/contract/account.go              |  15 +-
+ internal/contract/contract.go             |  12 +-
+ internal/contract/contract_test.go        |  27 +++
+ internal/hub/replication/accounts_test.go |  27 ++-
+ internal/hub/replication/replication.go   |   6 +-
+ internal/hub/store/accounts.go            | 146 ++++++++++++----
+ internal/hub/store/accounts_test.go       | 268 ++++++++++++++++++++++++++----
+ internal/hub/store/admin.go               |  11 +-
+ internal/hub/store/admin_test.go          |   2 +-
+ internal/hub/store/race_test.go           |  23 +--
+ internal/hub/store/store.go               |  38 ++++-
+ internal/node/mcpnode/mcpnode.go          |  26 ++-
+ internal/node/mcpnode/mcpnode_test.go     |  68 +++++++-
+ internal/node/replica/accounts_test.go    |   2 +-
+ internal/sqlq/sqlq.go                     |  13 +-
+ internal/sqlq/sqlq_test.go                |  12 +-
+ k-playbook-local/k-playbook.md            |  26 ++-
+ 31 files changed, 986 insertions(+), 230 deletions(-)
+```
+
+**Code-Änderungen (Kern):**
+```diff
++  "user"        TEXT NOT NULL,
++CREATE INDEX accounts_user ON accounts("user");
++	AccountSetUser:    `UPDATE accounts SET "user" = $2 WHERE name = $1`,
+```
+```diff
++		if ch.User == nil || *ch.User == a.User {
++			return nil
++		}
++		if _, err := w.tx.ExecContext(ctx, q(queries.AccountSetUser), name, *ch.User); err != nil {
+...
++		rows, err := liveAccountRows(ctx, w.tx, name)
++		_, err = w.rewriteRows(ctx, name, a.TokenHash, *ch.User, rows)
+```
+```diff
+ 		// RotateAccount, nach dem bedingten AccountRotate:
++		a, err := getAccount(ctx, w.tx, name)
++		w.by = a.User
++		rows, err = w.rewriteRows(ctx, name, newHash, a.User, rows)
+```
+```diff
+ type AccountContent struct {
+ 	Hash   string `json:"hash"`
++	User   string `json:"user"`
+ 	Rights Rights `json:"rights"`
+ }
++	if c.User == "" {
++		return AccountContent{}, fmt.Errorf("Account-Zeile: user fehlt")
+```
+Außerdem: `accountTx.by` (Admin bzw. User) für `created_by`/`updated_by`. `store.CheckUser` ist gemeinsam für CLI und `CheckTables`. `checkAccountUsers` prüft `user` am YAML-Knoten (Format 5 Pflicht, nicht null; vor Format 5 nicht erlaubt). `sqlq.Check` weist `user` ohne Anführungszeichen ab. `mcpnode.Login`/`HubLogin` tragen `User`, `node account rotate|check` nennen ihn. `make check` ist grün.
+
+**Code-Review:**
+- Keine kritischen Befunde.
+- Vorschlag (Robustheit): Das Muster `bareUser` in `sqlq.Check` trifft auch ein `'user'` in einem String-Literal. Das ist derzeit folgenlos (keine solchen Literale), könnte später aber falsch anschlagen.
+- Hinweis: `mcpnode.Check` nimmt den User der ersten passenden Zeile. Das ist korrekt, solange der Hub alle Zeilen unter einer Revision schreibt; zwischen zwei Abgleichen in verschiedenen Collections ist das beim Node aber nicht garantiert. Bis zum nächsten Abgleich kann kurz der alte User erscheinen, was vertretbar ist.
+- Hinweis: `SetAccount` mit unverändertem User und nur `--description` schreibt keine Revision, aber eine `actions`-Zeile. Das stimmt mit dem bisherigen Verhalten von `set --description` überein.
+- Gut: `"user"` ist durchgehend quotiert (PostgreSQL reserviert), und `sqlq.Check` sichert das ab. Den User liest `rotate` erst nach der Sperre durch das bedingte Schreiben. `whoami` gibt ihn nur bei gültiger Anmeldung heraus, und Encode/Decode verlangen einen nicht-leeren User.
+
+**Beobachtungen (außerhalb des Tasks):** `docs/fortschritt.md` ist insgesamt veraltet (Stand/In Arbeit auf Task 004); nur der User-Punkt ist abgehakt. Weiter offen aus 007: `RemoveCollection` prüft ohne Sperre.

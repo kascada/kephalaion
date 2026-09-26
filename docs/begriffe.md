@@ -134,14 +134,17 @@ Ausführlich: [`konzept.md`](konzept.md).
   Automatisierung, Leseprozess). Name, Token, Rechte je Collection; gehört einem **user**.
   Liegt auf genau einem Rechner — eine Regel, die nicht geprüft wird; ein zweiter Rechner mit
   demselben Token verliert den Zugang beim ersten `rotate`. Am Hub
-  `kephalaion hub account add|list|show|set|rm|lock|unlock|grant|revoke|token`: Beschreibung,
-  gesperrt und den maßgeblichen Hash führt die lokale Tabelle **accounts**; die Rechte je
-  Collection stehen in den `SYSTEM:A:`-Zeilen, bei einem gesperrten Account gemerkt in
-  `accounts` (`locked_rights`). Name gemeinsam mit den Nodes eindeutig.
+  `kephalaion hub account add|list|show|set|rm|lock|unlock|grant|revoke|token`: User,
+  Beschreibung, gesperrt und den maßgeblichen Hash führt die lokale Tabelle **accounts**; die
+  Rechte je Collection stehen in den `SYSTEM:A:`-Zeilen, bei einem gesperrten Account gemerkt
+  in `accounts` (`locked_rights`). Name gemeinsam mit den Nodes eindeutig.
 - **user** (Nutzer) — wem ein Account gehört; ein Merkmal am Account wie ein Tag, ohne Token,
-  ohne Rechte, ohne Anmeldung. Setzt nur der Admin (`hub account add … --user`); ohne Angabe
-  der Name des Accounts. Steht in den `SYSTEM:A:`-Zeilen und in `created_by`/`updated_by` der
-  Dokumente. Ein User hat meist mehrere Accounts. Namensregel wie bei Accounts, nicht `admin`.
+  ohne Rechte, ohne Anmeldung. Setzt nur der Admin (`hub account add|set … --user`); ohne Angabe
+  der Name des Accounts. Steht in `accounts` (mit Index, `hub account list --user`), in den
+  `SYSTEM:A:`-Zeilen und in `created_by`/`updated_by` der Dokumente; `whoami` nennt ihn. Ein
+  User hat meist mehrere Accounts. Namensregel wie bei Accounts, nicht `admin`; er gehört nicht
+  zu den gemeinsamen Namen von Nodes und Accounts (`principal_names`) und darf wie ein Node
+  heißen.
 - **setup token** (Einrichtungstoken) — das Token, das `hub account add` und `hub account
   token` einmal anzeigen: das erste Token des Accounts. Sein erster Vorgang tauscht es per
   `rotate` gegen ein eigenes, danach ist es wertlos.

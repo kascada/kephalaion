@@ -7,9 +7,9 @@ Umsetzung er bekommt, entscheidet `cmd/kephalaion`: `local` ist ein Funktionsauf
 Prozess, `http` ist HTTP mit JSON (`internal/contract/httpapi`, siehe „HTTP“). Beide prüfen
 dasselbe; die Tests des Vertrags laufen gegen beide.
 
-Drei Vorgänge: `whoami` (wer bin ich, gilt dieser Account), `rotate` (Token eines Accounts
-ersetzen) und `sync` (Abgleich). Begriffe: [`begriffe.md`](begriffe.md); Hintergrund:
-[`konzept.md`](konzept.md), „Abgleich“ und „Authentifizierung“.
+Drei Vorgänge: `whoami` (wer bin ich, gilt dieser Account und wem gehört er), `rotate` (Token
+eines Accounts ersetzen) und `sync` (Abgleich). Begriffe: [`begriffe.md`](begriffe.md);
+Hintergrund: [`konzept.md`](konzept.md), „Abgleich“ und „Authentifizierung“.
 
 ## Fassung
 
@@ -17,6 +17,9 @@ Jede Anfrage nennt die Fassung des Nodes, jede Antwort die des Hubs. Fassung 1 i
 einzige. In Go ist sie ein Feld jeder Anfrage (`Version`), über HTTP steht sie im
 Pfad (`/v1/…`) und nicht im Body. Eine Fassung, die der Hub nicht kennt oder nicht bedient,
 beantwortet er mit `unsupported_version`, noch vor der Anmeldung.
+
+`user` in `whoami` und in den Account-Zeilen kam mit Task 006 ohne neue Fassung dazu: Es gibt
+keinen ausgelieferten Node mit Vertrag (v0.1.0 und v0.1.1 liegen vor Task 005).
 
 ## Anmeldung
 
@@ -55,7 +58,7 @@ Antwort:
 | Fassung | `version` | 1 |
 | Node | `node` | der Name des Nodes am Hub |
 | Erlaubte Collections | `allowed` | alle Collections, die der Node abgleichen darf, sortiert |
-| Account | `account` | nur mit Account-Teil: `{"account", "valid", "collections"}`. `valid` falsch heißt unbekannt, falsches Token oder gesperrt — dieselbe Antwort, kein Fehler. `collections` sind die Collections des Accounts, die dieser Node abgleichen darf, sortiert; leer, wenn `valid` falsch ist. |
+| Account | `account` | nur mit Account-Teil: `{"account", "valid", "user", "collections"}`. `valid` falsch heißt unbekannt, falsches Token oder gesperrt — dieselbe Antwort, kein Fehler. `user` ist der User des Accounts (aus `accounts`), nur wenn `valid` wahr ist, sonst leer (`""`). `collections` sind die Collections des Accounts, die dieser Node abgleichen darf, sortiert; leer, wenn `valid` falsch ist. |
 
 ## rotate
 
@@ -78,12 +81,16 @@ bedingten Schreiben in `accounts` (nur wenn das alte Token noch gilt und der Acc
 gesperrt ist) — so gelingt von zwei gleichzeitigen `rotate` mit demselben alten Token nur einer.
 Es ist ein Schreibvorgang mit
 einer Revision und genau einer Zeile in `actions` (`account` = der Account, `carrier` = der
-Node, `action` = `rotate`, `subject` = der Account). Fehlversuche stehen nicht in `actions`,
-nur im Log des Hubs (ohne Token).
+Node, `action` = `rotate`, `subject` = der Account). Der User bleibt, wie er ist: Der Hub
+liest ihn nach dem bedingten Schreiben in derselben Transaktion aus `accounts`; er steht im
+Inhalt der Zeilen und in ihrem `updated_by`. Fehlversuche stehen nicht in `actions`, nur im Log
+des Hubs (ohne Token).
 
 Antwort: `hub_id`, `version` und `rows` — die Account-Zeilen mit dem neuen Hash, beschränkt auf
-die Collections, die der Node abgleichen darf, nach Collection; Form wie bei `sync`. Alles, was
-die Antwort braucht, liest der Hub **vor** dem Commit; danach stellt er sie nur noch zusammen.
+die Collections, die der Node abgleichen darf, nach Collection; Form wie bei `sync`. Den User
+nennt der Inhalt jeder Zeile (`user`, siehe „Account-Zeilen“); der Node übernimmt die Zeilen
+samt User in seine Replica. Alles, was die Antwort braucht, liest der Hub **vor** dem Commit;
+danach stellt er sie nur noch zusammen.
 
 **Nicht wiederholbar.** Nach einem erfolgreichen `rotate` gilt das alte Token nicht mehr; ein
 zweiter Versuch mit ihm scheitert. Ein Transport wiederholt `rotate` deshalb nie. Ist nach dem
@@ -179,10 +186,18 @@ Je Account und Collection steht in `documents` eine Zeile mit dem Namen `SYSTEM:
 Clients gegen sie. `content` ist JSON in genau dieser Form:
 
 ```json
-{"hash":"<sha256 des Tokens, 64 Zeichen hex>","rights":{"write":false,"supersede":false}}
+{"hash":"<sha256 des Tokens, 64 Zeichen hex>","user":"<user>","rights":{"write":false,"supersede":false}}
 ```
 
 - `hash` ist eine Kopie; maßgeblich führt der Hub den Hash in seiner Tabelle `accounts`.
+- `user` ist der User des Accounts, ebenfalls eine Kopie aus `accounts`; alle lebenden Zeilen
+  eines Accounts tragen denselben. Ändert der Admin ihn (`hub account set --user`), schreibt
+  der Hub alle lebenden Zeilen des Accounts unter **einer** Revision neu; Löschmarken bleiben.
+  Eine Zeile ohne `user` (oder mit leerem) ist ein Fehler dieser Zeile: Der Node zählt sie
+  nicht — der Account ist mit ihr nicht angemeldet —, ohne abzubrechen. Solche Zeilen stammen
+  von einem Hub vor Task 006; ein neu angelegter Hub hat eine neue `hub_id`, und der Node
+  verwirft die Replica beim nächsten Kontakt.
+- `created_by` ist `admin`; `updated_by` ist `admin`, nach `rotate` der User des Accounts.
 - `rights` sind die Rechte in dieser Collection über `read` hinaus; `read` ergibt sich aus der
   Zeile selbst. `write` und `supersede` sind unabhängig.
 - Sperren, Entziehen und Entfernen machen die Zeile zur Löschmarke (`content` NULL). Bekommt

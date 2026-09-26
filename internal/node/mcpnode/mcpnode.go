@@ -4,7 +4,8 @@
 // Node prüft es bei jeder Anfrage gegen die Account-Zeilen (SYSTEM:A:) der
 // Replica dieses Hubs — ohne Cache, die Datenbank ist die einzige Wahrheit.
 //
-// Werkzeuge: whoami. Transport und initialize gehen ohne Anmeldung; spätere
+// Werkzeuge: whoami (Account, User, Collections je Hub). Transport und
+// initialize gehen ohne Anmeldung; spätere
 // Werkzeuge verlangen eine gültige. Kein Token und kein Hash steht je in einer
 // Antwort.
 //
@@ -59,7 +60,7 @@ func NewHandler(nodes store.Store, version string) http.Handler {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "whoami",
 		Description: "Zeigt je Hub, für den dieser Client Zugangsdaten mitschickt, ob die Anmeldung gilt, " +
-			"und wenn ja den Account und seine Collections mit Rechten (read, write, supersede). " +
+			"und wenn ja den Account, seinen User und seine Collections mit Rechten (read, write, supersede). " +
 			"Ohne Argumente.",
 	}, n.whoami)
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
@@ -166,6 +167,9 @@ type Login struct {
 	Hub           string
 	Authenticated bool
 	Account       string
+	// User ist, wem der Account gehört, aus der Account-Zeile; nur wenn
+	// Authenticated gilt.
+	User string
 	// Rights sind die Rechte je Collection, nach Collection; nur wenn
 	// Authenticated gilt.
 	Rights []Right
@@ -181,7 +185,10 @@ type Right struct {
 // Zeilen des Accounts über den Index, sha256 des Tokens, Vergleich in
 // konstanter Zeit; ohne Zeile gegen einen Ersatz-Hash. Unbekannter Alias,
 // unbekannter Account, falsches Token und eine unvollständige Angabe ergeben
-// dasselbe: nicht angemeldet. Fehler sind nur Fehler der Datenbank.
+// dasselbe: nicht angemeldet. Eine Zeile, die sich nicht lesen lässt — etwa
+// ohne user, von einem Hub vor Task 006 —, zählt nicht. Der User ist der der
+// ersten passenden Zeile; der Hub schreibt ihn in alle Zeilen eines Accounts
+// unter einer Revision. Fehler sind nur Fehler der Datenbank.
 func (n *Node) Check(ctx context.Context, p HubHeader) (Login, error) {
 	out := Login{Hub: p.Alias}
 	hash := ident.HashToken(p.Token)
@@ -194,6 +201,7 @@ func (n *Node) Check(ctx context.Context, p HubHeader) (Login, error) {
 		return out, nil
 	}
 	var rights []Right
+	user := ""
 	for _, row := range rows {
 		if row.Content == nil {
 			continue
@@ -204,12 +212,15 @@ func (n *Node) Check(ctx context.Context, p HubHeader) (Login, error) {
 		}
 		if subtle.ConstantTimeCompare([]byte(hash), []byte(c.Hash)) == 1 {
 			rights = append(rights, Right{Collection: row.Collection, Rights: c.Rights})
+			if user == "" {
+				user = c.User
+			}
 		}
 	}
 	if !p.Complete || len(rights) == 0 {
 		return out, nil
 	}
-	out.Authenticated, out.Account, out.Rights = true, p.Account, rights
+	out.Authenticated, out.Account, out.User, out.Rights = true, p.Account, user, rights
 	return out, nil
 }
 
@@ -248,6 +259,8 @@ type HubLogin struct {
 	Hub           string `json:"hub"`
 	Authenticated bool   `json:"authenticated"`
 	Account       string `json:"account,omitempty"`
+	// User nur bei gültiger Anmeldung.
+	User string `json:"user,omitempty"`
 	// Collections nur bei gültiger Anmeldung.
 	Collections []CollectionRights `json:"collections,omitempty"`
 }
@@ -271,7 +284,7 @@ func (n *Node) whoami(ctx context.Context, req *mcp.CallToolRequest, _ struct{})
 		if err != nil {
 			return nil, WhoamiOutput{}, fmt.Errorf("Hub %s: Replica nicht lesbar", p.Alias)
 		}
-		hl := HubLogin{Hub: login.Hub, Authenticated: login.Authenticated, Account: login.Account}
+		hl := HubLogin{Hub: login.Hub, Authenticated: login.Authenticated, Account: login.Account, User: login.User}
 		if !login.Authenticated {
 			lines = append(lines, fmt.Sprintf("%s: nicht angemeldet", login.Hub))
 			out.Hubs = append(out.Hubs, hl)
@@ -284,7 +297,8 @@ func (n *Node) whoami(ctx context.Context, req *mcp.CallToolRequest, _ struct{})
 				Address: ident.Address(login.Hub, r.Collection), Rights: rights})
 			parts = append(parts, fmt.Sprintf("%s (%s)", ident.Address(login.Hub, r.Collection), r.Rights))
 		}
-		lines = append(lines, fmt.Sprintf("%s: angemeldet als %s; %s", login.Hub, login.Account, strings.Join(parts, ", ")))
+		lines = append(lines, fmt.Sprintf("%s: angemeldet als %s (User %s); %s", login.Hub, login.Account, login.User,
+			strings.Join(parts, ", ")))
 		out.Hubs = append(out.Hubs, hl)
 	}
 	text := "Keine Zugangsdaten: Der Client schickt für keinen Hub X-Keph-Account-<hub> und X-Keph-Token-<hub>."

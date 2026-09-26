@@ -74,9 +74,9 @@ type Tables struct {
 
 // CheckTables prüft lokale Tabellen ohne Datenbank, wie die CLI es beim
 // Anlegen tut: Namensregel, Eindeutigkeit (Nodes und Accounts gemeinsam),
-// Form des Hashes, Rechte nur auf vorhandene Nodes und Collections. Was die
-// Datenbank braucht (Dokumente in wegfallenden Collections), prüft Import in
-// der Transaktion.
+// User je Account (CheckUser), Form des Hashes, Rechte nur auf vorhandene
+// Nodes und Collections. Was die Datenbank braucht (Dokumente in
+// wegfallenden Collections), prüft Import in der Transaktion.
 func CheckTables(t Tables) error {
 	colls := map[string]bool{}
 	for _, c := range t.Collections {
@@ -139,6 +139,9 @@ func CheckTables(t Tables) error {
 		}
 		if a.CreatedBy == "" {
 			return fmt.Errorf("Account %s: created_by fehlt", a.Name)
+		}
+		if err := CheckUser(a.User); err != nil {
+			return fmt.Errorf("Account %s: %w", a.Name, err)
 		}
 		accounts[a.Name] = true
 		seen := map[string]bool{}
@@ -587,7 +590,7 @@ func (s *sqliteStore) Import(ctx context.Context, settings map[string]string, ta
 	if _, err := tx.ExecContext(ctx, q(queries.AccountsLockAll)); err != nil {
 		return fmt.Errorf("Accounts sperren: %w", err)
 	}
-	w := &accountTx{docTx{tx: tx, rev: &lazyRevision{tx: tx}, now: sqlitedb.NowMillis()}}
+	w := &accountTx{docTx: docTx{tx: tx, rev: &lazyRevision{tx: tx}, now: sqlitedb.NowMillis()}, by: Admin}
 	if tables != nil {
 		if err := checkImport(ctx, tx, *tables); err != nil {
 			return err

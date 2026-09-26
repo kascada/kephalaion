@@ -26,7 +26,7 @@ const Role = string(config.Hub)
 // SchemaVersion ist die Schemafassung, die dieses Binary erwartet. Es gibt
 // noch keine Migrationen: Passt die Fassung nicht, ist die Datenbank neu
 // anzulegen.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 // Zeilen in db_info, die nur der Hub hat.
 const (
@@ -84,11 +84,20 @@ type Store interface {
 
 	// Accounts liest alle Accounts samt ihren Rechten, nach Name.
 	Accounts(ctx context.Context) ([]Account, error)
+	// AccountsOfUser liest die Accounts eines Users samt Rechten, nach Name —
+	// über den Index auf accounts."user".
+	AccountsOfUser(ctx context.Context, user string) ([]Account, error)
 	Account(ctx context.Context, name string) (Account, error)
 	// AddAccount legt einen Account ohne Collections an und liefert sein
-	// Einrichtungstoken. Gespeichert wird nur der Hash.
-	AddAccount(ctx context.Context, name, description string) (token string, err error)
-	SetAccountDescription(ctx context.Context, name, description string) error
+	// Einrichtungstoken. Gespeichert wird nur der Hash. user ist der User des
+	// Accounts (Namensregel wie Accounts, nicht admin); den Vorgabewert — den
+	// Namen des Accounts — setzt der Aufrufer.
+	AddAccount(ctx context.Context, name, user, description string) (token string, err error)
+	// SetAccount ändert Beschreibung und/oder User eines Accounts in einem
+	// Schreibvorgang. Ein neuer User steht danach in accounts und in allen
+	// lebenden Zeilen des Accounts, unter einer Revision; Löschmarken und
+	// Dokumente bleiben unberührt.
+	SetAccount(ctx context.Context, name string, change AccountChange) error
 	// SetAccountLocked sperrt einen Account — seine Zeilen werden
 	// Löschmarken, die Rechte merkt sich accounts — oder hebt die Sperre auf
 	// und legt die Zeilen neu an.
@@ -107,7 +116,8 @@ type Store interface {
 	RevokeAccount(ctx context.Context, name, collection string) error
 	// RotateAccount ersetzt den Hash des Tokens eines Accounts in accounts
 	// und allen seinen Zeilen, in einer Transaktion und unter einer
-	// Revision, mit einer Zeile rotate in actions (carrier ist der Node). Es
+	// Revision, mit einer Zeile rotate in actions (account ist der Account,
+	// carrier der Node); updated_by der Zeilen ist der User des Accounts. Es
 	// prüft in der Transaktion noch einmal, dass oldHash gilt und der Account
 	// nicht gesperrt ist (sonst ErrAccountAuth), und dass er mindestens eine
 	// der Collections in shared hat (sonst ErrNoSharedCollection, ohne
@@ -195,6 +205,7 @@ var queries = struct {
 	NodeCount      string
 
 	AccountsAll        string
+	AccountsOfUser     string
 	AccountGet         string
 	AccountLock        string
 	AccountsLockAll    string
@@ -202,6 +213,7 @@ var queries = struct {
 	AccountCount       string
 	AccountInsert      string
 	AccountSetDesc     string
+	AccountSetUser     string
 	AccountSetLocked   string
 	AccountSetToken    string
 	AccountDelete      string
@@ -308,9 +320,14 @@ var queries = struct {
 	NodesDeleteAll: `DELETE FROM nodes`,
 	NodeCount:      `SELECT COUNT(*) FROM nodes WHERE name = $1`,
 
-	AccountsAll: `SELECT name, COALESCE(description, ''), token_hash, locked, COALESCE(locked_rights, ''),
+	// Die Spalte "user" steht immer in Anführungszeichen: user ist in
+	// PostgreSQL ein reserviertes Wort (sqlq.Check prüft das).
+	AccountsAll: `SELECT name, "user", COALESCE(description, ''), token_hash, locked, COALESCE(locked_rights, ''),
 		created_at, created_by FROM accounts ORDER BY name`,
-	AccountGet: `SELECT name, COALESCE(description, ''), token_hash, locked, COALESCE(locked_rights, ''),
+	// AccountsOfUser nutzt den Index accounts_user.
+	AccountsOfUser: `SELECT name, "user", COALESCE(description, ''), token_hash, locked, COALESCE(locked_rights, ''),
+		created_at, created_by FROM accounts WHERE "user" = $1 ORDER BY name`,
+	AccountGet: `SELECT name, "user", COALESCE(description, ''), token_hash, locked, COALESCE(locked_rights, ''),
 		created_at, created_by FROM accounts WHERE name = $1`,
 	AccountCount: `SELECT COUNT(*) FROM accounts WHERE name = $1`,
 	// AccountLock sperrt die Zeile eines Accounts schreibend, bevor sie
@@ -326,9 +343,10 @@ var queries = struct {
 	// Account nicht gesperrt ist. Von zwei rotate mit demselben alten Token
 	// trifft so nur eines.
 	AccountRotate: `UPDATE accounts SET token_hash = $2 WHERE name = $1 AND token_hash = $3 AND locked = 0`,
-	AccountInsert: `INSERT INTO accounts (name, description, token_hash, locked, locked_rights, created_at, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+	AccountInsert: `INSERT INTO accounts (name, "user", description, token_hash, locked, locked_rights, created_at, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 	AccountSetDesc:    `UPDATE accounts SET description = $2 WHERE name = $1`,
+	AccountSetUser:    `UPDATE accounts SET "user" = $2 WHERE name = $1`,
 	AccountSetLocked:  `UPDATE accounts SET locked = $2, locked_rights = $3 WHERE name = $1`,
 	AccountSetToken:   `UPDATE accounts SET token_hash = $2 WHERE name = $1`,
 	AccountDelete:     `DELETE FROM accounts WHERE name = $1`,
@@ -423,6 +441,7 @@ CREATE TABLE node_collections (
 );
 CREATE TABLE accounts (
   name          TEXT PRIMARY KEY,
+  "user"        TEXT NOT NULL,
   description   TEXT,
   token_hash    TEXT NOT NULL,
   locked        INTEGER NOT NULL DEFAULT 0,
@@ -430,6 +449,7 @@ CREATE TABLE accounts (
   created_at    INTEGER NOT NULL,
   created_by    TEXT NOT NULL
 );
+CREATE INDEX accounts_user ON accounts("user");
 CREATE TABLE principal_names (
   name        TEXT PRIMARY KEY,
   kind        TEXT NOT NULL

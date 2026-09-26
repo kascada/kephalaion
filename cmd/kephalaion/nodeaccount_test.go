@@ -39,7 +39,11 @@ func newCommEnv(t *testing.T) *commEnv {
 		e.run(t, "hub", "collection", "add", coll).want(t, 0)
 	}
 	for _, name := range []string{"alice", "bob", "carol"} {
-		r := e.run(t, "hub", "account", "add", name)
+		args := []string{"hub", "account", "add", name}
+		if name == "bob" {
+			args = append(args, "--user", "kleist")
+		}
+		r := e.run(t, args...)
 		r.want(t, 0)
 		e.tokens[name] = tokenFrom(t, r.out)
 	}
@@ -168,7 +172,7 @@ func TestAccountRotateBothTransports(t *testing.T) {
 	// alice über local, mit Datei.
 	file := e.tokenFile(t, "alice", e.tokens["alice"])
 	r := e.run(t, "node", "account", "rotate", "eigen", "alice", "--token-file", file)
-	r.want(t, 0, "Account alice: Token ersetzt", "Replica eigen: Account alice bekannt in team-x")
+	r.want(t, 0, "Account alice: Token ersetzt", "Replica eigen: Account alice bekannt in team-x (User alice).")
 	newAlice := readFileToken(t, file)
 	if newAlice == e.tokens["alice"] || strings.Contains(r.out, newAlice) {
 		t.Errorf("Datei nicht ersetzt oder Token angezeigt:\n%s", r.out)
@@ -188,11 +192,28 @@ func TestAccountRotateBothTransports(t *testing.T) {
 	// bob über http, mit stdin; bob hat team-x und privat, der Node will nur
 	// team-x.
 	r = e.runIn(t, e.tokens["bob"], "node", "account", "rotate", "fern", "bob", "--token-stdin")
-	r.want(t, 0, "Neues Token", "Replica fern: Account bob bekannt in team-x")
+	r.want(t, 0, "Neues Token", "Replica fern: Account bob bekannt in team-x (User kleist).")
 	newBob := tokenFrom(t, r.out)
 	if got := e.replicaAccount(t, "fern", "bob"); !slices.Equal(got, []string{"team-x"}) {
 		t.Errorf("bob in der Replica: %v", got)
 	}
+	// Der Node übernimmt den User aus der Antwort; updated_by ist der User.
+	func() {
+		rep, err := replica.Open(context.Background(), nodeStore(t, e.cfg).ReplicaPath("fern"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rep.Close()
+		rows, err := rep.AccountRows(context.Background(), "bob")
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("bob in der Replica: %+v, %v", rows, err)
+		}
+		c, err := contract.DecodeAccountContent(*rows[0].Content)
+		if err != nil || c.User != "kleist" || rows[0].UpdatedBy != "kleist" || rows[0].CreatedBy != "admin" {
+			t.Errorf("bob in der Replica: %+v, %+v, %v", rows[0], c, err)
+		}
+	}()
+	e.runIn(t, newBob, "node", "account", "check", "fern", "bob", "--token-stdin").want(t, 0, "gilt am Hub fern (User kleist)")
 	e.runIn(t, newBob, "node", "account", "check", "fern", "bob", "--token-stdin").want(t, 0, "privat, team-x")
 	// Das alte Token taugt nicht für einen zweiten rotate.
 	e.runIn(t, e.tokens["bob"], "node", "account", "rotate", "fern", "bob", "--token-stdin").
@@ -383,7 +404,7 @@ func TestAccountRotateLocalFailureAfterCommit(t *testing.T) {
 		t.Errorf("als eindeutig gemeldet:\n%s", r.out)
 	}
 	newCarol := tokenFrom(t, r.out)
-	e.runIn(t, newCarol, "node", "account", "check", "eigen", "carol", "--token-stdin").want(t, 0, "gilt am Hub eigen")
+	e.runIn(t, newCarol, "node", "account", "check", "eigen", "carol", "--token-stdin").want(t, 0, "gilt am Hub eigen (User carol)")
 	e.runIn(t, e.tokens["carol"], "node", "account", "check", "eigen", "carol", "--token-stdin").want(t, 1, "nicht")
 }
 

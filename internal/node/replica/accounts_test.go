@@ -15,7 +15,7 @@ import (
 
 func accountRow(t *testing.T, collection, account, token string, rev int64, r contract.Rights) contract.Row {
 	t.Helper()
-	content, err := contract.EncodeAccountContent(contract.AccountContent{Hash: ident.HashToken(token), Rights: r})
+	content, err := contract.EncodeAccountContent(contract.AccountContent{Hash: ident.HashToken(token), User: account, Rights: r})
 	if err != nil {
 		t.Fatal(err)
 	}

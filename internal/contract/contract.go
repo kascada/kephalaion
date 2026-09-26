@@ -78,10 +78,12 @@ type WhoamiResponse struct {
 }
 
 // AccountStatus sagt, ob ein Account gilt. Unbekannt, falsches Token und
-// gesperrt sind dieselbe Antwort: Valid false, keine Collections.
+// gesperrt sind dieselbe Antwort: Valid false, kein User, keine Collections.
 type AccountStatus struct {
 	Account string `json:"account"`
 	Valid   bool   `json:"valid"`
+	// User ist, wem der Account gehört; nur wenn Valid gilt, sonst leer.
+	User string `json:"user"`
 	// Collections sind die Collections des Accounts, die dieser Node
 	// abgleichen darf, sortiert; nur wenn Valid gilt.
 	Collections []string `json:"collections"`
@@ -103,12 +105,14 @@ type RotateRequest struct {
 }
 
 // RotateResponse liefert die Zeilen des Accounts nach dem Wechsel,
-// beschränkt auf die Collections, die der Node abgleichen darf.
+// beschränkt auf die Collections, die der Node abgleichen darf. Den User
+// nennt der Inhalt jeder Zeile (AccountContent).
 type RotateResponse struct {
 	HubID   string `json:"hub_id"`
 	Version int    `json:"version"`
-	// Rows sind die Account-Zeilen (SYSTEM:A:<account>) mit dem neuen Hash,
-	// je eine erlaubte Collection des Accounts, nach Collection.
+	// Rows sind die Account-Zeilen (SYSTEM:A:<account>) mit dem neuen Hash
+	// und dem User, je eine erlaubte Collection des Accounts, nach
+	// Collection; updated_by ist der User.
 	Rows []Row `json:"rows"`
 }
 

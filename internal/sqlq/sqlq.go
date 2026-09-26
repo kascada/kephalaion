@@ -7,6 +7,7 @@ package sqlq
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -54,8 +55,15 @@ var forbidden = []string{
 	"LAST_INSERT_ROWID",
 }
 
+// bareUser findet user als Bezeichner ohne Anführungszeichen. In PostgreSQL
+// ist user ein reserviertes Wort — unquotiert liefert es current_user statt
+// der Spalte —, in SQLite nicht. Eine Spalte user steht deshalb immer als
+// "user" da.
+var bareUser = regexp.MustCompile(`(?i)(^|[^"\w])user([^"\w]|$)`)
+
 // Check meldet, ob ein Abfragetext Konstrukte enthält, die nur einer der
-// beiden Dialekte versteht, oder rohe ?-Platzhalter an Bind vorbei.
+// beiden Dialekte versteht, rohe ?-Platzhalter an Bind vorbei oder user ohne
+// Anführungszeichen.
 func Check(query string) error {
 	upper := strings.ToUpper(strings.Join(strings.Fields(query), " "))
 	for _, f := range forbidden {
@@ -65,6 +73,9 @@ func Check(query string) error {
 	}
 	if strings.Contains(query, "?") {
 		return fmt.Errorf("enthält einen rohen ?-Platzhalter, erwartet $n: %s", query)
+	}
+	if bareUser.MatchString(query) {
+		return fmt.Errorf("enthält user ohne Anführungszeichen (in PostgreSQL reserviert), erwartet \"user\": %s", query)
 	}
 	return nil
 }

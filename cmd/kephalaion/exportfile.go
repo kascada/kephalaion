@@ -19,12 +19,15 @@ import (
 // hubs.node_name am Node; ein Hub-Eintrag ohne ihn scheitert beim Import an
 // derselben Prüfung wie node hub add ohne --node. Format 4 bringt die Accounts
 // des Hubs samt Rechten; ein Export vor Format 4 lässt die Accounts beim
-// Import, wie sie sind.
+// Import, wie sie sind. Format 5 bringt den User je Account, dort Pflicht; ein
+// Import von Format 4 setzt ihn auf den Namen des Accounts.
 const (
-	exportFormat    = 4
+	exportFormat    = 5
 	minExportFormat = 1
 	// accountsFormat ist die erste Fassung mit Accounts.
 	accountsFormat = 4
+	// userFormat ist die erste Fassung mit dem User je Account.
+	userFormat = 5
 )
 
 // exportFile ist der Inhalt einer Exportdatei: die config, die settings je
@@ -53,9 +56,12 @@ type hubTablesYAML struct {
 }
 
 // accountYAML ist ein Account im Export: die Zeile aus accounts und die
-// Rechte je Collection — bei einem gesperrten Account die gemerkten.
+// Rechte je Collection — bei einem gesperrten Account die gemerkten. User
+// ist ab Format 5 Pflicht und darf davor nicht dastehen; das prüft
+// parseExport am YAML-Knoten.
 type accountYAML struct {
 	Name        string      `yaml:"name"`
+	User        string      `yaml:"user"`
 	Description string      `yaml:"description"`
 	TokenHash   string      `yaml:"token_hash"`
 	Locked      bool        `yaml:"locked"`
@@ -129,7 +135,7 @@ func hubTablesToYAML(t hubstore.Tables) *hubTablesYAML {
 	}
 	out.Accounts = []accountYAML{}
 	for _, a := range t.Accounts {
-		y := accountYAML{Name: a.Name, Description: a.Description, TokenHash: a.TokenHash, Locked: a.Locked,
+		y := accountYAML{Name: a.Name, User: a.User, Description: a.Description, TokenHash: a.TokenHash, Locked: a.Locked,
 			CreatedAt: a.CreatedAt, CreatedBy: a.CreatedBy, Rights: []rightYAML{}}
 		for _, r := range a.Rights {
 			y.Rights = append(y.Rights, rightYAML{Collection: r.Collection, Write: r.Write, Supersede: r.Supersede})
@@ -140,12 +146,18 @@ func hubTablesToYAML(t hubstore.Tables) *hubTablesYAML {
 }
 
 // toStore liefert die Tabellen für den Import. Vor Format 4 gibt es keine
-// Accounts im Export; der Import lässt sie dann, wie sie sind.
+// Accounts im Export; der Import lässt sie dann, wie sie sind. Vor Format 5
+// ist der User der Name des Accounts; ab Format 5 hat parseExport geprüft,
+// dass er dasteht (leer oder ungültig prüft hubstore.CheckTables).
 func (y *hubTablesYAML) toStore(format int) hubstore.Tables {
 	t := hubstore.Tables{Collections: []hubstore.Collection{}, Nodes: []hubstore.Node{}, Grants: []hubstore.Grant{},
 		Accounts: []hubstore.Account{}, KeepAccounts: format < accountsFormat}
 	for _, a := range y.Accounts {
-		acc := hubstore.Account{Name: a.Name, Description: a.Description, TokenHash: a.TokenHash, Locked: a.Locked,
+		user := a.Name
+		if format >= userFormat {
+			user = a.User
+		}
+		acc := hubstore.Account{Name: a.Name, User: user, Description: a.Description, TokenHash: a.TokenHash, Locked: a.Locked,
 			CreatedAt: a.CreatedAt, CreatedBy: a.CreatedBy, Rights: []hubstore.AccountRight{}}
 		for _, r := range a.Rights {
 			acc.Rights = append(acc.Rights, hubstore.AccountRight{Collection: r.Collection,
@@ -282,36 +294,78 @@ func parseExport(data []byte) (exportFile, error) {
 			}
 		}
 	}
+	if err := checkAccountUsers(&root, exp.Format); err != nil {
+		return exportFile{}, err
+	}
 	return exp, nil
 }
 
-// hasPart sagt, ob der Schlüssel unter path im Export steht, mit welchem
-// Wert auch immer (null eingeschlossen).
-func hasPart(root *yaml.Node, path ...string) bool {
+// checkAccountUsers prüft den User je Account gegen die Fassung, am
+// YAML-Knoten, denn null decodiert wie ein fehlender Wert: Ab Format 5 muss
+// user dastehen und darf nicht null sein; davor darf er nicht dastehen, in
+// keiner Form. Leer, ungültig oder admin prüft hubstore.CheckTables —
+// dieselbe Prüfung wie die CLI.
+func checkAccountUsers(root *yaml.Node, format int) error {
+	accounts := partNode(root, "tables", "hub", "accounts")
+	if accounts == nil || accounts.Kind != yaml.SequenceNode {
+		return nil
+	}
+	for i, item := range accounts.Content {
+		if item.Kind == yaml.AliasNode {
+			item = item.Alias
+		}
+		user := mappingValue(item, "user")
+		switch {
+		case format >= userFormat && user == nil:
+			return fmt.Errorf("tables.hub.accounts[%d]: user fehlt; ab Format %d ist er Pflicht", i, userFormat)
+		case format >= userFormat && user.Kind == yaml.ScalarNode && user.ShortTag() == "!!null":
+			return fmt.Errorf("tables.hub.accounts[%d]: user ist null; ab Format %d ist er Pflicht", i, userFormat)
+		case format < userFormat && user != nil:
+			return fmt.Errorf("Format %d kennt keinen User (tables.hub.accounts[%d].user)", format, i)
+		}
+	}
+	return nil
+}
+
+// partNode liefert den Knoten unter path, oder nil, wenn er fehlt.
+func partNode(root *yaml.Node, path ...string) *yaml.Node {
 	n := root
 	if n.Kind == yaml.DocumentNode && len(n.Content) == 1 {
 		n = n.Content[0]
 	}
 	for _, key := range path {
-		if n.Kind == yaml.AliasNode {
-			n = n.Alias
+		if n = mappingValue(n, key); n == nil {
+			return nil
 		}
-		if n.Kind != yaml.MappingNode {
-			return false
-		}
-		var next *yaml.Node
-		for j := 0; j+1 < len(n.Content); j += 2 {
-			if n.Content[j].Value == key {
-				next = n.Content[j+1]
-				break
-			}
-		}
-		if next == nil {
-			return false
-		}
-		n = next
 	}
-	return true
+	return n
+}
+
+// mappingValue liefert den Wert zu key in einer Mapping, Aliase aufgelöst,
+// oder nil.
+func mappingValue(n *yaml.Node, key string) *yaml.Node {
+	if n.Kind == yaml.AliasNode {
+		n = n.Alias
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil
+	}
+	for j := 0; j+1 < len(n.Content); j += 2 {
+		if n.Content[j].Value == key {
+			v := n.Content[j+1]
+			if v.Kind == yaml.AliasNode {
+				v = v.Alias
+			}
+			return v
+		}
+	}
+	return nil
+}
+
+// hasPart sagt, ob der Schlüssel unter path im Export steht, mit welchem
+// Wert auch immer (null eingeschlossen).
+func hasPart(root *yaml.Node, path ...string) bool {
+	return partNode(root, path...) != nil
 }
 
 // requirePart prüft, dass der Teil unter path im Export steht und nicht null

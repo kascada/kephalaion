@@ -153,11 +153,12 @@ Namen. Die Hilfe zeigt alle Kommandos: `kephalaion hub node --help`,
 `kephalaion node hub --help`.
 
 `config export` sichert auch die Collections, Nodes und Accounts (nur mit Hash, Accounts samt
-Rechten je Collection) und die Hubs des Nodes samt ihrem Token im Klartext — die Datei entsteht
-deshalb mit `0600`. Das Exportformat ist 4 (`format: 4`). `config import` gleicht am Hub die
-Account-Zeilen an den Export an; ein Export vor Format 4 lässt die Accounts unberührt, einer im
-Format 1 ersetzt nur die `settings`, einer im Format 2 geht nur, wenn er am Node keine
-Hub-Einträge enthält — ihnen fehlt `node_name`. Dokumente und Replicas gehören nicht zum
+User und Rechten je Collection) und die Hubs des Nodes samt ihrem Token im Klartext — die Datei
+entsteht deshalb mit `0600`. Das Exportformat ist 5 (`format: 5`), `user` je Account ist dort
+Pflicht. `config import` gleicht am Hub die Account-Zeilen an den Export an; ein Export im
+Format 4 setzt den User jedes Accounts auf dessen Namen, einer vor Format 4 lässt die Accounts
+unberührt, einer im Format 1 ersetzt nur die `settings`, einer im Format 2 geht nur, wenn er am
+Node keine Hub-Einträge enthält — ihnen fehlt `node_name`. Dokumente und Replicas gehören nicht zum
 Export.
 
 ### Accounts
@@ -167,8 +168,16 @@ Einrichtungstoken einmal und speichert nur den Hash; die Rechte gelten je Collec
 immer, dazu wahlweise `write` (Eigenes anlegen, ändern, löschen) und `supersede` (Fremdes
 ändern, ablösen, löschen).
 
+Jeder Account gehört einem **User** — ein Merkmal, kein Zugang: kein Token, keine Rechte. Wer
+auf zwei Rechnern je eine KI-Sitzung hat, hat zwei Accounts und einen User. Ohne `--user` ist
+der User der Name des Accounts (etwa für eine Automatisierung). Der User steht in
+`created_by`/`updated_by` dessen, was der Account schreibt; `admin` ist reserviert.
+
 ```sh
-kephalaion hub account add alice --description "Alice"     # zeigt das Einrichtungstoken einmal
+kephalaion hub account add alice --user maria --description "Laptop"  # zeigt das Einrichtungstoken einmal
+kephalaion hub account add alice-vm --user maria           # zweiter Account desselben Users
+kephalaion hub account list --user maria
+kephalaion hub account set alice-vm --user bob             # alle Zeilen des Accounts, eine Revision
 kephalaion hub account grant alice team-x                  # read
 kephalaion hub account grant alice team-x --write          # setzt vollständig: read, write
 kephalaion hub account grant alice team-x                  # und wieder nur read
@@ -243,8 +252,8 @@ export KEPH_TOKEN="$(cat ~/.config/kephalaion/alice.token)"
 
 Für mehrere Hubs steht je Hub ein Paar darin. Der Node prüft das Paar bei jeder Anfrage gegen
 die Account-Zeilen seiner Replica, ohne Cache; `initialize` geht ohne Anmeldung. Das Werkzeug
-`whoami` zeigt je Hub, ob die Anmeldung gilt, und wenn ja Account, Collections und Rechte —
-nie ein Token. Ein gesperrter Account gilt am Node nach dem nächsten `node sync` nicht mehr.
+`whoami` zeigt je Hub, ob die Anmeldung gilt, und wenn ja Account, User, Collections und
+Rechte — nie ein Token. Ein gesperrter Account gilt am Node nach dem nächsten `node sync` nicht mehr.
 Der Node lehnt Anfragen mit fremdem `Host` oder fremder `Origin` mit 403 ab (Schutz gegen
 DNS-Rebinding aus dem Browser).
 

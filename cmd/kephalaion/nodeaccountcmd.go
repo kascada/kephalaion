@@ -250,8 +250,22 @@ func (c *command) accountRotate(ctx context.Context, s nodestore.Store, cfg conf
 			"Wünschen mit: kephalaion node collection add %s:<collection>\n", joinOrNone(offered), h.Name)
 		return nil
 	}
-	fmt.Fprintf(c.stdout, "Replica %s: Account %s bekannt in %s.\n", h.Name, account, strings.Join(written, ", "))
+	fmt.Fprintf(c.stdout, "Replica %s: Account %s bekannt in %s%s.\n", h.Name, account, strings.Join(written, ", "), userNote(resp.Rows))
 	return nil
+}
+
+// userNote nennt den User aus den Zeilen, die rotate geliefert hat — „ (User
+// kleist)“ —, oder nichts, wenn keine Zeile ihn lesbar trägt.
+func userNote(rows []contract.Row) string {
+	for _, r := range rows {
+		if r.Content == nil {
+			continue
+		}
+		if c, err := contract.DecodeAccountContent(*r.Content); err == nil {
+			return " (User " + c.User + ")"
+		}
+	}
+	return ""
 }
 
 // whoamiAccount fragt den Hub, ob ein Token für den Account gilt.
@@ -292,7 +306,8 @@ func (c *command) accountCheck(ctx context.Context, _ nodestore.Store, cfg confi
 	}
 	defer closeHub()
 	valid := func(st *contract.AccountStatus) string {
-		return fmt.Sprintf("Account %s gilt am Hub %s; Collections dieses Nodes: %s", account, h.Name, joinOrNone(st.Collections))
+		return fmt.Sprintf("Account %s gilt am Hub %s (User %s); Collections dieses Nodes: %s", account, h.Name, st.User,
+			joinOrNone(st.Collections))
 	}
 
 	if !pending {

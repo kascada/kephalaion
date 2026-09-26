@@ -38,6 +38,15 @@ func token(t *testing.T) string {
 	return tok
 }
 
+// userOf ist der User eines Accounts im Test: bob an keph gehört kleist,
+// sonst ist der User der Name des Accounts.
+func userOf(alias, account string) string {
+	if alias == "keph" && account == "bob" {
+		return "kleist"
+	}
+	return account
+}
+
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	ctx := context.Background()
@@ -66,7 +75,7 @@ func newEnv(t *testing.T) *env {
 				t.Fatal(err)
 			}
 			content, err := contract.EncodeAccountContent(contract.AccountContent{
-				Hash: ident.HashToken(e.tokens[alias+"/"+g.account]), Rights: g.rights})
+				Hash: ident.HashToken(e.tokens[alias+"/"+g.account]), User: userOf(alias, g.account), Rights: g.rights})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -163,14 +172,17 @@ func TestWhoami(t *testing.T) {
 	e := newEnv(t)
 	bob := e.tokens["keph/bob"]
 	out, raw := e.whoami(t, pair("keph", "bob", bob))
-	want := []HubLogin{{Hub: "keph", Authenticated: true, Account: "bob", Collections: []CollectionRights{
+	want := []HubLogin{{Hub: "keph", Authenticated: true, Account: "bob", User: "kleist", Collections: []CollectionRights{
 		{Collection: "privat", Address: "keph:privat", Rights: []string{"read"}},
 		{Collection: "team-x", Address: "keph:team-x", Rights: []string{"read", "write"}},
 	}}}
 	if !reflect.DeepEqual(out.Hubs, want) {
 		t.Errorf("bob: %+v", out.Hubs)
 	}
-	for _, secret := range []string{bob, ident.HashToken(bob), "keph_"} {
+	if !strings.Contains(raw, "angemeldet als bob (User kleist)") {
+		t.Errorf("Text ohne User:\n%s", raw)
+	}
+	for _, secret := range []string{bob, ident.HashToken(bob), "keph_", `"hash"`} {
 		if strings.Contains(raw, secret) {
 			t.Errorf("Antwort enthält %q:\n%s", secret, raw)
 		}
@@ -183,8 +195,9 @@ func TestWhoami(t *testing.T) {
 	if !reflect.DeepEqual(wrong.Hubs, no) || !reflect.DeepEqual(unknown.Hubs, no) || rawWrong != rawUnknown {
 		t.Errorf("falsch %+v, unbekannt %+v", wrong.Hubs, unknown.Hubs)
 	}
-	if strings.Contains(rawWrong, "bob") || strings.Contains(rawWrong, "dave") {
-		t.Errorf("Antwort nennt den vorgelegten Account:\n%s", rawWrong)
+	if strings.Contains(rawWrong, "bob") || strings.Contains(rawWrong, "dave") || strings.Contains(rawWrong, "kleist") ||
+		strings.Contains(rawWrong, `"user"`) {
+		t.Errorf("Antwort nennt den vorgelegten Account oder einen User:\n%s", rawWrong)
 	}
 
 	// Unbekannter Alias: nein für diesen Alias, kein Fehler; die anderen
@@ -195,8 +208,8 @@ func TestWhoami(t *testing.T) {
 	h["x-keph-token-team.x_y"] = []string{e.tokens["team.x_y/bob"]}
 	out, _ = e.whoami(t, h)
 	if len(out.Hubs) != 3 || out.Hubs[0].Hub != "fremd" || out.Hubs[0].Authenticated ||
-		out.Hubs[1].Hub != "keph" || out.Hubs[1].Account != "alice" || len(out.Hubs[1].Collections) != 1 ||
-		out.Hubs[2].Hub != "team.x_y" || !out.Hubs[2].Authenticated ||
+		out.Hubs[1].Hub != "keph" || out.Hubs[1].Account != "alice" || out.Hubs[1].User != "alice" || len(out.Hubs[1].Collections) != 1 ||
+		out.Hubs[2].Hub != "team.x_y" || !out.Hubs[2].Authenticated || out.Hubs[2].User != "bob" ||
 		!reflect.DeepEqual(out.Hubs[2].Collections[0].Rights, []string{"read", "supersede"}) {
 		t.Errorf("drei Hubs: %+v", out.Hubs)
 	}
@@ -271,5 +284,46 @@ func TestHubHeaders(t *testing.T) {
 	want := []HubHeader{{Alias: "doppelt", Account: "bob"}, {Alias: "my-hub", Account: "alice", Token: "keph_x", Complete: true}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("HubHeaders = %+v", got)
+	}
+}
+
+// Eine Account-Zeile ohne user — von einem Hub vor Task 006, bis der nächste
+// Abgleich die Replica verwirft — ist ein Fehler dieser Zeile: nicht
+// angemeldet, kein Absturz. Eine gültige Zeile daneben gilt weiter.
+func TestWhoamiRowWithoutUser(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	tok := token(t)
+	old := `{"hash":"` + ident.HashToken(tok) + `","rights":{"write":true,"supersede":false}}`
+	good, err := contract.EncodeAccountContent(contract.AccountContent{Hash: ident.HashToken(tok), User: "carl"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := func(collection, account, content string) contract.Row {
+		return contract.Row{ID: ulid.Make().String(), Collection: collection, Name: contract.AccountRowName(account),
+			Content: &content, Revision: 9, CreatedBy: "admin", UpdatedBy: "admin"}
+	}
+	h, err := e.nodes.Hub(ctx, "keph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := replica.Open(ctx, e.nodes.ReplicaPath("keph"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubID := rep.HubID()
+	_ = rep.Close()
+	rows := []contract.Row{row("team-x", "carl", old), row("team-x", "dora", old), row("privat", "dora", good)}
+	if _, _, err := replica.WriteAccountRows(ctx, e.nodes, h, hubID, rows); err != nil {
+		t.Fatal(err)
+	}
+	out, raw := e.whoami(t, pair("keph", "carl", tok))
+	if !reflect.DeepEqual(out.Hubs, []HubLogin{{Hub: "keph"}}) || !strings.Contains(raw, "keph: nicht angemeldet") {
+		t.Errorf("Zeile ohne user: %+v\n%s", out.Hubs, raw)
+	}
+	out, _ = e.whoami(t, pair("keph", "dora", tok))
+	if len(out.Hubs) != 1 || !out.Hubs[0].Authenticated || out.Hubs[0].User != "carl" || len(out.Hubs[0].Collections) != 1 ||
+		out.Hubs[0].Collections[0].Collection != "privat" {
+		t.Errorf("gültige Zeile neben einer ohne user: %+v", out.Hubs)
 	}
 }

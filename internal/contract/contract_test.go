@@ -75,3 +75,30 @@ func TestErrorIs(t *testing.T) {
 		t.Errorf("Fehler als JSON: %s, %v", b, err)
 	}
 }
+
+// Die Account-Zeile trägt hash, user und rights in genau dieser Form; ohne
+// user ist sie ein Fehler dieser Zeile.
+func TestAccountContent(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	s, err := EncodeAccountContent(AccountContent{Hash: hash, User: "kleist", Rights: Rights{Write: true}})
+	if err != nil || s != `{"hash":"`+hash+`","user":"kleist","rights":{"write":true,"supersede":false}}` {
+		t.Errorf("Inhalt = %s, %v", s, err)
+	}
+	if _, err := EncodeAccountContent(AccountContent{Hash: hash}); err == nil {
+		t.Error("Inhalt ohne user geschrieben")
+	}
+	c, err := DecodeAccountContent(s)
+	if err != nil || c.User != "kleist" || c.Hash != hash || !c.Rights.Write {
+		t.Errorf("gelesen = %+v, %v", c, err)
+	}
+	for _, bad := range []string{
+		`{"hash":"` + hash + `","rights":{"write":false,"supersede":false}}`,
+		`{"hash":"` + hash + `","user":null,"rights":{}}`,
+		`{"hash":"` + hash + `","user":"","rights":{}}`,
+		`{"hash":"kurz","user":"kleist","rights":{}}`,
+	} {
+		if _, err := DecodeAccountContent(bad); err == nil {
+			t.Errorf("angenommen: %s", bad)
+		}
+	}
+}

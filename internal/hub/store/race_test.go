@@ -58,7 +58,7 @@ func TestAccountLockFirst(t *testing.T) {
 	ctx := context.Background()
 	s := newAccountStore(t)
 	all := trace(s)
-	token, err := s.AddAccount(ctx, "bob", "")
+	token, err := s.AddAccount(ctx, "bob", "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,9 @@ func TestAccountLockFirst(t *testing.T) {
 		name string
 		fn   func() error
 	}{
-		{"set", func() error { return s.SetAccountDescription(ctx, "bob", "Bob") }},
+		{"set", func() error { return s.SetAccount(ctx, "bob", AccountChange{Description: ptr("Bob")}) }},
 		{"grant", func() error { _, err := s.GrantAccount(ctx, "bob", "team-x", contract.Rights{}); return err }},
+		{"user", func() error { return s.SetAccount(ctx, "bob", AccountChange{User: ptr("kleist")}) }},
 		{"rotate", func() error {
 			_, err := s.RotateAccount(ctx, "bob", ident.HashToken(token), ident.HashToken("keph_neu"), "laptop", []string{"team-x"})
 			return err
@@ -116,7 +117,7 @@ func first(s []string) string {
 func TestRotateTwiceSameOldHash(t *testing.T) {
 	ctx := context.Background()
 	s := newAccountStore(t)
-	token, err := s.AddAccount(ctx, "bob", "")
+	token, err := s.AddAccount(ctx, "bob", "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +163,7 @@ func TestRotateTwiceSameOldHash(t *testing.T) {
 func TestRotateLockedFailsAtConditionalWrite(t *testing.T) {
 	ctx := context.Background()
 	s := newAccountStore(t)
-	token, err := s.AddAccount(ctx, "bob", "")
+	token, err := s.AddAccount(ctx, "bob", "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func checkHashConsistent(t *testing.T, s *sqliteStore, account, want string) {
 func TestRotateInterleaved(t *testing.T) {
 	ctx := context.Background()
 	s := newAccountStore(t)
-	token, err := s.AddAccount(ctx, "bob", "")
+	token, err := s.AddAccount(ctx, "bob", "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,10 +294,10 @@ func TestPrincipalNamesUnique(t *testing.T) {
 	if _, err := s.AddNode(ctx, "laptop", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddAccount(ctx, "alice", ""); err != nil {
+	if _, err := s.AddAccount(ctx, "alice", "alice", ""); err != nil {
 		t.Fatal(err)
 	}
-	_, withNode := s.AddAccount(ctx, "laptop", "")
+	_, withNode := s.AddAccount(ctx, "laptop", "laptop", "")
 	_, withAccount := s.AddNode(ctx, "alice", "")
 	for _, err := range []error{withNode, withAccount} {
 		if !errors.Is(err, ErrExists) {
@@ -308,7 +309,7 @@ func TestPrincipalNamesUnique(t *testing.T) {
 	if _, err := s.db.Exec(`INSERT INTO principal_names (name, kind) VALUES ('desktop', 'node'), ('bob', 'account')`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.AddAccount(ctx, "desktop", "")
+	_, err := s.AddAccount(ctx, "desktop", "desktop", "")
 	if !errors.Is(err, ErrExists) || err.Error() != strings.ReplaceAll(withNode.Error(), "laptop", "desktop") {
 		t.Errorf("Account desktop: %v, erwartet wie %q", err, withNode)
 	}
@@ -336,7 +337,7 @@ func TestPrincipalNamesUnique(t *testing.T) {
 	if got := principalNames(t, s); len(got) != 0 {
 		t.Errorf("nach rm belegt: %v", got)
 	}
-	if _, err := s.AddAccount(ctx, "laptop", ""); err != nil {
+	if _, err := s.AddAccount(ctx, "laptop", "laptop", ""); err != nil {
 		t.Errorf("Account laptop nach rm: %v", err)
 	}
 	if _, err := s.AddNode(ctx, "alice", ""); err != nil {
@@ -355,7 +356,7 @@ func TestImportPrincipalNames(t *testing.T) {
 	if _, err := s.AddNode(ctx, "laptop", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddAccount(ctx, "alice", ""); err != nil {
+	if _, err := s.AddAccount(ctx, "alice", "alice", ""); err != nil {
 		t.Fatal(err)
 	}
 	tables, err := s.Tables(ctx)
@@ -382,7 +383,7 @@ func TestImportPrincipalNames(t *testing.T) {
 	// Ein Import tauscht Node und Account: principal_names folgt.
 	swap := tables
 	swap.Nodes = []Node{{Name: "bob", TokenHash: ident.HashToken("x"), CreatedBy: Admin}}
-	swap.Accounts = []Account{{Name: "laptop", TokenHash: ident.HashToken("y"), CreatedBy: Admin}}
+	swap.Accounts = []Account{{Name: "laptop", User: "laptop", TokenHash: ident.HashToken("y"), CreatedBy: Admin}}
 	if err := s.Import(ctx, nil, &swap); err != nil {
 		t.Fatal(err)
 	}

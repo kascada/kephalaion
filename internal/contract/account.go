@@ -44,10 +44,12 @@ func (r Rights) String() string {
 }
 
 // AccountContent ist der Inhalt einer Account-Zeile: der Hash des Tokens
-// (sha256 in Hex) und die Rechte in dieser Collection. Der Hub führt den Hash
-// maßgeblich in seiner Tabelle accounts; die Zeile trägt eine Kopie.
+// (sha256 in Hex), der User, dem der Account gehört, und die Rechte in dieser
+// Collection. Der Hub führt Hash und User maßgeblich in seiner Tabelle
+// accounts; die Zeile trägt eine Kopie.
 type AccountContent struct {
 	Hash   string `json:"hash"`
+	User   string `json:"user"`
 	Rights Rights `json:"rights"`
 }
 
@@ -63,6 +65,9 @@ func EncodeAccountContent(c AccountContent) (string, error) {
 	if !IsTokenHash(c.Hash) {
 		return "", fmt.Errorf("Account-Zeile: Hash ist kein sha256 in Hex")
 	}
+	if c.User == "" {
+		return "", fmt.Errorf("Account-Zeile: user fehlt")
+	}
 	b, err := json.Marshal(c)
 	if err != nil {
 		return "", err
@@ -71,7 +76,8 @@ func EncodeAccountContent(c AccountContent) (string, error) {
 }
 
 // DecodeAccountContent liest den Inhalt einer Account-Zeile und prüft den
-// Hash. Der Fehler nennt den Inhalt nicht.
+// Hash und dass ein User dasteht — eine Zeile ohne user (von einem Hub vor
+// Task 006) ist ein Fehler dieser Zeile. Der Fehler nennt den Inhalt nicht.
 func DecodeAccountContent(s string) (AccountContent, error) {
 	var c AccountContent
 	if err := json.Unmarshal([]byte(s), &c); err != nil {
@@ -79,6 +85,9 @@ func DecodeAccountContent(s string) (AccountContent, error) {
 	}
 	if !IsTokenHash(c.Hash) {
 		return AccountContent{}, fmt.Errorf("Account-Zeile: Hash ist kein sha256 in Hex")
+	}
+	if c.User == "" {
+		return AccountContent{}, fmt.Errorf("Account-Zeile: user fehlt")
 	}
 	return c, nil
 }

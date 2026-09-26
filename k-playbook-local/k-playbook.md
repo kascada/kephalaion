@@ -80,7 +80,8 @@ Regeln dazu:
 - **Hub-SQL bleibt PostgreSQL-tauglich.** Die Abfragen (DML) des Hubs und des Unterbaus
   stehen zentral in einer Struktur (`queries` bzw. `sqlitedb.Queries`), mit Platzhaltern
   `$n` über `sqlq.Bind` — kein `INSERT OR`, kein `PRAGMA`, kein `AUTOINCREMENT`, kein rohes
-  `?`. Ein Test je Paket prüft sie mit `sqlq.Check`. `PRAGMA` gibt es nur beim Öffnen der
+  `?`, `user` nur in Anführungszeichen (`"user"`, in PostgreSQL reserviert; auch im DDL). Ein
+  Test je Paket prüft sie mit `sqlq.Check`. `PRAGMA` gibt es nur beim Öffnen der
   Verbindung. Das DDL steht je Dialekt. Zähler wie die Revision werden im Code
   hochgezählt, nicht per Umwandlung in SQL. Der Node darf SQLite-Eigenes benutzen.
 - **Token nie als Argument.** Ein Token kommt über `--token-stdin` (eine Zeile) oder
@@ -99,27 +100,36 @@ Regeln dazu:
   `INSERT … ON CONFLICT DO NOTHING` in derselben Transaktion wie Anlegen, Löschen beim
   Entfernen; eine Verletzung ergibt `ErrExists` mit derselben Meldung wie die Vorprüfung). Die
   Tabelle ist abgeleitet: nicht im Export, `config import` baut sie neu auf. Nach `hub account
-  rm` ist der Name frei.
+  rm` ist der Name frei. **Users** gehören nicht dazu: Namensregel wie Accounts, `admin`
+  reserviert, geprüft mit `store.CheckUser` (CLI und Import); ein User darf wie ein Node oder
+  ein anderer Account heißen.
 - **Accounts am Hub.** Die Tabelle `accounts` führt Beschreibung, gesperrt, die gemerkten
-  Rechte eines gesperrten Accounts und **maßgeblich den Hash**; die `SYSTEM:A:`-Zeilen je
-  Account und Collection tragen Rechte und eine Kopie des Hashes. Jede Änderung an den Zeilen
+  Rechte eines gesperrten Accounts und **maßgeblich Hash und User** (`"user"`, Index
+  `accounts_user`); die `SYSTEM:A:`-Zeilen je Account und Collection tragen Rechte und eine
+  Kopie von Hash und User. `created_by`/`updated_by` ist der User des schreibenden Accounts,
+  die CLI am Hub schreibt `admin`; `actions.account` bleibt der Account. `set --user` schreibt
+  alle lebenden Zeilen des Accounts unter einer Revision neu, Löschmarken und Dokumente
+  bleiben. Jede Änderung an den Zeilen
   ist ein Schreibvorgang mit Revision und genau einer Zeile in `actions` (`admin`, bei `rotate`
   der Account mit dem Node als `carrier`) und schreibt Hash in `accounts` und Zeilen in
   derselben Transaktion. **Die Zeile in `accounts` wird zuerst gesperrt**: Die erste Anweisung
   jedes Schreibvorgangs an einem Account (`writeAccount`) ist `UPDATE accounts SET name = name
   WHERE name = $1`, erst danach wird gelesen — kein `SELECT … FOR UPDATE` (SQLite). `rotate`
   beginnt stattdessen mit dem bedingten Schreiben (`… AND token_hash = $3 AND locked = 0`) und
-  prüft die Zahl der Zeilen; der Import sperrt vorher alle Zeilen von `accounts`. Zeilen werden
+  prüft die Zahl der Zeilen, liest danach den User; der Import sperrt vorher alle Zeilen von
+  `accounts`. Zeilen werden
   nie entfernt: Löschmarke, und bei erneutem `grant` wiederbelebt — auch wenn die Collection
   entfernt wird: Löschmarken von `SYSTEM:A:`-Zeilen blockieren das Entfernen nicht (CLI und
   Import) und bleiben stehen; lebende Zeilen und gemerkte Rechte eines gesperrten Accounts
   blockieren weiter.
 - **Import prüft wie die CLI.** `config import` benutzt dieselben Prüffunktionen
   (`CheckTables` je Store) und prüft alles, bevor geschrieben wird; erst der Hub, dann der
-  Node. Exportformat 4 trägt die Accounts samt Rechten; der Import gleicht die
+  Node. Exportformat 5 trägt die Accounts samt User und Rechten; der Import gleicht die
   `SYSTEM:A:`-Zeilen unter einer Revision an. Ein Export vor Format 4 lässt die Accounts und
-  darf keinen Accounts-Teil tragen, in keiner Form (geprüft am YAML-Knoten); in Format 4 ist
-  null ein Fehler, nur `accounts: []` leert.
+  darf keinen Accounts-Teil tragen, in keiner Form (geprüft am YAML-Knoten); ab Format 4 ist
+  null ein Fehler, nur `accounts: []` leert. `user` je Account ist ab Format 5 Pflicht
+  (fehlend oder null am YAML-Knoten geprüft, leer oder ungültig mit `store.CheckUser`); Format 4
+  darf ihn nicht tragen und setzt ihn auf den Namen des Accounts.
 - **`serve` lauscht nur auf Loopback**, beide Rollen, bis `https`/`ssh` kommen, und beide
   prüfen `Host` (`loopback`); ein Tunnel geht nur mit gleichem Port. Er nimmt je
   Rolle eine Sperre (`flock` auf `<db>.lock` neben der Datenbank); CLI-Kommandos laufen daneben

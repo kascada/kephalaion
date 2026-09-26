@@ -22,13 +22,21 @@ func TestCheck(t *testing.T) {
 		"SELECT name FROM sqlite_master",
 		"SELECT value FROM t WHERE key = ?",
 		"SELECT value FROM t WHERE key = ?1",
+		"SELECT user FROM accounts",
+		"SELECT name FROM accounts WHERE User = $1",
+		"CREATE INDEX a ON accounts(user)",
 	} {
 		if Check(bad) == nil {
 			t.Errorf("Check(%q) hätte scheitern sollen", bad)
 		}
 	}
-	if err := Check("INSERT INTO t (key, value) VALUES ($1, $2)"); err != nil {
-		t.Errorf("Check: %v", err)
+	for _, good := range []string{
+		"INSERT INTO t (key, value) VALUES ($1, $2)",
+		`SELECT "user", user_name, created_by FROM accounts WHERE "user" = $1`,
+	} {
+		if err := Check(good); err != nil {
+			t.Errorf("Check: %v", err)
+		}
 	}
 }
 

@@ -19,14 +19,19 @@ import (
 	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
-// accounts legt die Testaccounts an: alice (read a), bob (write a, read c),
-// carol ohne Collection. laptop darf a und b abgleichen. Liefert die Tokens.
+// accounts legt die Testaccounts an: alice (read a), bob (write a, read c,
+// User kleist), carol ohne Collection. laptop darf a und b abgleichen.
+// Liefert die Tokens.
 func (f *fixture) accounts(t *testing.T) map[string]string {
 	t.Helper()
 	ctx := context.Background()
 	tokens := map[string]string{}
 	for _, name := range []string{"alice", "bob", "carol"} {
-		tok, err := f.st.AddAccount(ctx, name, "")
+		user := name
+		if name == "bob" {
+			user = "kleist"
+		}
+		tok, err := f.st.AddAccount(ctx, name, user, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -72,7 +77,7 @@ func TestWhoami(t *testing.T) {
 		}
 		// bob hat a und c; laptop hält nur a davon.
 		resp = f.whoami(t, &contract.AccountAuth{Account: "bob", Token: tokens["bob"]})
-		if resp.Account == nil || !resp.Account.Valid || resp.Account.Account != "bob" ||
+		if resp.Account == nil || !resp.Account.Valid || resp.Account.Account != "bob" || resp.Account.User != "kleist" ||
 			!slices.Equal(resp.Account.Collections, []string{"a"}) {
 			t.Errorf("bob = %+v", resp.Account)
 		}
@@ -86,8 +91,10 @@ func TestWhoami(t *testing.T) {
 			"gesperrt":       {Account: "alice", Token: tokens["alice"]},
 			"ungültig":       {Account: "Bob\n", Token: "x"},
 		} {
+			// Ohne gültige Anmeldung kein User.
 			resp := f.whoami(t, &acc)
-			if resp.Account == nil || resp.Account.Valid || len(resp.Account.Collections) != 0 || resp.Account.Collections == nil {
+			if resp.Account == nil || resp.Account.Valid || resp.Account.User != "" || len(resp.Account.Collections) != 0 ||
+				resp.Account.Collections == nil {
 				t.Errorf("%s: %+v", name, resp.Account)
 			}
 		}
@@ -214,6 +221,16 @@ func TestRotate(t *testing.T) {
 		if resp.HubID != info.HubID || resp.Version != contract.Version || len(resp.Rows) != 1 ||
 			resp.Rows[0].Collection != "a" || resp.Rows[0].Name != "SYSTEM:A:bob" || resp.Rows[0].Revision != after.revision {
 			t.Errorf("Antwort = %+v", resp)
+		}
+		// Die Antwort nennt den User im Inhalt; updated_by ist der User,
+		// actions.account der Account.
+		if c, err := contract.DecodeAccountContent(*resp.Rows[0].Content); err != nil || c.User != "kleist" ||
+			resp.Rows[0].UpdatedBy != "kleist" {
+			t.Errorf("User in der Antwort: %+v, updated_by %q, %v", c, resp.Rows[0].UpdatedBy, err)
+		}
+		var account string
+		if err := f.raw(t).QueryRow(`SELECT account FROM actions WHERE action = 'rotate'`).Scan(&account); err != nil || account != "bob" {
+			t.Errorf("actions.account = %q, %v", account, err)
 		}
 		var a sql.NullString
 		if err := f.raw(t).QueryRow(`SELECT carrier FROM actions WHERE action = 'rotate'`).Scan(&a); err != nil || a.String != "laptop" {

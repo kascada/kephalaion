@@ -35,6 +35,12 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
   - Vertrag Fassung 1 (`docs/vertrag.md`, `internal/contract`), Hub-Seite des `sync`;
   - Replica je Hub unter `replicas/`, Abgleich am Node (`internal/node/replica`), Reset bei
     `hub_id`-Wechsel bzw. `since` > Hub-Revision.
+- **Task 006 — User je Account** (2026-09-26): `hub account add|set --user` (ohne Angabe der
+  Name des Accounts), `list --user`, `show`; `accounts."user"` mit Index, Hub-Schema 5; User in
+  jeder `SYSTEM:A:`-Zeile, `set --user` schreibt alle lebenden Zeilen unter einer Revision;
+  `rotate` schreibt `updated_by` = User; `whoami` (`/v1/`, `local`, MCP) nennt ihn nur bei
+  gültiger Anmeldung; Export Format 5 mit `user` (Pflicht), Format 4 → User = Name
+  (`konzept.md`, „Account und User“).
 
 ## In Arbeit
 
@@ -54,9 +60,6 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
 - **Task 004 abschließen** und nach `done/` — Vorbedingung für Task 005.
 - **Task 005 — Kommunikation** (reviewt, nicht begonnen):
   1. Accounts am Hub (`hub account …`, `SYSTEM:A:`-Zeilen, `admin` reserviert, Export);
-     **nach Abschluss von Task 005 nachziehen** (läuft ohne ihn): User je Account (`--user`, ohne Angabe = Account-Name; in `accounts`
-     mit Index und in den `SYSTEM:A:`-Zeilen; `created_by`/`updated_by` = User; `whoami` nennt
-     ihn) — entschieden 2026-09-26, `konzept.md`, „Account und User“;
   2. Vertrag um `whoami`/`rotate`, Hub über HTTP `/v1/`;
   3. Node: Transport `http`, `node hub check`, `--create`, `node account rotate|check`;
   4. `kephalaion serve` (nur Loopback, Sperrdatei, Logs ohne Token);

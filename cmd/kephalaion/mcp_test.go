@@ -54,8 +54,8 @@ func mcpWhoami(t *testing.T, endpoint string, pairs map[string][2]string) mcpnod
 	return out
 }
 
-// Über serve: whoami per MCP gilt nach rotate; nach lock am Hub und sync am
-// Node gilt es nicht mehr.
+// Über serve: whoami per MCP gilt nach rotate und nennt den User, auch nach
+// set --user und sync; nach lock am Hub und sync am Node gilt es nicht mehr.
 func TestMCPWhoamiLockAndSync(t *testing.T) {
 	e := newCommEnv(t)
 	file := e.tokenFile(t, "carol", e.tokens["carol"])
@@ -76,6 +76,15 @@ func TestMCPWhoamiLockAndSync(t *testing.T) {
 		len(out.Hubs[0].Collections) != 1 || out.Hubs[0].Collections[0].Address != "eigen:team-x" {
 		t.Fatalf("vor lock: %+v", out)
 	}
+	if out.Hubs[0].User != "carol" {
+		t.Errorf("User vor set: %+v", out.Hubs[0])
+	}
+	// set --user am Hub kommt mit dem Abgleich an.
+	e.run(t, "hub", "account", "set", "carol", "--user", "kleist").want(t, 0)
+	e.run(t, "node", "sync", "eigen").want(t, 0)
+	if out := mcpWhoami(t, endpoint, map[string][2]string{"eigen": {"carol", carol}}); out.Hubs[0].User != "kleist" {
+		t.Errorf("User nach set und sync: %+v", out.Hubs[0])
+	}
 	e.run(t, "hub", "account", "lock", "carol").want(t, 0)
 	// Ohne Abgleich weiß der Node noch nichts davon.
 	if out := mcpWhoami(t, endpoint, map[string][2]string{"eigen": {"carol", carol}}); !out.Hubs[0].Authenticated {
@@ -83,7 +92,7 @@ func TestMCPWhoamiLockAndSync(t *testing.T) {
 	}
 	e.run(t, "node", "sync", "eigen").want(t, 0)
 	out = mcpWhoami(t, endpoint, map[string][2]string{"eigen": {"carol", carol}})
-	if len(out.Hubs) != 1 || out.Hubs[0].Authenticated || out.Hubs[0].Account != "" {
+	if len(out.Hubs) != 1 || out.Hubs[0].Authenticated || out.Hubs[0].Account != "" || out.Hubs[0].User != "" {
 		t.Errorf("nach lock und sync: %+v", out)
 	}
 	srv.stop(t)

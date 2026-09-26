@@ -12,10 +12,10 @@ import (
 )
 
 const hubAccountUsage = `Aufruf:
-  kephalaion hub account add    <name> [--description text]
-  kephalaion hub account list
+  kephalaion hub account add    <name> [--user user] [--description text]
+  kephalaion hub account list   [--user user]
   kephalaion hub account show   <name>
-  kephalaion hub account set    <name> --description text
+  kephalaion hub account set    <name> [--user user] [--description text]
   kephalaion hub account rm     <name>
   kephalaion hub account lock   <name>
   kephalaion hub account unlock <name>
@@ -26,9 +26,11 @@ const hubAccountUsage = `Aufruf:
 Kommandos:
   add      legt einen Account ohne Collections an und zeigt sein
            Einrichtungstoken — genau einmal
-  list     zeigt alle Accounts
-  show     zeigt einen Account samt Rechten je Collection
-  set      ändert die Beschreibung
+  list     zeigt alle Accounts, mit --user nur die eines Users
+  show     zeigt einen Account samt User und Rechten je Collection
+  set      ändert User und/oder Beschreibung; ein neuer User steht danach in
+           allen Zeilen des Accounts (ein Schreibvorgang, eine Revision) —
+           vorhandene Dokumente behalten ihren User
   rm       entfernt einen Account; seine Zeilen werden Löschmarken, der Name
            ist danach wieder frei
   lock     sperrt einen Account: seine Zeilen werden Löschmarken, die Rechte
@@ -50,7 +52,15 @@ Node-Namen eindeutig. Jede Änderung an den Rechten ist ein Schreibvorgang mit
 Revision und gleicht sich zu den Nodes ab; sie steht im Protokoll (actions) als
 admin.
 
+Der User ist, wem der Account gehört — ein Merkmal, kein Zugang: kein Token,
+keine Rechte. Ohne --user ist er der Name des Accounts. Mehrere Accounts
+können denselben User haben. Namensregel wie bei Accounts, admin ist
+reserviert; ein User darf wie ein Node heißen. Er steht in created_by und
+updated_by dessen, was der Account schreibt.
+
 Optionen:
+  --user user          User des Accounts (add: ohne Angabe der Name des
+                       Accounts; list: nur die Accounts dieses Users)
   --description text   Kurzbeschreibung
   --write              Recht write (bei grant)
   --supersede          Recht supersede (bei grant)
@@ -75,31 +85,49 @@ func runHubAccount(args []string, stdout, stderr io.Writer) int {
 		"add": func(a []string) int {
 			c := newCommand("hub account add", u, stdout, stderr, "<name>")
 			desc := c.fs.String("description", "", "")
+			user := c.fs.String("user", "", "")
 			return c.hubDo(a, func(ctx context.Context, s hubstore.Store, pos []string) error {
-				token, err := s.AddAccount(ctx, pos[0], *desc)
+				if !c.isSet("user") {
+					*user = pos[0]
+				}
+				token, err := s.AddAccount(ctx, pos[0], *user, *desc)
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(stdout, "Account %s angelegt, noch ohne Collections (kephalaion hub account grant).\n", pos[0])
+				fmt.Fprintf(stdout, "Account %s angelegt (User %s), noch ohne Collections (kephalaion hub account grant).\n", pos[0], *user)
 				printAccountToken(stdout, token, pos[0])
 				return nil
 			})
 		},
 		"list": func(a []string) int {
 			c := newCommand("hub account list", u, stdout, stderr)
+			user := c.fs.String("user", "", "")
 			return c.hubDo(a, func(ctx context.Context, s hubstore.Store, _ []string) error {
-				accounts, err := s.Accounts(ctx)
+				var accounts []hubstore.Account
+				var err error
+				if c.isSet("user") {
+					if err := hubstore.CheckUser(*user); err != nil {
+						return err
+					}
+					accounts, err = s.AccountsOfUser(ctx, *user)
+				} else {
+					accounts, err = s.Accounts(ctx)
+				}
 				if err != nil {
 					return err
 				}
 				if len(accounts) == 0 {
-					fmt.Fprintln(stdout, "Keine Accounts.")
+					if c.isSet("user") {
+						fmt.Fprintf(stdout, "Keine Accounts des Users %s.\n", *user)
+					} else {
+						fmt.Fprintln(stdout, "Keine Accounts.")
+					}
 					return nil
 				}
 				tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-				fmt.Fprintln(tw, "NAME\tSTATUS\tRECHTE\tBESCHREIBUNG")
+				fmt.Fprintln(tw, "NAME\tUSER\tSTATUS\tRECHTE\tBESCHREIBUNG")
 				for _, acc := range accounts {
-					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", acc.Name, lockState(acc.Locked), rightsSummary(acc.Rights), orDash(acc.Description))
+					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", acc.Name, acc.User, lockState(acc.Locked), rightsSummary(acc.Rights), orDash(acc.Description))
 				}
 				return tw.Flush()
 			})
@@ -112,6 +140,7 @@ func runHubAccount(args []string, stdout, stderr io.Writer) int {
 					return err
 				}
 				fmt.Fprintf(stdout, "Account %s\n", acc.Name)
+				fmt.Fprintf(stdout, "  User:         %s\n", acc.User)
 				fmt.Fprintf(stdout, "  Beschreibung: %s\n", orDash(acc.Description))
 				fmt.Fprintf(stdout, "  Status:       %s\n", lockState(acc.Locked))
 				label := "Rechte:"
@@ -134,11 +163,19 @@ func runHubAccount(args []string, stdout, stderr io.Writer) int {
 		"set": func(a []string) int {
 			c := newCommand("hub account set", u, stdout, stderr, "<name>")
 			desc := c.fs.String("description", "", "")
+			user := c.fs.String("user", "", "")
 			return c.hubDo(a, func(ctx context.Context, s hubstore.Store, pos []string) error {
-				if !c.isSet("description") {
-					return fmt.Errorf("nichts zu ändern; erwartet --description")
+				var ch hubstore.AccountChange
+				if c.isSet("description") {
+					ch.Description = desc
 				}
-				if err := s.SetAccountDescription(ctx, pos[0], *desc); err != nil {
+				if c.isSet("user") {
+					ch.User = user
+				}
+				if ch.Description == nil && ch.User == nil {
+					return fmt.Errorf("nichts zu ändern; erwartet --user und/oder --description")
+				}
+				if err := s.SetAccount(ctx, pos[0], ch); err != nil {
 					return err
 				}
 				fmt.Fprintf(stdout, "Account %s geändert.\n", pos[0])

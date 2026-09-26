@@ -91,8 +91,9 @@ func checkVersion(v int) error {
 }
 
 // Whoami bestätigt den Node. Mit Account-Teil prüft es den Account gegen
-// accounts und nennt, welche seiner Collections dieser Node abgleichen darf.
-// Ein Account, der nicht gilt, ist kein Fehler, sondern Valid false.
+// accounts und nennt seinen User und, welche seiner Collections dieser Node
+// abgleichen darf. Ein Account, der nicht gilt, ist kein Fehler, sondern
+// Valid false — ohne User.
 func (h *Hub) Whoami(ctx context.Context, req contract.WhoamiRequest) (contract.WhoamiResponse, error) {
 	if err := checkVersion(req.Version); err != nil {
 		return contract.WhoamiResponse{}, err
@@ -114,6 +115,7 @@ func (h *Hub) Whoami(ctx context.Context, req contract.WhoamiRequest) (contract.
 		}
 		st := &contract.AccountStatus{Account: req.Account.Account, Valid: ok, Collections: []string{}}
 		if ok {
+			st.User = acc.User
 			for _, r := range acc.Rights {
 				if slices.Contains(allowed, r.Collection) {
 					st.Collections = append(st.Collections, r.Collection)
