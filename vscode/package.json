@@ -1,0 +1,19 @@
+{
+  "name": "kephalaion",
+  "displayName": "Kephalaion",
+  "description": "Collections von Kephalaion als Ordner in VS Code (Versuch: Dummy, nur lesen)",
+  "version": "0.0.1",
+  "publisher": "kascada",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "repository": "https://github.com/kascada/kephalaion",
+  "engines": { "vscode": "^1.90.0" },
+  "extensionKind": ["workspace"],
+  "main": "./extension.js",
+  "activationEvents": ["onFileSystem:keph"],
+  "contributes": {
+    "commands": [
+      { "command": "kephalaion.openDummyFile", "title": "Kephalaion: Dummy-Datei öffnen" },
+      { "command": "kephalaion.addDummyFolder", "title": "Kephalaion: Dummy-Ordner zum Workspace hinzufügen" }
+    ]
+  }
+}
