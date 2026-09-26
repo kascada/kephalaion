@@ -106,6 +106,16 @@ so, dass die Erweiterung für VS Code darauf ihren `FileSystemProvider` bauen ka
 - `README.md`, `docs/begriffe.md`, `docs/konzept.md` (Stand), `docs/vscode.md` (Stand),
   `k-playbook-local/k-playbook.md` (Werkzeuge in `mcpnode`), `docs/fortschritt.md`.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — Adresse, Anmeldung, Abfragen | offen | | |
+| 2 — `list` | offen | | |
+| 3 — `read` | offen | | |
+| 4 — `changes` | offen | | |
+| 5 — Durchlauf und Doku | offen | | |
+
 ---
 ## Review-Log (2026-09-26)
 
