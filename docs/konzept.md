@@ -57,6 +57,15 @@ Kefalaio ist dort nicht eingetragen. Am nächsten liegt die Unionsmarke **KEPHAL
 (Klasse 42) — kein Software- oder IT-Bereich. Die übrigen Kephal-Marken sind Arzneimittel.
 Offen: TMview, weil nur dort griechische nationale Marken stehen.
 
+**Untertitel** (englisch, auch vor der Umstellung der Doku), entschieden am 2026-09-26:
+
+- **„Knowledge, distilled.“** — der Claim, er erklärt den Namen. Steht am Logo.
+- **„Shared memory for humans and agents“** — die Beschreibung: was es konkret ist. Steht, wo
+  Platz ist — README, GitHub-Beschreibung, Website, Banner.
+
+Im kleinen Logo (Favicon, Avatar) steht keiner, im großen der Claim, in Headern und Bannern
+beide untereinander, der Claim oben.
+
 **Verworfene Alternative: K-Wissen.** Passt zur `k-`-Familie, taugt aber nicht als Marke —
 das DPMA hat „KI Wissen“ 2023 mangels Unterscheidungskraft und als beschreibende Angabe
 zurückgewiesen (3020232353446), und der Name geht in der Suche unter.

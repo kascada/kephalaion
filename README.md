@@ -1,5 +1,8 @@
 # kephalaion
 
+**Knowledge, distilled.**
+*Shared memory for humans and agents*
+
 > **Vorerst für den eigenen Gebrauch.** Kephalaion ist in früher Entwicklung und läuft bisher
 > nur auf dem Rechner des Autors. Schnittstellen, Datenbankschema und Konfiguration ändern
 > sich bis v1.0 ohne Rücksicht auf bestehende Installationen. Der Code ist öffentlich,
