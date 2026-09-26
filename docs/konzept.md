@@ -680,7 +680,13 @@ Collections; ein Fehler dabei kippt den Erfolg nicht, `node sync` holt nach. Der
 den Hash in `accounts` und allen Zeilen in einer Transaktion, eine Revision, eine Zeile `rotate`
 in `actions` (`carrier` ist der Node); Fehlversuche stehen nur im Log. Der Transport wiederholt
 `rotate` nie; bei unklarem Ausgang bleiben beide Dateien, und `kephalaion node account check`
-(`whoami` mit Account-Teil) klärt, welches Token gilt, und räumt auf.
+(`whoami` mit Account-Teil) klärt, welches Token gilt, und räumt auf. **Unklar ist jeder Fehler,
+der kein Fehler des Vertrags ist (Task 007)** — über HTTP ein 5xx, über `local` ebenso ein
+Fehler der Datenbank: Er kann nach dem Commit entstanden sein, und wer ihn als Scheitern
+nähme, löschte das neue Token, obwohl nur noch dieses gilt. Der Hub liest deshalb alles, was
+die Antwort braucht (`hub_id`), vor dem Commit; danach stellt er sie nur noch zusammen. Eine
+Weiterleitung (3xx) dagegen ist ein eindeutiges Scheitern: Der Client folgt ihr nicht, der
+Hub hat nicht ausgeführt.
 
 **Wenn das „ok“ ausbleibt,** meldet sich der Account mit dem neuen Token an (`whoami`).
 Gelingt das, war die Rotation erfolgreich; sonst wiederholt er sie mit dem alten. Der Hub
@@ -860,6 +866,10 @@ CREATE TABLE accounts (                -- seit Task 005; die Rechte stehen in SY
   created_at    INTEGER NOT NULL,
   created_by    TEXT NOT NULL
 );
+CREATE TABLE principal_names (         -- seit Task 007; belegte Node- und Account-Namen
+  name        TEXT PRIMARY KEY,        -- abgeleitet aus nodes und accounts, nicht im Export
+  kind        TEXT NOT NULL            -- node oder account
+);
 CREATE TABLE collections (
   name        TEXT PRIMARY KEY,
   description TEXT,
@@ -902,23 +912,42 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
 
 - **Lokale Tabellen:** Einzelne Werte stehen in `settings` (Schlüssel, Wert); Listen mit
   Struktur bekommen eigene Tabellen. Nichts davon gleicht sich ab. `config export` und
-  `config import` nehmen sie mit (Exportformat 4, `tables:` je Rolle), `db_info` und
-  `actions` nicht. Änderungen an ihnen zählen keine Revision hoch — außer bei Accounts, deren
+  `config import` nehmen sie mit (Exportformat 4, `tables:` je Rolle), `db_info`, `actions`
+  und das abgeleitete `principal_names` nicht. Änderungen an ihnen zählen keine Revision hoch — außer bei Accounts, deren
   Rechte in `SYSTEM:A:`-Zeilen stehen. Der Export nimmt je Account Beschreibung, gesperrt,
   Hash und die Rechte je Collection mit; der Import gleicht die `SYSTEM:A:`-Zeilen daran an —
   vorhandene ändern, fehlende werden Löschmarken, neue entstehen —, unter einer Revision in
-  derselben Transaktion. Fehlt der Accounts-Teil in Format 4, bricht er ab; ein Export vor
-  Format 4 lässt die Accounts, wie sie sind.
+  derselben Transaktion. Fehlt der Accounts-Teil in Format 4 oder ist er null (`accounts:`
+  ohne Wert), bricht er ab — nur `accounts: []` leert. Ein Export vor Format 4 lässt die
+  Accounts, wie sie sind, und darf keinen Accounts-Teil tragen, in keiner Form (auch nicht
+  null oder `[]`); geprüft wird am YAML-Knoten, denn null ließe sich nach dem Decodieren nicht
+  von „fehlt“ unterscheiden.
 - **Namen** von Collections, Nodes, Accounts und Hub-Aliasen: `[a-z0-9][a-z0-9._-]{0,62}`,
   kein `:` (Adressen sind `<hub>:<collection>`), kein Präfix `system`; Accounts und Nodes
   heißen nicht `admin` (Task 005). `documents.collection` hat
   keinen Fremdschlüssel auf `collections`; eine Collection lässt sich aber nur entfernen,
-  solange keine Zeile in `documents` sie nennt und kein Node sie abgleichen darf.
+  solange keine Zeile in `documents` sie nennt, kein Node sie abgleichen darf und kein
+  gesperrter Account Rechte in ihr gemerkt hat. **Ausgenommen sind Löschmarken von
+  `SYSTEM:A:`-Zeilen (Task 007):** Sie blockieren das Entfernen nicht und bleiben stehen —
+  beim `hub collection rm` wie beim Import. Physisch entfernen ließen sie sich nicht: Ein Node
+  verwirft eine Collection nur, wenn ein Abgleich sie als nicht erlaubt meldet. War er offline,
+  während sie entfernt, gleichnamig neu angelegt und wieder erlaubt wurde, gleicht er mit altem
+  `seit` weiter ab; ohne Löschmarke bliebe seine lebende `SYSTEM:A:`-Zeile mit altem Hash und
+  alten Rechten stehen. So bekommt er die Marke — oder die Zeile, die ein `grant` in der neuen
+  Collection wiederbelebt hat.
 - **Namen von Accounts und Nodes sind am Hub gemeinsam eindeutig.** Das Protokoll nennt nur
   Namen (`account`, `carrier`); „laptop“ darf dort nicht zweierlei bedeuten. Der Hub prüft
   das beim Anlegen und beim Import über die Tabellen `accounts` und `nodes`, in beide
-  Richtungen. Nach `hub account rm` ist der Name wieder frei; die Löschmarken bleiben, ein
-  neuer Account gleichen Namens belebt sie mit neuer Revision wieder.
+  Richtungen — das ergibt die lesbare Meldung. **Abgesichert ist es in der Datenbank (Task
+  007):** Die Tabelle `principal_names` hat je Node und Account eine Zeile mit dem Namen als
+  Primärschlüssel, geschrieben in derselben Transaktion wie Anlegen und Entfernen
+  (`INSERT … ON CONFLICT (name) DO NOTHING`, dann die Zahl der Zeilen prüfen — ein Fehler
+  bräche unter PostgreSQL die Transaktion ab). Ist der Name dort schon belegt, etwa von einer
+  gleichzeitigen Transaktion, an der die Vorprüfung vorbeisah, kommt derselbe Fehler wie aus
+  der Vorprüfung (`ErrExists`), keine 500. Die Tabelle ist abgeleitet: nicht im Export, und
+  `config import` baut sie in seiner Transaktion aus `nodes` und `accounts` neu auf. Nach
+  `hub account rm` ist der Name wieder frei; die Löschmarken bleiben, ein neuer Account
+  gleichen Namens belebt sie mit neuer Revision wieder.
 - **Ein Node-Token ist nie ein Client-Token.** Der Node prüft Clients nur gegen
   `SYSTEM:A:`-Zeilen; ein Node steht dort gar nicht.
 - **Das Token des Nodes steht im Klartext in `node.db`**, denn der Node muss es vorzeigen.
@@ -1000,6 +1029,16 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   PostgreSQL sperrt ein `UPDATE db_info SET value = value` die Zeile, bevor sie gelesen
   wird; in SQLite beginnt jede Transaktion als `BEGIN IMMEDIATE` und hält die Sperre von
   Anfang an.
+- **Die Revision sperrt zu spät für Accounts (Task 007).** Sie sperrt erst beim ersten
+  Schreiben einer Zeile; unter PostgreSQL (READ COMMITTED) läse ein `grant` oder `lock` davor
+  den Hash aus `accounts`, ein gleichzeitiger `rotate` ersetzte ihn, und danach schriebe der
+  erste die Zeilen mit dem alten Hash — der Node lehnte das neue Token ab. Deshalb sperrt jeder
+  Schreibvorgang an einem Account **zuerst seine Zeile in `accounts`** (`UPDATE accounts SET
+  name = name WHERE name = $1`, wie bei der Revision; `SELECT … FOR UPDATE` versteht SQLite
+  nicht) und liest erst danach. `rotate` beginnt mit dem bedingten Schreiben (`… WHERE name =
+  $1 AND token_hash = <alter Hash> AND locked = 0`) — das ist zugleich die Sperre; trifft es
+  keine Zeile, scheitert es ohne weitere Änderung. Der Import sperrt vor dem Lesen alle Zeilen
+  von `accounts`.
 - **Der Hub hat eine Identität.** `hub init` vergibt eine `hub_id` (ULID, in `db_info`); jede
   Antwort an einen Node trägt sie, der Node speichert sie in `db_info` seiner Replica —
   maßgeblich — und danach als Kopie in `hubs`. Weicht sie ab — etwa

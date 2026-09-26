@@ -18,6 +18,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/contract/httpapi"
 	"github.com/kephalaion/kephalaion/internal/hub/replication"
 	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/loopback"
 	"github.com/kephalaion/kephalaion/internal/node/mcpnode"
 	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
 	"github.com/kephalaion/kephalaion/internal/reqlog"
@@ -35,7 +36,9 @@ eingerichtet sind — und läuft, bis SIGINT oder SIGTERM ihn beendet.
 
 Beide lauschen bisher nur auf diesem Rechner (127.0.0.1, ::1, localhost):
 Klartext-HTTP verlässt den Rechner nicht, bis https und ssh kommen. Ein
-anderes listen bricht den Start ab.
+anderes listen bricht den Start ab. Beide beantworten nur Anfragen, deren
+Host dieser Rechner mit dem eigenen Port ist, sonst 403; ein Tunnel geht
+deshalb nur mit gleichem Port (ssh -L 7434:localhost:7434).
 
 Eine Sperre auf einer Datei neben jeder Datenbank (<db>.lock) verhindert einen
 zweiten serve auf derselben Rolle; die übrigen Kommandos laufen daneben wie
@@ -82,9 +85,6 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// loopbackHosts sind die Hosts, auf denen serve lauschen darf.
-var loopbackHosts = map[string]bool{"127.0.0.1": true, "::1": true, "localhost": true}
-
 // checkServeListen prüft ein listen für serve: host:port auf Loopback. Port 0
 // (ein freier Port) lässt serve zu, die config nicht — Tests brauchen ihn.
 func checkServeListen(r config.Role, addr string) error {
@@ -92,7 +92,7 @@ func checkServeListen(r config.Role, addr string) error {
 	if err != nil || port == "" {
 		return fmt.Errorf("%s: listen %q: erwartet host:port", r, addr)
 	}
-	if !loopbackHosts[host] {
+	if !loopback.IsHost(host) {
 		return fmt.Errorf("%s: listen %s: serve lauscht bisher nur auf diesem Rechner (127.0.0.1, ::1 oder localhost) — "+
 			"Klartext-HTTP verlässt den Rechner nicht, bis https und ssh kommen", r, addr)
 	}
@@ -215,7 +215,8 @@ func startRole(ctx context.Context, cfg config.Config, r config.Role, sec *confi
 		}
 		rl.close = func() { _ = st.Close() }
 		rl.server = &http.Server{
-			Handler:           httpapi.NewHandler(replication.New(st)),
+			// Host wie am Node: dieser Rechner mit dem eigenen Port, sonst 403.
+			Handler:           loopback.Guard(httpapi.NewHandler(replication.New(st))),
 			ReadHeaderTimeout: httpapi.ReadHeaderTimeout,
 			ReadTimeout:       httpapi.ReadTimeout,
 			WriteTimeout:      httpapi.WriteTimeout,

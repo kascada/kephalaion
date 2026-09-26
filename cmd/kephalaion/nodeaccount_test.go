@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/contract"
 	"github.com/kephalaion/kephalaion/internal/contract/httpapi"
 	"github.com/kephalaion/kephalaion/internal/hub/replication"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
 	"github.com/kephalaion/kephalaion/internal/node/replica"
 )
 
@@ -338,5 +340,97 @@ func TestAccountRotateNoRetry(t *testing.T) {
 	e.run(t, "node", "sync", "fern").want(t, 1)
 	if n := calls.Load(); n != 4 {
 		t.Errorf("sync: %d Aufrufe, erwartet 4", n)
+	}
+}
+
+// failAfterCommit führt rotate am echten Hub aus und meldet danach einen
+// gewöhnlichen Fehler — wie eine Datenbank, die nach dem Commit ausfällt.
+type failAfterCommit struct {
+	contract.Hub
+}
+
+func (f failAfterCommit) Rotate(ctx context.Context, req contract.RotateRequest) (contract.RotateResponse, error) {
+	if _, err := f.Hub.Rotate(ctx, req); err != nil {
+		return contract.RotateResponse{}, err
+	}
+	return contract.RotateResponse{}, errors.New("Datenbank weg")
+}
+
+// Über local ist ein Fehler von Rotate, der kein Fehler des Vertrags ist,
+// ein unklarer Ausgang: .pending bleibt, stdin zeigt das neue Token als
+// unklar, check klärt.
+func TestAccountRotateLocalFailureAfterCommit(t *testing.T) {
+	e := newCommEnv(t)
+	old := newLocalHub
+	newLocalHub = func(st hubstore.Store) contract.Hub { return failAfterCommit{replication.New(st)} }
+	t.Cleanup(func() { newLocalHub = old })
+
+	file := e.tokenFile(t, "alice", e.tokens["alice"])
+	e.run(t, "node", "account", "rotate", "eigen", "alice", "--token-file", file).want(t, 1, "Ausgang unklar",
+		"Datenbank weg", "Beide Dateien bleiben", "node account check eigen alice --token-file")
+	if readFileToken(t, file) != e.tokens["alice"] {
+		t.Error("Datei trotz unklarem Ausgang ersetzt")
+	}
+	pending := readFileToken(t, file+".pending")
+	e.run(t, "node", "account", "check", "eigen", "alice", "--token-file", file).want(t, 0, "Das neue Token gilt")
+	if readFileToken(t, file) != pending {
+		t.Error("check hat die Datei nicht ersetzt")
+	}
+
+	r := e.runIn(t, e.tokens["carol"], "node", "account", "rotate", "eigen", "carol", "--token-stdin")
+	r.want(t, 1, "UNKLAR — PRÜFEN", "node account check eigen carol --token-stdin")
+	if strings.Contains(r.out, "das alte Token gilt weiter") {
+		t.Errorf("als eindeutig gemeldet:\n%s", r.out)
+	}
+	newCarol := tokenFrom(t, r.out)
+	e.runIn(t, newCarol, "node", "account", "check", "eigen", "carol", "--token-stdin").want(t, 0, "gilt am Hub eigen")
+	e.runIn(t, e.tokens["carol"], "node", "account", "check", "eigen", "carol", "--token-stdin").want(t, 1, "nicht")
+}
+
+// Ein Node, der offline war, während eine Collection entfernt, gleichnamig
+// neu angelegt und wieder erlaubt wurde, gleicht mit altem Stand weiter ab:
+// Die Löschmarke macht seine alte Zeile zur Löschmarke, die wiederbelebte
+// Zeile ersetzt sie.
+func TestCollectionRecreatedWhileNodeOffline(t *testing.T) {
+	e := newCommEnv(t)
+	e.run(t, "hub", "account", "grant", "alice", "privat").want(t, 0)
+	e.run(t, "node", "collection", "add", "eigen:privat").want(t, 0)
+	e.run(t, "node", "sync", "eigen").want(t, 0)
+	for _, name := range []string{"alice", "bob"} {
+		if got := e.replicaAccount(t, "eigen", name); !slices.Equal(got, []string{"privat", "team-x"}) {
+			t.Fatalf("%s in der Replica: %v", name, got)
+		}
+	}
+
+	// Der Node ist offline.
+	e.run(t, "hub", "account", "revoke", "alice", "privat").want(t, 0)
+	e.run(t, "hub", "account", "revoke", "bob", "privat").want(t, 0)
+	e.run(t, "hub", "node", "revoke", "laptop", "privat").want(t, 0)
+	e.run(t, "hub", "node", "revoke", "laptop-http", "privat").want(t, 0)
+	e.run(t, "hub", "collection", "rm", "privat").want(t, 0)
+	e.run(t, "hub", "collection", "add", "privat").want(t, 0)
+	e.run(t, "hub", "node", "grant", "laptop", "privat").want(t, 0)
+	e.run(t, "hub", "account", "grant", "alice", "privat", "--write").want(t, 0)
+
+	e.run(t, "node", "sync", "eigen").want(t, 0)
+	if got := e.replicaAccount(t, "eigen", "bob"); !slices.Equal(got, []string{"team-x"}) {
+		t.Errorf("bob in der Replica: %v, erwartet nur team-x", got)
+	}
+	if got := e.replicaAccount(t, "eigen", "alice"); !slices.Equal(got, []string{"privat", "team-x"}) {
+		t.Fatalf("alice in der Replica: %v", got)
+	}
+	ns := nodeStore(t, e.cfg)
+	r, err := replica.Open(context.Background(), ns.ReplicaPath("eigen"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	rows, err := r.AccountRows(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := contract.DecodeAccountContent(*rows[0].Content)
+	if err != nil || rows[0].Collection != "privat" || !c.Rights.Write {
+		t.Errorf("alice in privat: %+v, %v", c, err)
 	}
 }

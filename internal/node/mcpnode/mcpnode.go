@@ -16,7 +16,6 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/kephalaion/kephalaion/internal/contract"
 	"github.com/kephalaion/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/loopback"
 	"github.com/kephalaion/kephalaion/internal/node/replica"
 	"github.com/kephalaion/kephalaion/internal/node/store"
 	"github.com/kephalaion/kephalaion/internal/reqlog"
@@ -75,12 +75,12 @@ func NewHandler(nodes store.Store, version string) http.Handler {
 // es die Accounts der Header im Log (nur Namen).
 func guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := checkHost(r); err != nil {
-			http.Error(w, "Forbidden: "+err.Error(), http.StatusForbidden)
+		if err := loopback.CheckHost(r); err != nil {
+			loopback.Forbid(w, err)
 			return
 		}
 		if err := checkOrigin(r.Header.Values("Origin")); err != nil {
-			http.Error(w, "Forbidden: "+err.Error(), http.StatusForbidden)
+			loopback.Forbid(w, err)
 			return
 		}
 		for _, p := range HubHeaders(r.Header) {
@@ -88,26 +88,6 @@ func guard(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-var localHosts = map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
-
-// checkHost verlangt als Host localhost, 127.0.0.1 oder [::1] mit dem Port,
-// auf dem die Anfrage ankam.
-func checkHost(r *http.Request) error {
-	host, port, err := net.SplitHostPort(r.Host)
-	if err != nil || !localHosts[strings.ToLower(host)] {
-		return fmt.Errorf("Host %q ist nicht dieser Rechner", r.Host)
-	}
-	local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-	if !ok || local == nil {
-		return errors.New("eigene Adresse unbekannt")
-	}
-	_, ownPort, err := net.SplitHostPort(local.String())
-	if err != nil || ownPort != port {
-		return fmt.Errorf("Host %q nennt nicht den Port dieses Nodes", r.Host)
-	}
-	return nil
 }
 
 // checkOrigin lässt eine fehlende Origin zu, sonst nur http://localhost… und
@@ -121,7 +101,7 @@ func checkOrigin(values []string) error {
 		return errors.New("Origin mehrfach")
 	}
 	u, err := url.Parse(values[0])
-	if err != nil || u.Scheme != "http" || !localHosts[strings.ToLower(u.Hostname())] || u.Path != "" || u.User != nil {
+	if err != nil || u.Scheme != "http" || !loopback.IsHost(u.Hostname()) || u.Path != "" || u.User != nil {
 		return fmt.Errorf("Origin %q ist nicht dieser Rechner", values[0])
 	}
 	return nil

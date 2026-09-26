@@ -158,6 +158,11 @@ Ausführlich: [`konzept.md`](konzept.md).
     Account-Zeilen der Collection abgleichen. Steht am Hub in `node_collections`.
 - **node entry** (Node-Eintrag) — ein Node am Hub: Zeile in `nodes`, Name vom Admin, Token
   (nur der Hash), gesperrt ja/nein. Name gemeinsam mit den Accounts eindeutig.
+- **principal_names** (belegte Namen) — Tabelle des Hubs: je Node und Account eine Zeile
+  (`name` als Primärschlüssel, `kind` `node` oder `account`). Sichert die gemeinsame
+  Eindeutigkeit der Node- und Account-Namen in der Datenbank ab; geschrieben in derselben
+  Transaktion wie Anlegen und Entfernen. Abgeleitet aus `nodes` und `accounts`: nicht im
+  Export, `config import` baut sie neu auf.
 - **hub entry** (Hub-Eintrag) — ein Hub am Node: Zeile in `hubs` in `node.db`, Alias vom
   Node, Name des Nodes am Hub (`node_name`, `--node`), Transport, Adresse, Token, `hub_id`
   (Kopie aus der Replica).

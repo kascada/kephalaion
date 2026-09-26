@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -511,5 +512,115 @@ func TestImportAccounts(t *testing.T) {
 	after, _ := dst.Accounts(ctx)
 	if !reflect.DeepEqual(after, tables.Accounts) || revision(t, dst) != rev {
 		t.Errorf("KeepAccounts hat Accounts geändert: %+v", after)
+	}
+}
+
+// Löschmarken von Account-Zeilen blockieren das Entfernen einer Collection
+// nicht und bleiben stehen; lebende Zeilen und gemerkte Rechte eines
+// gesperrten Accounts blockieren. Eine gleichnamige neue Collection belebt
+// die Marke mit grant wieder.
+func TestRemoveCollectionWithAccountTombstones(t *testing.T) {
+	ctx := context.Background()
+	s := newAccountStore(t)
+	for _, name := range []string{"alice", "bob", "carol"} {
+		if _, err := s.AddAccount(ctx, name, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.GrantAccount(ctx, name, "privat", contract.Rights{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetAccountLocked(ctx, "carol", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveCollection(ctx, "privat"); !errors.Is(err, ErrInUse) || !strings.Contains(err.Error(), "carol") {
+		t.Errorf("gemerkte Rechte: %v", err)
+	}
+	if err := s.RevokeAccount(ctx, "carol", "privat"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveCollection(ctx, "privat"); !errors.Is(err, ErrInUse) || !strings.Contains(err.Error(), "2 Dokumentzeilen") {
+		t.Errorf("lebende Zeilen: %v", err)
+	}
+	if err := s.RevokeAccount(ctx, "alice", "privat"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveCollection(ctx, "privat"); !errors.Is(err, ErrInUse) {
+		t.Errorf("lebende Zeile von bob: %v", err)
+	}
+	if err := s.RemoveAccount(ctx, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	marks := map[string][]sysRow{}
+	for _, name := range []string{"alice", "bob", "carol"} {
+		marks[name] = accountRowsAll(t, s, name)
+	}
+	if err := s.RemoveCollection(ctx, "privat"); err != nil {
+		t.Fatalf("nur Löschmarken: %v", err)
+	}
+	for name, before := range marks {
+		if after := accountRowsAll(t, s, name); !reflect.DeepEqual(after, before) || len(after) != 1 || !after[0].deleted {
+			t.Errorf("%s: Marken nach rm: %+v", name, after)
+		}
+	}
+
+	// Gleichnamig neu: grant belebt die Marke von alice wieder.
+	if err := s.AddCollection(ctx, "privat", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GrantAccount(ctx, "alice", "privat", contract.Rights{}); err != nil {
+		t.Fatal(err)
+	}
+	after := accountRowsAll(t, s, "alice")
+	if len(after) != 1 || after[0].deleted || after[0].id != marks["alice"][0].id || after[0].revision <= marks["alice"][0].revision {
+		t.Errorf("wiederbelebt: vorher %+v, nachher %+v", marks["alice"], after)
+	}
+}
+
+// Der Import entfernt eine Collection, in der nur Löschmarken von
+// Account-Zeilen stehen; die Marken bleiben.
+func TestImportRemovesCollectionWithTombstones(t *testing.T) {
+	ctx := context.Background()
+	s := newAccountStore(t)
+	if _, err := s.AddAccount(ctx, "alice", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GrantAccount(ctx, "alice", "privat", contract.Rights{}); err != nil {
+		t.Fatal(err)
+	}
+	tables, err := s.Tables(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables.Collections = slices.DeleteFunc(tables.Collections, func(c Collection) bool { return c.Name == "privat" })
+	tables.Accounts[0].Rights = nil
+	// Mit lebender Zeile blockiert die Collection den Import.
+	if err := s.Import(ctx, nil, &tables); !errors.Is(err, ErrInUse) {
+		t.Errorf("Import mit lebender Zeile: %v", err)
+	}
+	if err := s.RevokeAccount(ctx, "alice", "privat"); err != nil {
+		t.Fatal(err)
+	}
+	before := accountRowsAll(t, s, "alice")
+	if err := s.Import(ctx, nil, &tables); err != nil {
+		t.Fatalf("Import mit Löschmarke: %v", err)
+	}
+	if colls, _ := s.Collections(ctx); slices.ContainsFunc(colls, func(c Collection) bool { return c.Name == "privat" }) {
+		t.Error("privat nicht entfernt")
+	}
+	if after := accountRowsAll(t, s, "alice"); !reflect.DeepEqual(after, before) || len(after) != 1 {
+		t.Errorf("Marken nach Import: %+v", after)
+	}
+	// Ebenso, wenn der Import die Accounts lässt.
+	if err := s.AddCollection(ctx, "privat", ""); err != nil {
+		t.Fatal(err)
+	}
+	keep := tables
+	keep.Accounts, keep.KeepAccounts = nil, true
+	if err := s.Import(ctx, nil, &keep); err != nil {
+		t.Fatalf("Import mit KeepAccounts: %v", err)
+	}
+	if after := accountRowsAll(t, s, "alice"); !reflect.DeepEqual(after, before) {
+		t.Errorf("Marken nach Import mit KeepAccounts: %+v", after)
 	}
 }

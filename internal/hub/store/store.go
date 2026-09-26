@@ -26,7 +26,7 @@ const Role = string(config.Hub)
 // SchemaVersion ist die Schemafassung, die dieses Binary erwartet. Es gibt
 // noch keine Migrationen: Passt die Fassung nicht, ist die Datenbank neu
 // anzulegen.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // Zeilen in db_info, die nur der Hub hat.
 const (
@@ -62,8 +62,10 @@ type Store interface {
 	Collections(ctx context.Context) ([]Collection, error)
 	AddCollection(ctx context.Context, name, description string) error
 	SetCollectionDescription(ctx context.Context, name, description string) error
-	// RemoveCollection entfernt eine Collection, die kein Node erlaubt hat und
-	// in der keine Dokumente stehen.
+	// RemoveCollection entfernt eine Collection, die kein Node erlaubt hat, in
+	// der kein gesperrter Account Rechte gemerkt hat und in der keine
+	// Dokumente stehen. Löschmarken von Account-Zeilen zählen nicht; sie
+	// bleiben stehen.
 	RemoveCollection(ctx context.Context, name string) error
 
 	Nodes(ctx context.Context) ([]Node, error)
@@ -194,6 +196,9 @@ var queries = struct {
 
 	AccountsAll        string
 	AccountGet         string
+	AccountLock        string
+	AccountsLockAll    string
+	AccountRotate      string
 	AccountCount       string
 	AccountInsert      string
 	AccountSetDesc     string
@@ -205,6 +210,11 @@ var queries = struct {
 	AccountRowsAllLive string
 	AccountRowLatest   string
 	AccountRowRevive   string
+
+	NameClaim      string
+	NameKind       string
+	NameRelease    string
+	NamesDeleteAll string
 
 	GrantsAll       string
 	GrantsOfNode    string
@@ -275,8 +285,14 @@ var queries = struct {
 	CollectionSetDesc:    `UPDATE collections SET description = $2 WHERE name = $1`,
 	CollectionDelete:     `DELETE FROM collections WHERE name = $1`,
 	CollectionsDeleteAll: `DELETE FROM collections`,
-	// Jede Zeile zählt: auch Löschmarken und SYSTEM:-Zeilen.
-	CollectionCountDocs:   `SELECT COUNT(*) FROM documents WHERE collection = $1`,
+	// Jede Zeile zählt — auch Löschmarken von Dokumenten und lebende
+	// SYSTEM:-Zeilen —, nur Löschmarken von Account-Zeilen nicht: Sie bleiben
+	// stehen, wenn die Collection entfällt (documents hat keinen
+	// Fremdschlüssel), und ein grant belebt sie in einer gleichnamigen neuen
+	// Collection wieder. Ein Node, der offline war, bekommt so beim nächsten
+	// Abgleich die Löschmarke bzw. die wiederbelebte Zeile.
+	CollectionCountDocs: `SELECT COUNT(*) FROM documents WHERE collection = $1
+		AND NOT (deleted = 1 AND substr(name, 1, 9) = 'SYSTEM:A:')`,
 	CollectionGrantedNode: `SELECT node FROM node_collections WHERE collection = $1 ORDER BY node`,
 
 	NodesAll: `SELECT name, COALESCE(description, ''), token_hash, locked, created_at, created_by
@@ -297,6 +313,19 @@ var queries = struct {
 	AccountGet: `SELECT name, COALESCE(description, ''), token_hash, locked, COALESCE(locked_rights, ''),
 		created_at, created_by FROM accounts WHERE name = $1`,
 	AccountCount: `SELECT COUNT(*) FROM accounts WHERE name = $1`,
+	// AccountLock sperrt die Zeile eines Accounts schreibend, bevor sie
+	// gelesen wird — die erste Anweisung jedes Schreibvorgangs an einem
+	// Account (wie LockRevision; SELECT … FOR UPDATE versteht SQLite nicht).
+	// Unter PostgreSQL (READ COMMITTED) liest so kein Schreibvorgang einen
+	// Hash, den ein gleichzeitiger rotate gerade ersetzt. AccountsLockAll
+	// sperrt beim Import alle Zeilen.
+	AccountLock:     `UPDATE accounts SET name = name WHERE name = $1`,
+	AccountsLockAll: `UPDATE accounts SET name = name`,
+	// AccountRotate ist das bedingte Schreiben von rotate und zugleich seine
+	// Sperre: Es trifft die Zeile nur, wenn das alte Token gilt und der
+	// Account nicht gesperrt ist. Von zwei rotate mit demselben alten Token
+	// trifft so nur eines.
+	AccountRotate: `UPDATE accounts SET token_hash = $2 WHERE name = $1 AND token_hash = $3 AND locked = 0`,
 	AccountInsert: `INSERT INTO accounts (name, description, token_hash, locked, locked_rights, created_at, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 	AccountSetDesc:    `UPDATE accounts SET description = $2 WHERE name = $1`,
@@ -324,6 +353,15 @@ var queries = struct {
 	AccountRowRevive: `UPDATE documents SET content = $2, meta = NULL, deleted = 0, revision = $3,
 		created_at = $4, created_by = $5, updated_at = $4, updated_by = $5
 		WHERE id = $1`,
+
+	// principal_names: je Node und Account eine Zeile, der Primärschlüssel
+	// sichert die gemeinsame Eindeutigkeit. NameClaim trifft keine Zeile, wenn
+	// der Name schon belegt ist — ON CONFLICT DO NOTHING statt eines Fehlers,
+	// der unter PostgreSQL die Transaktion abbräche.
+	NameClaim:      `INSERT INTO principal_names (name, kind) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`,
+	NameKind:       `SELECT kind FROM principal_names WHERE name = $1`,
+	NameRelease:    `DELETE FROM principal_names WHERE name = $1`,
+	NamesDeleteAll: `DELETE FROM principal_names`,
 
 	GrantsAll:       `SELECT node, collection FROM node_collections ORDER BY node, collection`,
 	GrantsOfNode:    `SELECT collection FROM node_collections WHERE node = $1 ORDER BY collection`,
@@ -392,6 +430,10 @@ CREATE TABLE accounts (
   created_at    INTEGER NOT NULL,
   created_by    TEXT NOT NULL
 );
+CREATE TABLE principal_names (
+  name        TEXT PRIMARY KEY,
+  kind        TEXT NOT NULL
+);
 `
 
 // Open öffnet eine vorhandene Hub-Datenbank und prüft Rolle und
@@ -437,6 +479,9 @@ func Create(ctx context.Context, addr config.DB) (Store, error) {
 // sqliteStore ist die Umsetzung für SQLite.
 type sqliteStore struct {
 	db *sql.DB
+	// traceTx umhüllt die Transaktion eines Schreibvorgangs an Accounts;
+	// nur Tests setzen es, um die Reihenfolge der Anweisungen zu sehen.
+	traceTx func(sqlitedb.Querier) sqlitedb.Querier
 }
 
 func q(text string) string { return sqlq.Bind(sqlq.SQLite, text) }
@@ -482,7 +527,7 @@ func (s *sqliteStore) Close() error { return s.db.Close() }
 // gesperrt (für PostgreSQL; unter SQLite hält die Transaktion die Sperre seit
 // BEGIN IMMEDIATE). Schreibvorgänge an Dokumenten holen sie über
 // lazyRevision, höchstens einmal je Transaktion.
-func nextRevision(ctx context.Context, tx *sql.Tx) (int64, error) {
+func nextRevision(ctx context.Context, tx sqlitedb.Querier) (int64, error) {
 	if _, err := tx.ExecContext(ctx, q(queries.LockRevision), keyRevision); err != nil {
 		return 0, fmt.Errorf("Revision sperren: %w", err)
 	}

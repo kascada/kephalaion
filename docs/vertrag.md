@@ -73,18 +73,26 @@ Der Hub prüft in dieser Reihenfolge: Fassung, Form von `new_hash` (sonst `inval
 Anmeldung des Nodes, altes Token gegen `accounts` (gesperrt gilt nicht:
 `account_unauthenticated`). Hat der Account keine der Collections, die der Node abgleichen
 darf, antwortet er `no_shared_collection` — **vor** jeder Änderung. Sonst ersetzt er den Hash in
-`accounts` und in allen Zeilen des Accounts in **einer** Transaktion: ein Schreibvorgang mit
+`accounts` und in allen Zeilen des Accounts in **einer** Transaktion. Sie beginnt mit dem
+bedingten Schreiben in `accounts` (nur wenn das alte Token noch gilt und der Account nicht
+gesperrt ist) — so gelingt von zwei gleichzeitigen `rotate` mit demselben alten Token nur einer.
+Es ist ein Schreibvorgang mit
 einer Revision und genau einer Zeile in `actions` (`account` = der Account, `carrier` = der
 Node, `action` = `rotate`, `subject` = der Account). Fehlversuche stehen nicht in `actions`,
 nur im Log des Hubs (ohne Token).
 
 Antwort: `hub_id`, `version` und `rows` — die Account-Zeilen mit dem neuen Hash, beschränkt auf
-die Collections, die der Node abgleichen darf, nach Collection; Form wie bei `sync`.
+die Collections, die der Node abgleichen darf, nach Collection; Form wie bei `sync`. Alles, was
+die Antwort braucht, liest der Hub **vor** dem Commit; danach stellt er sie nur noch zusammen.
 
 **Nicht wiederholbar.** Nach einem erfolgreichen `rotate` gilt das alte Token nicht mehr; ein
 zweiter Versuch mit ihm scheitert. Ein Transport wiederholt `rotate` deshalb nie. Ist nach dem
 Abschicken offen, ob der Hub es ausgeführt hat, meldet der Transport das als eigenen Fall
-(`contract.ErrOutcomeUnknown`), und der Node prüft mit `whoami`.
+(`contract.ErrOutcomeUnknown`), und der Node prüft mit `whoami`. Eindeutig gescheitert ist
+`rotate` nur mit einem Fehler des Vertrags (einem der Codes unten) oder wenn die Anfrage den Hub
+nachweislich nicht erreicht hat. Jeder andere Fehler — auch einer der Datenbank nach dem
+Commit — ist unklar: über HTTP als 500, über `local` meldet der Transport ihn ebenso als
+`contract.ErrOutcomeUnknown`.
 
 ## sync
 
@@ -217,9 +225,18 @@ des Vertrags ist.
   von `sync` 10 Minuten.
 - **Wiederholung:** `whoami` und `sync` wiederholt der Client bei Fehlern des Transports und
   bei 5xx bis zu dreimal, mit wachsendem Abstand (0,5 s, 1 s, 2 s). `rotate` nie.
-- **Unklarer Ausgang bei `rotate`:** Kam die Verbindung nicht zustande, ist nichts geschehen.
-  Jeder andere Fehler nach dem Abschicken — Zeitüberschreitung, abgebrochene Verbindung,
-  unlesbare Antwort, 5xx — ist unklar (`contract.ErrOutcomeUnknown`).
+- **Weiterleitungen:** Der Client folgt keiner Weiterleitung. Eine 3xx-Antwort ist ein Fehler,
+  ohne Wiederholung; bei `rotate` ein eindeutiger — der Hub hat nicht ausgeführt, und Body und
+  Token gehen an kein anderes Ziel.
+- **Unklarer Ausgang bei `rotate`:** Kam die Verbindung nicht zustande oder antwortet der Hub
+  mit einer Weiterleitung, ist nichts geschehen. Jeder andere Fehler nach dem Abschicken —
+  Zeitüberschreitung, abgebrochene Verbindung, unlesbare Antwort, 5xx — ist unklar
+  (`contract.ErrOutcomeUnknown`).
+- **Host:** Der Hub beantwortet nur Anfragen, deren `Host` dieser Rechner (`localhost`,
+  `127.0.0.1`, `[::1]`) mit dem Port ist, auf dem die Anfrage ankam — dieselbe Prüfung wie am
+  Node vor `/mcp`. Sonst antwortet er 403 ohne Vertragsform, noch vor Pfad und Anmeldung. Ein
+  Tunnel geht damit nur mit gleichem Port (`ssh -L 7434:localhost:7434`), bis `ssh` und `https`
+  als Transport kommen.
 - **Log:** eine Zeile je Anfrage mit Methode, Pfad, Status, Dauer, Node- und Account-Namen;
   Namen, die der Namensregel nicht folgen, erscheinen maskiert. Nie ein Token, nie ein Body.
 

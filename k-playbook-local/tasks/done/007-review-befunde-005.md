@@ -142,6 +142,16 @@ Hintergrund darauf aufsetzen.
   Hub“: Zeile in `accounts` zuerst sperren, Löschmarken bleiben auch beim Entfernen der
   Collection), `docs/begriffe.md` falls neue Begriffe.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — rotate: kein eindeutiges Scheitern nach dem Commit | erledigt | 2026-09-26 | `Rotate` liest `Info` vor `RotateAccount`; `localHub` in `synccmd.go` meldet Nicht-Vertragsfehler von `Rotate` als `ErrOutcomeUnknown`; Tests in replication und cmd scheiterten vorher |
+| 2 — Hub-Store ohne Race | erledigt | 2026-09-26 | `writeAccount` sperrt die Account-Zeile zuerst (`AccountLock`), Import alle (`AccountsLockAll`); `RotateAccount` mit bedingtem UPDATE; Tabelle `principal_names` (ON CONFLICT DO NOTHING → `ErrExists`), Import baut neu auf; Hub-Schema 4. Rotate-Tests und Verschränkung scheitern unter SQLite vorher nicht (vermerkt) |
+| 3 — HTTP-Weg härten | erledigt | 2026-09-26 | Client folgt keinen Weiterleitungen, 3xx ist eindeutiger Fehler ohne Wiederholung; neues neutrales Paket `internal/loopback` (Host-Prüfung, von `mcpnode` und dem Hub-Listener in `serve` gemeinsam genutzt); Tests scheiterten vorher |
+| 4 — Import und Collections | erledigt | 2026-09-26 | Format 3 lehnt jeden Accounts-Teil am YAML-Knoten ab (`hasPart`); `CollectionCountDocs` zählt Löschmarken von `SYSTEM:A:`-Zeilen nicht (CLI und Import); Tests scheiterten vorher, außer Format 4 null (sichert ab) |
+| 5 — Doku | erledigt | 2026-09-26 | `vertrag.md` (rotate nach Commit, Weiterleitungen, Host/403, Tunnel), `konzept.md` (Sperre zuerst, `principal_names`, Löschmarken beim Entfernen, Import mit null, DDL), `k-playbook.md` (Paket `loopback`, Namenseindeutigkeit, Accounts am Hub, Import), `begriffe.md` (`principal_names`); dazu README und Hilfetexte `serve`/`hub collection rm` |
+
 ---
 ## Review-Log (2026-09-26)
 
@@ -211,3 +221,75 @@ widerspricht ihm aber nicht.
 
 ### Offen (nicht gefixt)
 - —
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** `rotate` stellt die Antwort vor dem Commit zusammen, und `local` meldet Nicht-Vertragsfehler als `ErrOutcomeUnknown`. Der Hub-Store sperrt die Account-Zeile als erste Anweisung (`AccountLock`, Import `AccountsLockAll`), `rotate` schreibt bedingt. Die gemeinsame Namenseindeutigkeit sichert die neue Tabelle `principal_names` (Hub-Schema 4). Der HTTP-Client folgt keinen Weiterleitungen, der Hub prüft `Host` über das neue neutrale Paket `internal/loopback`. Format 3 lehnt jeden Accounts-Teil ab, und Löschmarken von `SYSTEM:A:`-Zeilen blockieren das Entfernen einer Collection nicht mehr. Doku ist nachgezogen.
+
+**Geänderte Dateien:**
+```
+ README.md                                 |   4 +-
+ cmd/kephalaion/configimport_test.go       |  44 ++++
+ cmd/kephalaion/exportfile.go              |  34 ++-
+ cmd/kephalaion/hubcmd.go                  |   7 +-
+ cmd/kephalaion/nodeaccount_test.go        |  94 +++++++
+ cmd/kephalaion/roles_test.go              |   5 +-
+ cmd/kephalaion/serve.go                   |  13 +-
+ cmd/kephalaion/serve_test.go              |  17 ++
+ cmd/kephalaion/synccmd.go                 |  22 +-
+ docs/begriffe.md                          |   5 +
+ docs/konzept.md                           |  55 ++++-
+ docs/vertrag.md                           |  29 ++-
+ internal/contract/httpapi/client.go       |  15 +-
+ internal/contract/httpapi/httpapi_test.go |  34 +++
+ internal/hub/replication/accounts_test.go |  39 +++
+ internal/hub/replication/replication.go   |  11 +-
+ internal/hub/store/accounts.go            | 172 ++++++++++---
+ internal/hub/store/accounts_test.go       | 111 +++++++++
+ internal/hub/store/admin.go               |  25 +-
+ internal/hub/store/documents.go           |   4 +-
+ internal/hub/store/race_test.go           | 392 ++++++++++++++++++++++++++++++
+ internal/hub/store/store.go               |  57 ++++-
+ internal/hub/store/store_test.go          |   3 +-
+ internal/loopback/loopback.go             |  55 +++++
+ internal/node/mcpnode/mcpnode.go          |  30 +--
+ k-playbook-local/k-playbook.md            |  34 ++-
+```
+Grundlage: `git diff HEAD` vor dem Commit. Die Baseline 8ee0090 wurde währenddessen von einer parallelen Sitzung (`assets/`) überholt; deren Dateien gehören nicht zu diesem Task.
+
+**Code-Änderungen (Kern):**
+```diff
++	AccountLock:     `UPDATE accounts SET name = name WHERE name = $1`,
++	AccountsLockAll: `UPDATE accounts SET name = name`,
++	AccountRotate: `UPDATE accounts SET token_hash = $2 WHERE name = $1 AND token_hash = $3 AND locked = 0`,
++	NameClaim:      `INSERT INTO principal_names (name, kind) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`,
++	CollectionCountDocs: `SELECT COUNT(*) FROM documents WHERE collection = $1
++		AND NOT (deleted = 1 AND substr(name, 1, 9) = 'SYSTEM:A:')`,
+```
+```diff
+ func (s *sqliteStore) writeAccount(ctx context.Context, target, account, carrier, action, subject string, fn func(w *accountTx) error) error {
++	if target != "" {
++		if _, err := tx.ExecContext(ctx, q(queries.AccountLock), target); err != nil {
+```
+```diff
++func (l localHub) Rotate(ctx context.Context, req contract.RotateRequest) (contract.RotateResponse, error) {
++	resp, err := l.Hub.Rotate(ctx, req)
++	var ce *contract.Error
++	if err != nil && !errors.As(err, &ce) {
++		return contract.RotateResponse{}, fmt.Errorf("%w: %v", contract.ErrOutcomeUnknown, err)
+```
+```diff
++		http: &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error {
++			return http.ErrUseLastResponse
++		}},
+```
+Außerdem: `hasPart` prüft den Accounts-Teil am YAML-Knoten. `loopback.Guard` umhüllt den Hub-Handler in `serve`. Die Tests stehen in `race_test.go`, `accounts_test.go`, `nodeaccount_test.go`, `httpapi_test.go`, `serve_test.go` und `configimport_test.go`. `make check` ist grün.
+
+**Code-Review:**
+- Keine kritischen Befunde.
+- Vorschlag (Wartbarkeit): `sqliteStore.traceTx` ist eine reine Test-Naht im Produktionstyp. Das ist vertretbar, weil sie nur so die Reihenfolge der Anweisungen belegen kann.
+- Vorschlag (Nebenläufigkeit, außerhalb des Tasks): `RemoveCollection` prüft `accounts`/`documents` ohne Sperre. Unter READ COMMITTED kann ein gleichzeitiges `grant` oder ein Dokument-Schreibvorgang zwischen Prüfung und Löschen fallen. Der Sub-Agent hat das beobachtet, es ist nicht behoben.
+- Hinweis: `localHub` macht auch einen Abbruch vor dem Commit (etwa `ctx` abgelaufen) zu „unklar“. Das ist konservativ und gewollt, `node account check` löst es auf.
+- Gut: Das bedingte `rotate` ersetzt den Vergleich im Code und ist zugleich die Sperre. `claimName` mit `ON CONFLICT DO NOTHING` hält eine PostgreSQL-Transaktion am Leben und liefert dieselbe Meldung wie die Vorprüfung. Eine 3xx-Antwort wird ohne `sent` zum eindeutigen Fehler.

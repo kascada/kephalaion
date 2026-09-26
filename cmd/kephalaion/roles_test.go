@@ -5,8 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
 )
 
 // isolate lenkt HOME und die XDG-Verzeichnisse in ein temporäres Verzeichnis,
@@ -75,7 +78,7 @@ func TestInitHubOnly(t *testing.T) {
 		want(t, 0, "Hub eingerichtet.", db, cfg)
 	runT(t, "status", "--config", cfg).want(t, 0,
 		"config: "+cfg+" (vorhanden)",
-		"hub: eingerichtet", "sqlite://"+db, "Schemafassung: 3", "Revision:      0",
+		"hub: eingerichtet", "sqlite://"+db, "Schemafassung: "+strconv.Itoa(hubstore.SchemaVersion), "Revision:      0",
 		"hub_id:        ", "Dokumente:     0", "Collections:   keine", "Nodes:         keine", "node: nicht eingerichtet")
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/kephalaion/kephalaion/internal/contract"
 	"github.com/kephalaion/kephalaion/internal/contract/httpapi"
+	"github.com/kephalaion/kephalaion/internal/hub/store"
 	"github.com/kephalaion/kephalaion/internal/ident"
 	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
@@ -300,5 +301,43 @@ func TestHTTPStatus(t *testing.T) {
 		if s := httpapi.Status(code); s < 400 || s == 500 {
 			t.Errorf("Code %s ohne eigenen Status: %d", code, s)
 		}
+	}
+}
+
+// infoAfterRotate lässt Info scheitern, sobald RotateAccount gelaufen ist —
+// wie eine Datenbank, die nach dem Commit ausfällt.
+type infoAfterRotate struct {
+	store.Store
+	rotated bool
+}
+
+func (s *infoAfterRotate) RotateAccount(ctx context.Context, name, oldHash, newHash, carrier string, shared []string) ([]contract.Row, error) {
+	rows, err := s.Store.RotateAccount(ctx, name, oldHash, newHash, carrier, shared)
+	s.rotated = s.rotated || err == nil
+	return rows, err
+}
+
+func (s *infoAfterRotate) Info(ctx context.Context) (store.Info, error) {
+	if s.rotated {
+		return store.Info{}, errors.New("Datenbank weg")
+	}
+	return s.Store.Info(ctx)
+}
+
+// Nach dem Commit liest Rotate nichts mehr: Die Antwort steht vorher fest,
+// ein Fehler danach kann den Erfolg nicht mehr kippen.
+func TestRotateNothingAfterCommit(t *testing.T) {
+	f := newLocalFixture(t)
+	tokens := f.accounts(t)
+	st := &infoAfterRotate{Store: f.st}
+	newTok, _ := ident.NewToken()
+	resp, err := New(st).Rotate(context.Background(), contract.RotateRequest{Version: contract.Version, Auth: f.node(),
+		Account: "bob", Token: tokens["bob"], NewHash: ident.HashToken(newTok)})
+	if err != nil {
+		t.Fatalf("Rotate nach dem Commit gescheitert: %v", err)
+	}
+	info, _ := f.st.Info(context.Background())
+	if !st.rotated || resp.HubID != info.HubID || len(resp.Rows) != 1 {
+		t.Errorf("Antwort = %+v", resp)
 	}
 }

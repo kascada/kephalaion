@@ -149,6 +149,13 @@ func (h *Hub) Rotate(ctx context.Context, req contract.RotateRequest) (contract.
 	if !ok {
 		return contract.RotateResponse{}, contract.ErrAccountUnauthenticated
 	}
+	// Alles, was die Antwort braucht, steht vor dem Commit fest: Ein Fehler
+	// danach hielte der Node sonst für ein Scheitern, obwohl der neue Hash
+	// schon gilt.
+	info, err := h.st.Info(ctx)
+	if err != nil {
+		return contract.RotateResponse{}, err
+	}
 	rows, err := h.st.RotateAccount(ctx, req.Account, ident.HashToken(req.Token), req.NewHash, req.Auth.Node, allowed)
 	switch {
 	case errors.Is(err, store.ErrAccountAuth):
@@ -156,10 +163,6 @@ func (h *Hub) Rotate(ctx context.Context, req contract.RotateRequest) (contract.
 	case errors.Is(err, store.ErrNoSharedCollection):
 		return contract.RotateResponse{}, contract.ErrNoSharedCollection
 	case err != nil:
-		return contract.RotateResponse{}, err
-	}
-	info, err := h.st.Info(ctx)
-	if err != nil {
 		return contract.RotateResponse{}, err
 	}
 	return contract.RotateResponse{HubID: info.HubID, Version: contract.Version, Rows: append([]contract.Row{}, rows...)}, nil

@@ -40,9 +40,13 @@ Pakete unter `internal/`:
   Form der Account-Zeilen (`AccountContent`).
 - `contract/httpapi` — neutral, der Vertrag über HTTP: `NewHandler` bedient jede Umsetzung von
   `contract.Hub`, `Client` setzt sie über HTTP um (Wiederholung nur für `whoami` und `sync`,
-  `rotate` nie; unklarer Ausgang als `contract.ErrOutcomeUnknown`).
+  `rotate` nie; unklarer Ausgang als `contract.ErrOutcomeUnknown`; folgt keiner Weiterleitung,
+  3xx ist ein eindeutiger Fehler).
 - `reqlog` — neutral, eine Logzeile je HTTP-Anfrage; Namen nur über `ident.LogName`, nie ein
   Token.
+- `loopback` — neutral, die Prüfung, dass eine HTTP-Anfrage diesen Rechner meint: `Host`
+  Loopback mit dem Port, auf dem sie ankam, sonst 403. Hub-Listener (`serve`) und
+  `node/mcpnode` benutzen dieselbe Prüfung.
 - `hub/replication` — die Seite des Hubs im Vertrag: setzt `contract.Hub` über dem Hub-Store
   um (Anmeldung von Node und Account, erlaubte Collections, Seitenschnitt); der Store liefert
   nur Zeilen und schreibt `rotate` in einer Transaktion.
@@ -65,7 +69,9 @@ Regeln dazu:
   ist sie verdrahtet (`connector` in `synccmd.go`): `local` ist der Hub der eigenen config mit
   `hub/replication` darüber, `http` der Client aus `contract/httpapi` (nur Loopback);
   `internal/node` kennt nur `contract.Hub`. Auch `local` prüft die Anmeldung wie jeder
-  Transport; die Tests des Vertrags (`hub/replication`) laufen gegen `local` und HTTP.
+  Transport; die Tests des Vertrags (`hub/replication`) laufen gegen `local` und HTTP. Ein
+  Fehler von `rotate`, der kein Fehler des Vertrags ist, gilt auf jedem Transport als unklar
+  (`contract.ErrOutcomeUnknown`) — über `local` hüllt `localHub` in `synccmd.go` ihn ein.
 - **Die Replica ist abgeleitet.** Sie enthält nur, was der Hub geliefert hat, und darf wie
   der Node-Store SQLite-Eigenes benutzen. Angelegt wird sie nur vom Abgleich, nie von `init`;
   `node hub rm` und `config import` (für weggefallene Aliase) entfernen sie mit, innerhalb der
@@ -89,19 +95,33 @@ Regeln dazu:
   Die Pfadregeln für Dokumentnamen stehen nur in `ident` (`CheckDocName`, `DocDirPrefix`);
   Hub-Store und Replica benutzen sie. Node- und Account-Namen sind gemeinsam eindeutig,
   geprüft über die Tabellen `accounts` ↔ `nodes` in beide Richtungen (nicht mehr über
-  `SYSTEM:A:`-Zeilen); nach `hub account rm` ist der Name frei.
+  `SYSTEM:A:`-Zeilen) und abgesichert in der Datenbank über `principal_names` (Primärschlüssel,
+  `INSERT … ON CONFLICT DO NOTHING` in derselben Transaktion wie Anlegen, Löschen beim
+  Entfernen; eine Verletzung ergibt `ErrExists` mit derselben Meldung wie die Vorprüfung). Die
+  Tabelle ist abgeleitet: nicht im Export, `config import` baut sie neu auf. Nach `hub account
+  rm` ist der Name frei.
 - **Accounts am Hub.** Die Tabelle `accounts` führt Beschreibung, gesperrt, die gemerkten
   Rechte eines gesperrten Accounts und **maßgeblich den Hash**; die `SYSTEM:A:`-Zeilen je
   Account und Collection tragen Rechte und eine Kopie des Hashes. Jede Änderung an den Zeilen
   ist ein Schreibvorgang mit Revision und genau einer Zeile in `actions` (`admin`, bei `rotate`
   der Account mit dem Node als `carrier`) und schreibt Hash in `accounts` und Zeilen in
-  derselben Transaktion. Zeilen werden nie entfernt: Löschmarke, und bei erneutem `grant`
-  wiederbelebt.
+  derselben Transaktion. **Die Zeile in `accounts` wird zuerst gesperrt**: Die erste Anweisung
+  jedes Schreibvorgangs an einem Account (`writeAccount`) ist `UPDATE accounts SET name = name
+  WHERE name = $1`, erst danach wird gelesen — kein `SELECT … FOR UPDATE` (SQLite). `rotate`
+  beginnt stattdessen mit dem bedingten Schreiben (`… AND token_hash = $3 AND locked = 0`) und
+  prüft die Zahl der Zeilen; der Import sperrt vorher alle Zeilen von `accounts`. Zeilen werden
+  nie entfernt: Löschmarke, und bei erneutem `grant` wiederbelebt — auch wenn die Collection
+  entfernt wird: Löschmarken von `SYSTEM:A:`-Zeilen blockieren das Entfernen nicht (CLI und
+  Import) und bleiben stehen; lebende Zeilen und gemerkte Rechte eines gesperrten Accounts
+  blockieren weiter.
 - **Import prüft wie die CLI.** `config import` benutzt dieselben Prüffunktionen
   (`CheckTables` je Store) und prüft alles, bevor geschrieben wird; erst der Hub, dann der
   Node. Exportformat 4 trägt die Accounts samt Rechten; der Import gleicht die
-  `SYSTEM:A:`-Zeilen unter einer Revision an. Ein Export vor Format 4 lässt die Accounts.
-- **`serve` lauscht nur auf Loopback**, beide Rollen, bis `https`/`ssh` kommen. Er nimmt je
+  `SYSTEM:A:`-Zeilen unter einer Revision an. Ein Export vor Format 4 lässt die Accounts und
+  darf keinen Accounts-Teil tragen, in keiner Form (geprüft am YAML-Knoten); in Format 4 ist
+  null ein Fehler, nur `accounts: []` leert.
+- **`serve` lauscht nur auf Loopback**, beide Rollen, bis `https`/`ssh` kommen, und beide
+  prüfen `Host` (`loopback`); ein Tunnel geht nur mit gleichem Port. Er nimmt je
   Rolle eine Sperre (`flock` auf `<db>.lock` neben der Datenbank); CLI-Kommandos laufen daneben
   über SQLite, `status` prüft die Sperre ohne zu warten. Ein Log je Anfrage auf stderr über
   `reqlog`. Einen Abgleich im Hintergrund gibt es noch nicht, `local` ist in `serve` nicht

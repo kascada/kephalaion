@@ -132,6 +132,23 @@ func TestServe(t *testing.T) {
 	if code := post(token, token); code != 401 {
 		t.Errorf("Token als Name: HTTP %d", code)
 	}
+	// Der Hub prüft Host wie der Node: dieser Rechner mit dem eigenen Port.
+	_, port, _ := net.SplitHostPort(srv.addrs[config.Hub])
+	for host, want := range map[string]int{"localhost:" + port: 200, "evil.example:" + port: 403,
+		"localhost:1": 403, "localhost": 403} {
+		req, _ := http.NewRequest(http.MethodPost, "http://"+srv.addrs[config.Hub]+"/v1/whoami", strings.NewReader("{}"))
+		req.Host = host
+		req.Header.Set(httpapi.HeaderNode, "laptop")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("Host %q am Hub: HTTP %d, erwartet %d", host, resp.StatusCode, want)
+		}
+	}
 	// Ein zweiter serve auf denselben Rollen scheitert an der Sperre.
 	err := serve(context.Background(), portZero(t, cfgPath), reqlog.New(&bytes.Buffer{}), nil)
 	if err == nil || !strings.Contains(err.Error(), "läuft schon") {

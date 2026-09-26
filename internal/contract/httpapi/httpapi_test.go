@@ -216,3 +216,37 @@ func TestParsePathAndClientAddress(t *testing.T) {
 		}
 	}
 }
+
+// Der Client folgt keiner Weiterleitung: Das Ziel bekommt weder Body noch
+// Token, und rotate hinter 307 scheitert eindeutig, ohne Wiederholung.
+func TestNoRedirect(t *testing.T) {
+	var targetCalls atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetCalls.Add(1)
+		http.Error(w, "nicht hier", http.StatusTeapot)
+	}))
+	defer target.Close()
+	var calls atomic.Int32
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer src.Close()
+	c := newClient(t, src.URL)
+	c.Backoff = time.Millisecond
+	ctx := context.Background()
+	_, err := c.Rotate(ctx, contract.RotateRequest{Version: contract.Version, Auth: contract.NodeAuth{Node: "n", Token: "keph_node"},
+		Account: "bob", Token: "keph_account", NewHash: strings.Repeat("a", 64)})
+	if err == nil || errors.Is(err, contract.ErrOutcomeUnknown) || !strings.Contains(err.Error(), "307") {
+		t.Errorf("rotate hinter 307: %v, erwartet eindeutigen Fehler", err)
+	}
+	if _, err := c.Whoami(ctx, contract.WhoamiRequest{Version: contract.Version}); err == nil {
+		t.Error("whoami hinter 307 gelang")
+	}
+	if n := targetCalls.Load(); n != 0 {
+		t.Errorf("Ziel der Weiterleitung bekam %d Anfragen", n)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("%d Anfragen, erwartet 2 (keine Wiederholung)", n)
+	}
+}

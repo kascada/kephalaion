@@ -271,8 +271,9 @@ func parseExport(data []byte) (exportFile, error) {
 		if err := requirePart(&root, "tables", string(r)); err != nil {
 			return exportFile{}, err
 		}
-		if r == config.Hub && exp.Format < accountsFormat && exp.Tables != nil && exp.Tables.Hub != nil &&
-			exp.Tables.Hub.Accounts != nil {
+		// Vor Format 4 lehnt jeder Accounts-Teil ab, auch null und [] —
+		// geprüft am YAML-Knoten, denn null decodiert wie ein fehlender Teil.
+		if r == config.Hub && exp.Format < accountsFormat && hasPart(&root, "tables", "hub", "accounts") {
 			return exportFile{}, fmt.Errorf("Format %d kennt keine Accounts (tables.hub.accounts)", exp.Format)
 		}
 		for _, k := range tableKeysOf(r, exp.Format) {
@@ -282,6 +283,35 @@ func parseExport(data []byte) (exportFile, error) {
 		}
 	}
 	return exp, nil
+}
+
+// hasPart sagt, ob der Schlüssel unter path im Export steht, mit welchem
+// Wert auch immer (null eingeschlossen).
+func hasPart(root *yaml.Node, path ...string) bool {
+	n := root
+	if n.Kind == yaml.DocumentNode && len(n.Content) == 1 {
+		n = n.Content[0]
+	}
+	for _, key := range path {
+		if n.Kind == yaml.AliasNode {
+			n = n.Alias
+		}
+		if n.Kind != yaml.MappingNode {
+			return false
+		}
+		var next *yaml.Node
+		for j := 0; j+1 < len(n.Content); j += 2 {
+			if n.Content[j].Value == key {
+				next = n.Content[j+1]
+				break
+			}
+		}
+		if next == nil {
+			return false
+		}
+		n = next
+	}
+	return true
 }
 
 // requirePart prüft, dass der Teil unter path im Export steht und nicht null

@@ -107,7 +107,27 @@ func (l *connector) connect(h nodestore.Hub) (contract.Hub, error) {
 	if l.err != nil {
 		return nil, l.err
 	}
-	return replication.New(l.hub), nil
+	return localHub{newLocalHub(l.hub)}, nil
+}
+
+// newLocalHub liefert die Seite des Hubs über dem eigenen Store; Tests
+// ersetzen sie, etwa um einen Fehler nach dem Commit herbeizuführen.
+var newLocalHub = func(st hubstore.Store) contract.Hub { return replication.New(st) }
+
+// localHub ist der Hub über local. Ein Fehler von Rotate, der kein Fehler
+// des Vertrags ist (Datenbank, Abbruch), lässt offen, ob der neue Hash schon
+// gilt: Er kommt als contract.ErrOutcomeUnknown an, wie über HTTP ein 500.
+type localHub struct {
+	contract.Hub
+}
+
+func (l localHub) Rotate(ctx context.Context, req contract.RotateRequest) (contract.RotateResponse, error) {
+	resp, err := l.Hub.Rotate(ctx, req)
+	var ce *contract.Error
+	if err != nil && !errors.As(err, &ce) {
+		return contract.RotateResponse{}, fmt.Errorf("%w: %v", contract.ErrOutcomeUnknown, err)
+	}
+	return resp, err
 }
 
 func (l *connector) close() {

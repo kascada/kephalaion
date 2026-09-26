@@ -287,7 +287,8 @@ func (s *sqliteStore) RemoveCollection(ctx context.Context, name string) error {
 }
 
 // collectionRemovable prüft, ob eine Collection entfernt werden darf: keine
-// Dokumente in ihr (jede Zeile zählt, auch Löschmarken und SYSTEM:-Zeilen),
+// Dokumente in ihr (jede Zeile zählt, auch Löschmarken und lebende
+// SYSTEM:-Zeilen; nur Löschmarken von Account-Zeilen nicht — sie bleiben),
 // wenn checkGrants, kein Node, der sie abgleichen darf, und wenn
 // checkAccounts, kein gesperrter Account, der sich Rechte in ihr gemerkt hat.
 func collectionRemovable(ctx context.Context, tx sqlitedb.Querier, name string, checkGrants, checkAccounts bool) error {
@@ -316,7 +317,7 @@ func collectionRemovable(ctx context.Context, tx sqlitedb.Querier, name string, 
 		return err
 	}
 	if n > 0 {
-		return fmt.Errorf("Collection %s %w: sie enthält %d Dokumentzeilen (samt Löschmarken und SYSTEM:-Zeilen)",
+		return fmt.Errorf("Collection %s %w: sie enthält %d Dokumentzeilen (samt Löschmarken und lebenden SYSTEM:-Zeilen)",
 			name, ErrInUse, n)
 	}
 	return nil
@@ -438,11 +439,14 @@ func (s *sqliteStore) AddNode(ctx context.Context, name, description string) (st
 	}
 	err = s.write(ctx, "node.add", name, func(tx *sql.Tx) error {
 		if _, err := getNode(ctx, tx, name); err == nil {
-			return fmt.Errorf("Node %s %w", name, ErrExists)
+			return nameTaken(name, kindNode, kindNode)
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
 		}
 		if err := checkNodeNameFree(ctx, tx, name); err != nil {
+			return err
+		}
+		if err := claimName(ctx, tx, name, kindNode); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, q(queries.NodeInsert),
@@ -496,8 +500,10 @@ func (s *sqliteStore) RemoveNode(ctx context.Context, name string) error {
 		if _, err := tx.ExecContext(ctx, q(queries.GrantsDeleteOf), name); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, q(queries.NodeDelete), name)
-		return err
+		if _, err := tx.ExecContext(ctx, q(queries.NodeDelete), name); err != nil {
+			return err
+		}
+		return releaseName(ctx, tx, name)
 	})
 }
 
@@ -576,6 +582,11 @@ func (s *sqliteStore) Import(ctx context.Context, settings map[string]string, ta
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Erste Anweisung: alle Zeilen in accounts sperren, bevor irgendetwas
+	// gelesen wird — wie writeAccount für einen Account.
+	if _, err := tx.ExecContext(ctx, q(queries.AccountsLockAll)); err != nil {
+		return fmt.Errorf("Accounts sperren: %w", err)
+	}
 	w := &accountTx{docTx{tx: tx, rev: &lazyRevision{tx: tx}, now: sqlitedb.NowMillis()}}
 	if tables != nil {
 		if err := checkImport(ctx, tx, *tables); err != nil {
@@ -593,6 +604,10 @@ func (s *sqliteStore) Import(ctx context.Context, settings map[string]string, ta
 			if err := w.replaceAccounts(ctx, tables.Accounts); err != nil {
 				return err
 			}
+		}
+		// principal_names folgt aus nodes und accounts.
+		if err := rebuildNames(ctx, tx); err != nil {
+			return err
 		}
 	}
 	if err := logActionFull(ctx, tx, w.now, Admin, "", "config.import", "", w.rev.rev); err != nil {

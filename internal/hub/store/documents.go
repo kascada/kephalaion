@@ -158,7 +158,7 @@ func requireCollection(ctx context.Context, db sqlitedb.Querier, collection stri
 // wirklich etwas ändert, und dann genau einmal: Alle Zeilen einer
 // Transaktion tragen dieselbe Revision.
 type lazyRevision struct {
-	tx  *sql.Tx
+	tx  sqlitedb.Querier
 	rev int64
 }
 
@@ -176,7 +176,7 @@ func (r *lazyRevision) get(ctx context.Context) (int64, error) {
 // docTx ist ein Schreibvorgang an Dokumenten: eine Transaktion, höchstens
 // eine Revision, ein Zeitpunkt für alle Zeilen.
 type docTx struct {
-	tx  *sql.Tx
+	tx  sqlitedb.Querier
 	rev *lazyRevision
 	now int64
 }

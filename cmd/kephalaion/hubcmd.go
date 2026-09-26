@@ -20,8 +20,11 @@ Kommandos:
   add    legt eine Collection an
   list   zeigt alle Collections
   set    ändert die Beschreibung
-  rm     entfernt eine Collection — nur, wenn kein Node sie abgleichen darf und
-         keine Dokumente in ihr stehen, auch keine Löschmarken
+  rm     entfernt eine Collection — nur, wenn kein Node sie abgleichen darf,
+         kein Account Rechte in ihr hat (auch kein gesperrter) und keine
+         Dokumente in ihr stehen, auch keine Löschmarken. Löschmarken von
+         Accounts zählen nicht; sie bleiben stehen, und ein grant in einer
+         gleichnamigen neuen Collection belebt sie wieder.
 
 Namen: a–z, 0–9, '.', '_' und '-', am Anfang a–z oder 0–9, höchstens 63
 Zeichen, kein Präfix system. Jede Änderung steht im Protokoll (actions) als

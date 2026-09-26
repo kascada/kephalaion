@@ -206,7 +206,9 @@ Node als MCP-Server für Clients unter `/mcp`. Er läuft im Vordergrund, schreib
 eine Zeile nach stderr (Methode, Pfad, Status, Dauer, Node- und Account-Namen, nie ein Token)
 und endet mit SIGINT oder SIGTERM. Eine Sperre auf `<db>.lock` neben jeder Datenbank verhindert
 einen zweiten `serve` auf derselben Rolle; alle anderen Kommandos laufen daneben. Einen
-Abgleich im Hintergrund gibt es noch nicht — dafür `node sync`.
+Abgleich im Hintergrund gibt es noch nicht — dafür `node sync`. Beide Rollen beantworten nur
+Anfragen, deren `Host` dieser Rechner mit dem eigenen Port ist, sonst 403; ein SSH-Tunnel zum
+Hub geht deshalb nur mit gleichem Port (`ssh -L 7434:localhost:7434 …`).
 
 ```sh
 kephalaion serve 2>> ~/.local/state/kephalaion/serve.log &

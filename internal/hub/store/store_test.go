@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -232,7 +233,7 @@ func TestSchemaVersion1Rejected(t *testing.T) {
 	if !errors.As(err, &sv) {
 		t.Fatalf("Open: %v, erwartet SchemaVersionError", err)
 	}
-	for _, want := range []string{"Schemafassung 1", "erwartet 3", "hub init", "config export", "config import"} {
+	for _, want := range []string{"Schemafassung 1", fmt.Sprintf("erwartet %d", SchemaVersion), "hub init", "config export", "config import"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("Meldung ohne %q: %v", want, err)
 		}

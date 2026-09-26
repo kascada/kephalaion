@@ -548,3 +548,47 @@ func TestImportNodeFailsAfterHub(t *testing.T) {
 		t.Error("Node verändert")
 	}
 }
+
+// accounts: ohne Wert (null) leert nie: Format 4 bricht ab (das tat es schon),
+// Format 3 lehnt jeden Accounts-Teil ab — null wie [].
+func TestImportAccountsNull(t *testing.T) {
+	dir := isolate(t)
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	cfgA := setup(t, a)
+	fill(t, cfgA)
+	exp := filepath.Join(dir, "export.yaml")
+	exportTo(t, cfgA, exp)
+	data, _ := os.ReadFile(exp)
+	cfgB := setup(t, b)
+	runT(t, "hub", "collection", "add", "team-x", "--config", cfgB).want(t, 0)
+	runT(t, "hub", "account", "add", "carol", "--config", cfgB).want(t, 0)
+	runT(t, "hub", "account", "grant", "carol", "team-x", "--config", cfgB).want(t, 0)
+	before := takeSnapshot(t, b, cfgB)
+
+	dropped := dropAccounts(t, string(data))
+	if !strings.Contains(dropped, "    node_collections:") {
+		t.Fatalf("kein node_collections im Export:\n%s", dropped)
+	}
+	with := func(part string) string {
+		return strings.Replace(dropped, "    node_collections:", part+"\n    node_collections:", 1)
+	}
+	format3 := func(s string) string { return strings.Replace(s, "format: 4", "format: 3", 1) }
+	cases := []struct{ name, content, want string }{
+		{"F4 ohne Wert", with("    accounts:"), "tables.hub.accounts ist null"},
+		{"F4 null", with("    accounts: null"), "tables.hub.accounts ist null"},
+		{"F4 ~", with("    accounts: ~"), "tables.hub.accounts ist null"},
+		{"F3 ohne Wert", format3(with("    accounts:")), "kennt keine Accounts"},
+		{"F3 null", format3(with("    accounts: null")), "kennt keine Accounts"},
+		{"F3 leer", format3(with("    accounts: []")), "kennt keine Accounts"},
+	}
+	file := filepath.Join(dir, "null.yaml")
+	for _, c := range cases {
+		if err := os.WriteFile(file, []byte(c.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runT(t, "config", "import", "--config", cfgB, file).want(t, 1, c.want, "Nichts geschrieben")
+		if after := takeSnapshot(t, b, cfgB); !reflect.DeepEqual(after, before) {
+			t.Errorf("%s: verändert", c.name)
+		}
+	}
+}

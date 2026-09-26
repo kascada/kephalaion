@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -236,17 +235,41 @@ func readAccounts(ctx context.Context, db sqlitedb.Querier) ([]Account, error) {
 	return out, nil
 }
 
+// Arten eines Namens in principal_names.
+const (
+	kindNode    = "node"
+	kindAccount = "account"
+)
+
+// nameTaken ist der Fehler, wenn der Name für want schon an holder vergeben
+// ist — dieselbe Meldung aus der Vorprüfung wie aus der Datenbank.
+func nameTaken(name, holder, want string) error {
+	var msg string
+	switch {
+	case holder == want && want == kindNode:
+		msg = fmt.Sprintf("Node %s gibt es schon", name)
+	case holder == want:
+		msg = fmt.Sprintf("Account %s gibt es schon", name)
+	case holder == kindAccount:
+		msg = fmt.Sprintf("Name %s ist schon an einen Account vergeben; Node- und Account-Namen sind gemeinsam eindeutig", name)
+	default:
+		msg = fmt.Sprintf("Name %s ist schon an einen Node vergeben; Node- und Account-Namen sind gemeinsam eindeutig", name)
+	}
+	return &kindError{ErrExists, msg}
+}
+
 // checkNodeNameFree prüft, dass kein Account den Namen trägt: Node- und
-// Account-Namen sind gemeinsam eindeutig, geprüft über die Tabellen accounts
-// und nodes. Ein entfernter Account gibt seinen Namen frei, auch wenn seine
-// Zeilen als Löschmarken bleiben.
+// Account-Namen sind gemeinsam eindeutig. Die Vorprüfung über die Tabellen
+// accounts und nodes liefert die lesbare Meldung; die letzte Wache ist
+// principal_names (claimName). Ein entfernter Account gibt seinen Namen
+// frei, auch wenn seine Zeilen als Löschmarken bleiben.
 func checkNodeNameFree(ctx context.Context, db sqlitedb.Querier, name string) error {
 	n, err := count(ctx, db, queries.AccountCount, name)
 	if err != nil {
 		return err
 	}
 	if n > 0 {
-		return fmt.Errorf("Name %s ist schon an einen Account vergeben; Node- und Account-Namen sind gemeinsam eindeutig", name)
+		return nameTaken(name, kindAccount, kindNode)
 	}
 	return nil
 }
@@ -258,7 +281,65 @@ func checkAccountNameFree(ctx context.Context, db sqlitedb.Querier, name string)
 		return err
 	}
 	if n > 0 {
-		return fmt.Errorf("Name %s ist schon an einen Node vergeben; Node- und Account-Namen sind gemeinsam eindeutig", name)
+		return nameTaken(name, kindNode, kindAccount)
+	}
+	return nil
+}
+
+// claimName belegt einen Namen in principal_names, in der Transaktion, die
+// den Node oder Account anlegt. Ist er schon belegt — auch von einer
+// gleichzeitigen Transaktion, an der die Vorprüfung vorbeisah —, kommt
+// derselbe Fehler wie aus der Vorprüfung (ErrExists).
+func claimName(ctx context.Context, tx sqlitedb.Querier, name, kind string) error {
+	res, err := tx.ExecContext(ctx, q(queries.NameClaim), name, kind)
+	if err != nil {
+		return fmt.Errorf("Name %s belegen: %w", name, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	var holder string
+	if err := tx.QueryRowContext(ctx, q(queries.NameKind), name).Scan(&holder); err != nil {
+		return &kindError{ErrExists, fmt.Sprintf("Name %s ist schon vergeben", name)}
+	}
+	return nameTaken(name, holder, kind)
+}
+
+// releaseName gibt einen Namen in principal_names frei.
+func releaseName(ctx context.Context, tx sqlitedb.Querier, name string) error {
+	if _, err := tx.ExecContext(ctx, q(queries.NameRelease), name); err != nil {
+		return fmt.Errorf("Name %s freigeben: %w", name, err)
+	}
+	return nil
+}
+
+// rebuildNames baut principal_names beim Import aus nodes und accounts neu
+// auf; ein Name in beiden bricht mit ErrExists ab.
+func rebuildNames(ctx context.Context, tx sqlitedb.Querier) error {
+	if _, err := tx.ExecContext(ctx, q(queries.NamesDeleteAll)); err != nil {
+		return err
+	}
+	nodes, err := readNodes(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		if err := claimName(ctx, tx, n.Name, kindNode); err != nil {
+			return err
+		}
+	}
+	accounts, err := readAccountRows(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, a := range accounts {
+		if err := claimName(ctx, tx, a.Name, kindAccount); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -293,15 +374,32 @@ type accountTx struct {
 	docTx
 }
 
-// writeAccount führt fn als einen Schreibvorgang aus und schreibt danach die
-// Zeile in actions — mit der Revision, wenn fn Zeilen geändert hat. Liefert
-// fn errUnchanged, wird nichts geschrieben, auch nicht in actions.
-func (s *sqliteStore) writeAccount(ctx context.Context, account, carrier, action, subject string, fn func(w *accountTx) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+// writeAccount führt fn als einen Schreibvorgang am Account target aus und
+// schreibt danach die Zeile in actions — mit der Revision, wenn fn Zeilen
+// geändert hat. Liefert fn errUnchanged, wird nichts geschrieben, auch nicht
+// in actions.
+//
+// Die erste Anweisung sperrt die Zeile von target in accounts (AccountLock);
+// erst danach liest fn. So schreibt kein Vorgang die Zeilen mit einem Hash,
+// den ein gleichzeitiger rotate schon ersetzt hat — auch unter PostgreSQL
+// (READ COMMITTED), wo sonst erst die Revision sperrte. Ist target leer,
+// sperrt fn selbst mit seiner ersten Anweisung (rotate: das bedingte
+// Schreiben).
+func (s *sqliteStore) writeAccount(ctx context.Context, target, account, carrier, action, subject string, fn func(w *accountTx) error) error {
+	sqlTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = sqlTx.Rollback() }()
+	var tx sqlitedb.Querier = sqlTx
+	if s.traceTx != nil {
+		tx = s.traceTx(tx)
+	}
+	if target != "" {
+		if _, err := tx.ExecContext(ctx, q(queries.AccountLock), target); err != nil {
+			return fmt.Errorf("Account %s sperren: %w", target, err)
+		}
+	}
 	w := &accountTx{docTx{tx: tx, rev: &lazyRevision{tx: tx}, now: sqlitedb.NowMillis()}}
 	if err := fn(w); err != nil {
 		return err
@@ -309,7 +407,7 @@ func (s *sqliteStore) writeAccount(ctx context.Context, account, carrier, action
 	if err := logActionFull(ctx, tx, w.now, account, carrier, action, subject, w.rev.rev); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return sqlTx.Commit()
 }
 
 // logActionFull schreibt eine Zeile in actions; carrier leer und rev 0 werden
@@ -379,15 +477,18 @@ func (s *sqliteStore) AddAccount(ctx context.Context, name, description string) 
 	if err != nil {
 		return "", err
 	}
-	err = s.writeAccount(ctx, Admin, "", "account.add", name, func(w *accountTx) error {
+	err = s.writeAccount(ctx, name, Admin, "", "account.add", name, func(w *accountTx) error {
 		n, err := count(ctx, w.tx, queries.AccountCount, name)
 		if err != nil {
 			return err
 		}
 		if n > 0 {
-			return &kindError{ErrExists, fmt.Sprintf("Account %s gibt es schon", name)}
+			return nameTaken(name, kindAccount, kindAccount)
 		}
 		if err := checkAccountNameFree(ctx, w.tx, name); err != nil {
+			return err
+		}
+		if err := claimName(ctx, w.tx, name, kindAccount); err != nil {
 			return err
 		}
 		_, err = w.tx.ExecContext(ctx, q(queries.AccountInsert),
@@ -401,7 +502,7 @@ func (s *sqliteStore) AddAccount(ctx context.Context, name, description string) 
 }
 
 func (s *sqliteStore) SetAccountDescription(ctx context.Context, name, description string) error {
-	return s.writeAccount(ctx, Admin, "", "account.set", name, func(w *accountTx) error {
+	return s.writeAccount(ctx, name, Admin, "", "account.set", name, func(w *accountTx) error {
 		if _, err := getAccount(ctx, w.tx, name); err != nil {
 			return err
 		}
@@ -415,7 +516,7 @@ func (s *sqliteStore) SetAccountLocked(ctx context.Context, name string, locked 
 	if locked {
 		action = "account.lock"
 	}
-	return s.writeAccount(ctx, Admin, "", action, name, func(w *accountTx) error {
+	return s.writeAccount(ctx, name, Admin, "", action, name, func(w *accountTx) error {
 		a, err := getAccount(ctx, w.tx, name)
 		if err != nil {
 			return err
@@ -485,6 +586,12 @@ func (w *accountTx) setHash(ctx context.Context, name, hash string) ([]Document,
 	if err != nil {
 		return nil, err
 	}
+	return w.setRowsHash(ctx, name, hash, rows)
+}
+
+// setRowsHash schreibt einen neuen Hash in die lebenden Zeilen rows eines
+// Accounts und liefert die Zeilen danach.
+func (w *accountTx) setRowsHash(ctx context.Context, name, hash string, rows []Document) ([]Document, error) {
 	m, err := rowRights(rows)
 	if err != nil {
 		return nil, err
@@ -502,7 +609,7 @@ func (s *sqliteStore) NewAccountToken(ctx context.Context, name string) (string,
 	if err != nil {
 		return "", err
 	}
-	err = s.writeAccount(ctx, Admin, "", "account.token", name, func(w *accountTx) error {
+	err = s.writeAccount(ctx, name, Admin, "", "account.token", name, func(w *accountTx) error {
 		if _, err := getAccount(ctx, w.tx, name); err != nil {
 			return err
 		}
@@ -516,7 +623,7 @@ func (s *sqliteStore) NewAccountToken(ctx context.Context, name string) (string,
 }
 
 func (s *sqliteStore) RemoveAccount(ctx context.Context, name string) error {
-	return s.writeAccount(ctx, Admin, "", "account.rm", name, func(w *accountTx) error {
+	return s.writeAccount(ctx, name, Admin, "", "account.rm", name, func(w *accountTx) error {
 		if _, err := getAccount(ctx, w.tx, name); err != nil {
 			return err
 		}
@@ -529,13 +636,15 @@ func (s *sqliteStore) RemoveAccount(ctx context.Context, name string) error {
 				return err
 			}
 		}
-		_, err = w.tx.ExecContext(ctx, q(queries.AccountDelete), name)
-		return err
+		if _, err := w.tx.ExecContext(ctx, q(queries.AccountDelete), name); err != nil {
+			return err
+		}
+		return releaseName(ctx, w.tx, name)
 	})
 }
 
 func (s *sqliteStore) GrantAccount(ctx context.Context, name, collection string, rights contract.Rights) (bool, error) {
-	err := s.writeAccount(ctx, Admin, "", "account.grant", ident.Address(name, collection), func(w *accountTx) error {
+	err := s.writeAccount(ctx, name, Admin, "", "account.grant", ident.Address(name, collection), func(w *accountTx) error {
 		a, err := getAccount(ctx, w.tx, name)
 		if err != nil {
 			return err
@@ -577,7 +686,7 @@ func (s *sqliteStore) GrantAccount(ctx context.Context, name, collection string,
 }
 
 func (s *sqliteStore) RevokeAccount(ctx context.Context, name, collection string) error {
-	return s.writeAccount(ctx, Admin, "", "account.revoke", ident.Address(name, collection), func(w *accountTx) error {
+	return s.writeAccount(ctx, name, Admin, "", "account.revoke", ident.Address(name, collection), func(w *accountTx) error {
 		a, err := getAccount(ctx, w.tx, name)
 		if err != nil {
 			return err
@@ -616,15 +725,20 @@ func (s *sqliteStore) RotateAccount(ctx context.Context, name, oldHash, newHash,
 		return nil, errors.New("neuer Hash ist kein sha256 in Hex")
 	}
 	var out []contract.Row
-	err := s.writeAccount(ctx, name, carrier, "rotate", name, func(w *accountTx) error {
-		a, err := getAccount(ctx, w.tx, name)
-		if errors.Is(err, ErrNotFound) {
-			return ErrAccountAuth
-		}
+	// Kein target: Die erste Anweisung ist das bedingte Schreiben, es sperrt
+	// die Zeile zugleich.
+	err := s.writeAccount(ctx, "", name, carrier, "rotate", name, func(w *accountTx) error {
+		res, err := w.tx.ExecContext(ctx, q(queries.AccountRotate), name, newHash, oldHash)
 		if err != nil {
 			return err
 		}
-		if subtle.ConstantTimeCompare([]byte(oldHash), []byte(a.TokenHash)) != 1 || a.Locked {
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			// Unbekannt, falsches Token oder gesperrt; der Rollback nimmt
+			// nichts zurück, weil nichts geschrieben ist.
 			return ErrAccountAuth
 		}
 		rows, err := liveAccountRows(ctx, w.tx, name)
@@ -634,7 +748,7 @@ func (s *sqliteStore) RotateAccount(ctx context.Context, name, oldHash, newHash,
 		if !slices.ContainsFunc(rows, func(d Document) bool { return slices.Contains(shared, d.Collection) }) {
 			return ErrNoSharedCollection
 		}
-		rows, err = w.setHash(ctx, name, newHash)
+		rows, err = w.setRowsHash(ctx, name, newHash, rows)
 		if err != nil {
 			return err
 		}

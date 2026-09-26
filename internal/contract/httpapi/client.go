@@ -46,8 +46,13 @@ func NewClient(address string) (*Client, error) {
 	// Die Standard-Transportschicht bittet von selbst um gzip und packt aus.
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	return &Client{
-		base:         strings.TrimSuffix(u.String(), "/"),
-		http:         &http.Client{Transport: tr},
+		base: strings.TrimSuffix(u.String(), "/"),
+		// Keiner Weiterleitung folgen: Go striche bei fremdem Host zwar
+		// Authorization, schickte aber den Body mit — bei rotate samt dem
+		// Token des Accounts. Die 3xx-Antwort selbst ist ein Fehler.
+		http: &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}},
 		Retries:      3,
 		Backoff:      500 * time.Millisecond,
 		ShortTimeout: ShortTimeout,
@@ -172,6 +177,12 @@ func (c *Client) once(ctx context.Context, op string, version int, auth contract
 	msg := eb.Message
 	if msg == "" {
 		msg = http.StatusText(resp.StatusCode)
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		// Eine Weiterleitung: Der Hub hat nicht ausgeführt, der Ausgang ist
+		// eindeutig — auch bei rotate. Nicht wiederholen.
+		return &callError{err: fmt.Errorf("Hub %s antwortet mit HTTP %d (Weiterleitung nach %q); "+
+			"der Client folgt keinen Weiterleitungen", c.base, resp.StatusCode, resp.Header.Get("Location"))}
 	}
 	return &callError{err: fmt.Errorf("Hub %s antwortet mit HTTP %d: %s", c.base, resp.StatusCode, msg),
 		sent: true, retry: resp.StatusCode >= 500}
