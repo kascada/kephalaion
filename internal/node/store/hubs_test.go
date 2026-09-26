@@ -355,3 +355,53 @@ func TestRemoveHubRemovesReplica(t *testing.T) {
 		t.Errorf("rm ohne Replica: %v", err)
 	}
 }
+
+// TestImportRemovesStaleReplicas: config import ersetzt die Hub-Einträge;
+// die Replicas der Aliase, die danach fehlen, gehen mit, die übrigen
+// bleiben. Ohne Tabellen (nur settings) bleibt alles.
+func TestImportRemovesStaleReplicas(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	hub := func(name string) Hub {
+		return Hub{Name: name, NodeName: "laptop", Transport: "https", Address: "https://hub.example.org", Token: token(t)}
+	}
+	for _, name := range []string{"privat", "team"} {
+		if err := s.AddHub(ctx, hub(name), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(s.ReplicaPath("privat")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"privat", "team"} {
+		for _, suffix := range []string{"", "-wal"} {
+			if err := os.WriteFile(s.ReplicaPath(name)+suffix, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	gone := func(name string) bool {
+		_, err := os.Stat(s.ReplicaPath(name))
+		return errors.Is(err, os.ErrNotExist)
+	}
+
+	if err := s.Import(ctx, map[string]string{}, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if gone("privat") || gone("team") {
+		t.Fatal("Import ohne Tabellen hat Replicas entfernt")
+	}
+
+	if err := s.Import(ctx, map[string]string{}, &Tables{Hubs: []Hub{hub("team"), hub("neu")}}, false); err != nil {
+		t.Fatal(err)
+	}
+	if !gone("privat") {
+		t.Error("Replica privat nach Import noch da")
+	}
+	if _, err := os.Stat(s.ReplicaPath("privat") + "-wal"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("privat-wal nach Import: %v", err)
+	}
+	if gone("team") {
+		t.Error("Replica team entfernt, obwohl der Alias bleibt")
+	}
+}

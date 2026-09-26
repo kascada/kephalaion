@@ -32,8 +32,9 @@ Kommandos:
   upgrade     aktualisiert dieses Binary auf das neueste Release
   hub         richtet den Hub ein, pflegt seine Collections und Nodes und
               spielt Dokumente ein (init, collection, node, doc, import)
-  node        richtet den Node ein und pflegt seine Hubs und gewünschten
-              Collections (init, hub, collection)
+  node        richtet den Node ein, pflegt seine Hubs und gewünschten
+              Collections, gleicht ab und zeigt Dokumente der Replica
+              (init, hub, collection, sync, doc)
   status      zeigt, welche Rollen eingerichtet sind und wo ihre Datenbank liegt
   config      zeigt, sichert und stellt die Einstellungen wieder her
               (show, export, import)

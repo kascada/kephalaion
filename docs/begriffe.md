@@ -68,7 +68,8 @@ Ausführlich: [`konzept.md`](konzept.md).
   frei; eine Neuanlage bekommt eine neue `id`.
 - **doc** — `kephalaion hub doc put|get|list|rm`: Dokumente am Hub. `put` legt an oder
   ersetzt (Admin-Upsert; unveränderter Inhalt zählt keine Revision), `rm` setzt eine
-  Löschmarke.
+  Löschmarke. Am Node liest `kephalaion node doc list|get <hub>:<collection> …` aus der
+  Replica, ohne Löschmarken und `SYSTEM:`-Zeilen.
 - **hub import** — `kephalaion hub import <collection> <verzeichnis>`: spielt ein Verzeichnis
   als Dokumente ein, Name = relativer Pfad; ein Schreibvorgang, eine Revision. Nicht zu
   verwechseln mit `config import`.
@@ -88,7 +89,7 @@ Ausführlich: [`konzept.md`](konzept.md).
   [`vertrag.md`](vertrag.md), im Code das neutrale Paket `internal/contract`. Trägt eine
   **Fassung** (`version`, derzeit 1); der Hub nennt sie in jeder Antwort.
 - **sync** (Abgleich) — der Vorgang des Vertrags, mit dem ein Node je Collection alles seit
-  einer Revision holt, in Seiten.
+  einer Revision holt, in Seiten. Kommando: `kephalaion node sync [<alias>]`.
 - **page** (Seite) — eine Antwort des Abgleichs: ganze Revisionen, bis die **page size**
   (Seitengröße, Zeilen je Seite, Standard 500) erreicht ist. **until** (`bis`) ist die
   Revision, bis zu der der Node danach alles hat; **more** (`mehr`) sagt, dass eine weitere

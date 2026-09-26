@@ -125,6 +125,11 @@ func (c *command) openHub(ctx context.Context) (hubstore.Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	return openHubOf(ctx, cfg)
+}
+
+// openHubOf öffnet die Datenbank des Hubs aus einer geladenen config.
+func openHubOf(ctx context.Context, cfg config.Config) (hubstore.Store, error) {
 	sec := cfg.Section(config.Hub)
 	if sec == nil {
 		return nil, errors.New("der Hub ist nicht eingerichtet; zuerst: kephalaion hub init")
@@ -144,19 +149,24 @@ func (c *command) openNode(ctx context.Context) (s nodestore.Store, hubInConfig 
 	if err != nil {
 		return nil, false, err
 	}
-	sec := cfg.Section(config.Node)
-	if sec == nil {
-		return nil, false, errors.New("der Node ist nicht eingerichtet; zuerst: kephalaion node init")
-	}
-	addr, err := config.ParseDB(sec.DB)
-	if err != nil {
-		return nil, false, err
-	}
-	s, err = nodestore.Open(ctx, addr)
+	s, err = openNodeOf(ctx, cfg)
 	if err != nil {
 		return nil, false, err
 	}
 	return s, cfg.Section(config.Hub) != nil, nil
+}
+
+// openNodeOf öffnet die Datenbank des Nodes aus einer geladenen config.
+func openNodeOf(ctx context.Context, cfg config.Config) (nodestore.Store, error) {
+	sec := cfg.Section(config.Node)
+	if sec == nil {
+		return nil, errors.New("der Node ist nicht eingerichtet; zuerst: kephalaion node init")
+	}
+	addr, err := config.ParseDB(sec.DB)
+	if err != nil {
+		return nil, err
+	}
+	return nodestore.Open(ctx, addr)
 }
 
 // readToken liest ein Token als eine Zeile von stdin und prüft sein Format.

@@ -69,7 +69,8 @@ type Store interface {
 	// Tables liest die lokalen Tabellen für den Export.
 	Tables(ctx context.Context) (Tables, error)
 	// Import ersetzt in einer Transaktion die settings und, wenn tables nicht
-	// nil ist, die lokalen Tabellen.
+	// nil ist, die lokalen Tabellen. Die Replicas der Aliase, die danach
+	// fehlen, entfernt es mit, wie RemoveHub.
 	Import(ctx context.Context, settings map[string]string, tables *Tables, hubInConfig bool) error
 
 	Close() error

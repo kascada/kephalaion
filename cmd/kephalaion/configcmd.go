@@ -248,7 +248,8 @@ Schreibt einen Export in die bereits eingerichteten Rollen und ersetzt dort je
 Rolle alles in einer Transaktion: die settings und, ab Format 2, die lokalen
 Tabellen. Ein Export im Format 1 ersetzt nur die settings und lässt die
 Tabellen unberührt. Die config selbst, db_info und das Protokoll bleiben; am
-Hub kommt eine Zeile config.import ins Protokoll.
+Hub kommt eine Zeile config.import ins Protokoll. Am Node gehen die Replicas der
+Hub-Einträge mit, die der Import nicht mehr enthält; sie sind abgeleitet.
 
 Vorab wird alles geprüft, mit denselben Regeln wie beim Anlegen über die
 Kommandozeile: Fassung des Formats, jede Rolle des Exports eingerichtet und mit

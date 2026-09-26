@@ -107,7 +107,11 @@ func runHubDoc(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				if err != nil {
 					return err
 				}
-				return printListing(stdout, pos[0], dir, docs)
+				listed := make([]listedDoc, 0, len(docs))
+				for _, d := range docs {
+					listed = append(listed, listedDoc{d.Name, d.Revision, d.UpdatedAt, d.UpdatedBy})
+				}
+				return printListing(stdout, pos[0], dir, listed)
 			})
 		},
 		"rm": func(a []string) int {
@@ -146,9 +150,20 @@ func readContent(file string, stdin io.Reader) (string, error) {
 	return string(b), nil
 }
 
+// listedDoc ist, was printListing von einem Dokument zeigt — am Hub wie
+// aus der Replica des Nodes.
+type listedDoc struct {
+	Name      string
+	Revision  int64
+	UpdatedAt int64
+	UpdatedBy string
+}
+
 // printListing zeigt die Einträge eines Verzeichnisses: Dokumente direkt
-// darin und Unterverzeichnisse, diese einmal und mit '/' am Ende.
-func printListing(w io.Writer, collection, dir string, docs []hubstore.Document) error {
+// darin und Unterverzeichnisse, diese einmal und mit '/' am Ende. docs sind
+// nach Name sortiert. collection nennt die Collection in der Meldung, am
+// Node als Adresse <hub>:<collection>.
+func printListing(w io.Writer, collection, dir string, docs []listedDoc) error {
 	prefix, err := ident.DocDirPrefix(dir)
 	if err != nil {
 		return err

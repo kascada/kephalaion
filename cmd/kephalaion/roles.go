@@ -11,6 +11,7 @@ import (
 
 	"github.com/kascada/kephalaion/internal/config"
 	hubstore "github.com/kascada/kephalaion/internal/hub/store"
+	"github.com/kascada/kephalaion/internal/node/replica"
 	nodestore "github.com/kascada/kephalaion/internal/node/store"
 	"github.com/kascada/kephalaion/internal/sqlitedb"
 )
@@ -153,13 +154,18 @@ const nodeUsage = `Aufruf:
   kephalaion node init [--db sqlite:///pfad/node.db] [--config pfad]
   kephalaion node hub add|list|show|set|rm|token …
   kephalaion node collection add|list|rm …
+  kephalaion node sync [<alias>]
+  kephalaion node doc list|get …
 
 Kommandos:
   init         richtet den Node ein: Datenbank, Schema, Abschnitt node: in der config
   hub          trägt die Hubs dieses Nodes ein: Transport, Adresse, Token
   collection   die Collections, die der Node von seinen Hubs haben will
+  sync         gleicht die Replicas mit den Hubs ab (bisher nur Transport local)
+  doc          listet und liest Dokumente aus der Replica
 
-Hilfe: kephalaion node hub --help, kephalaion node collection --help
+Hilfe: kephalaion node hub --help, kephalaion node collection --help,
+kephalaion node sync --help, kephalaion node doc --help
 `
 
 // runRole verteilt die Kommandos unter hub bzw. node.
@@ -190,6 +196,10 @@ func runRole(r config.Role, args []string, stdin io.Reader, stdout, stderr io.Wr
 		return runNodeHub(args[1:], stdin, stdout, stderr)
 	case r == config.Node && args[0] == "collection":
 		return runNodeCollection(args[1:], stdout, stderr)
+	case r == config.Node && args[0] == "sync":
+		return runNodeSync(args[1:], stdout, stderr)
+	case r == config.Node && args[0] == "doc":
+		return runNodeDoc(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unbekanntes Kommando: %s %s\n\n", r, args[0])
 		fmt.Fprint(stderr, usage)
@@ -291,9 +301,12 @@ const statusUsage = `Aufruf:
   kephalaion status [--config pfad]
 
 Zeigt, welche Rollen auf diesem Rechner eingerichtet sind, wo ihre Datenbank
-liegt, wo ihr Dienst lauschen wird, und ihre Kennzahlen. Öffnet die Datenbanken nur, legt nichts an. Der
-Exit-Code ist nur dann ungleich 0, wenn die Datenbank einer eingerichteten
-Rolle fehlt oder nicht passt.
+liegt, wo ihr Dienst lauschen wird, und ihre Kennzahlen. Am Node steht je Hub
+die hub_id aus seiner Replica und je gewünschter Collection der Stand
+(Revision) und der letzte Abgleich; ohne Replica „noch kein Abgleich“.
+Öffnet die Datenbanken nur, legt nichts an. Der Exit-Code ist nur dann
+ungleich 0, wenn die Datenbank einer eingerichteten Rolle fehlt oder nicht
+passt.
 
 Optionen:
   --config pfad   Ort der config (siehe kephalaion hub init --help)
@@ -428,8 +441,56 @@ func printNodeStatus(ctx context.Context, w io.Writer, st nodestore.Store) error
 	}
 	fmt.Fprintf(w, "  Hubs:\n")
 	for _, h := range hubs {
-		fmt.Fprintf(w, "    %s: %s, als Node %s, hub_id: %s\n", h.Name, describeTransport(h), h.NodeName, hubIDOrNone(h.HubID))
-		fmt.Fprintf(w, "      Collections: %s\n", joinOrNone(h.Collections))
+		fmt.Fprintf(w, "    %s: %s, als Node %s\n", h.Name, describeTransport(h), h.NodeName)
+		printReplicaStatus(ctx, w, st, h)
 	}
 	return nil
+}
+
+// printReplicaStatus zeigt den Abgleich eines Hub-Eintrags aus seiner
+// Replica: die hub_id — dort die maßgebliche — und je Collection Stand und
+// letzten Abgleich. Eine fehlende oder unlesbare Replica ist kein Fehler der
+// Rolle: Sie ist abgeleitet, der nächste Abgleich legt sie (neu) an.
+func printReplicaStatus(ctx context.Context, w io.Writer, st nodestore.Store, h nodestore.Hub) {
+	r, err := replica.Open(ctx, st.ReplicaPath(h.Name))
+	if errors.Is(err, sqlitedb.ErrNotFound) {
+		fmt.Fprintf(w, "      hub_id:      noch kein Abgleich\n")
+		fmt.Fprintf(w, "      Collections: %s\n", joinOrNone(h.Collections))
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(w, "      Replica:     %v (der nächste Abgleich legt sie neu an)\n", err)
+		fmt.Fprintf(w, "      Collections: %s\n", joinOrNone(h.Collections))
+		return
+	}
+	defer r.Close()
+	fmt.Fprintf(w, "      hub_id:      %s\n", r.HubID())
+	states, err := r.States(ctx)
+	if err != nil {
+		fmt.Fprintf(w, "      Replica:     %v\n", err)
+		return
+	}
+	byName := make(map[string]replica.State, len(states))
+	for _, s := range states {
+		byName[s.Collection] = s
+	}
+	if len(h.Collections) == 0 {
+		fmt.Fprintf(w, "      Collections: keine\n")
+	} else {
+		fmt.Fprintf(w, "      Collections:\n")
+	}
+	for _, c := range h.Collections {
+		if s, ok := byName[c]; ok {
+			fmt.Fprintf(w, "        %s: Revision %d, abgeglichen %s\n", c, s.Revision, formatMillis(s.SyncedAt))
+			delete(byName, c)
+		} else {
+			fmt.Fprintf(w, "        %s: noch nicht abgeglichen (oder vom Hub nicht erlaubt)\n", c)
+		}
+	}
+	for _, s := range states {
+		if _, ok := byName[s.Collection]; ok {
+			fmt.Fprintf(w, "        %s: nicht mehr gewünscht, Revision %d; geht mit dem nächsten Abgleich\n",
+				s.Collection, s.Revision)
+		}
+	}
 }

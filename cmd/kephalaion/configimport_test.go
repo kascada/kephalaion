@@ -156,8 +156,8 @@ func TestImportRoundTripTables(t *testing.T) {
 	runT(t, "status", "--config", cfgB).want(t, 0,
 		"hub_id:        "+infoB.HubID, "Collections:   privat, team-x",
 		"desktop: gesperrt, erlaubt: keine", "laptop: aktiv, erlaubt: team-x",
-		"fern: ssh keph@hub:22, als Node rechner-fern, hub_id: noch kein Kontakt", "Collections: notizen",
-		"lokal: local, als Node laptop, hub_id: noch kein Kontakt", "Collections: team-x")
+		"fern: ssh keph@hub:22, als Node rechner-fern\n      hub_id:      noch kein Abgleich\n      Collections: notizen",
+		"lokal: local, als Node laptop\n      hub_id:      noch kein Abgleich\n      Collections: team-x")
 }
 
 // Ein Export im Format 2 kennt hubs.node_name nicht; ein Hub-Eintrag ohne ihn

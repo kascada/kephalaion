@@ -518,6 +518,10 @@ func (s *sqliteStore) Import(ctx context.Context, settings map[string]string, ta
 		if tables == nil {
 			return nil
 		}
+		before, err := readHubs(ctx, tx)
+		if err != nil {
+			return err
+		}
 		for _, del := range []string{qWantedClear, qHubsClear} {
 			if _, err := tx.ExecContext(ctx, del); err != nil {
 				return err
@@ -534,6 +538,27 @@ func (s *sqliteStore) Import(ctx context.Context, settings map[string]string, ta
 				return fmt.Errorf("Collection %s: %w", ident.Address(w.Hub, w.Collection), err)
 			}
 		}
-		return nil
+		return removeStaleReplicas(s, before, tables.Hubs)
 	})
+}
+
+// removeStaleReplicas entfernt die Replicas der Einträge, die ein Import
+// nicht mehr enthält — wie RemoveHub innerhalb der Transaktion: Scheitert
+// danach das Commit, fehlt nur Abgeleitetes. Bleibt ein Alias, bleibt seine
+// Replica; zeigt er auf einen anderen Hub, merkt das der Abgleich an der
+// hub_id.
+func removeStaleReplicas(s *sqliteStore, before, after []Hub) error {
+	keep := make(map[string]bool, len(after))
+	for _, h := range after {
+		keep[h.Name] = true
+	}
+	for _, h := range before {
+		if keep[h.Name] {
+			continue
+		}
+		if err := sqlitedb.Remove(s.ReplicaPath(h.Name)); err != nil {
+			return fmt.Errorf("Hub %s: Replica entfernen: %w", h.Name, err)
+		}
+	}
+	return nil
 }
