@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt; Task 009 Etappen 1–5 erledigt; Task 011 abgeschlossen, in `done/`)
+Stand: 2026-09-26 (Tasks 001–012 abgeschlossen, in `done/`; Task 013 offen)
 
 ## So wird diese Datei aktualisiert
 
@@ -29,12 +29,23 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   `config show|export|import`; `sqlq`, `sqlitedb`, Hub-/Node-Store, Trenntest Hub ↔ Node.
 - **Task 003 — Collections, Nodes, Hubs:** Schema 2, `hub_id`, `ident`, CLI
   `hub collection|node …`, `node hub|collection …`, Token nur über stdin, Export Format 2.
-- **Task 004, Etappe 1–4:**
+- **Task 004 — Dokumente und Abgleich über local** (2026-09-26, Etappen 1–6):
   - `listen` in der config, `hubs.node_name` (Node-Schema 3, Export Format 3);
   - Dokumente am Hub: `hub doc put|get|list|rm`, `hub import` (eine Revision je Import);
   - Vertrag Fassung 1 (`docs/vertrag.md`, `internal/contract`), Hub-Seite des `sync`;
   - Replica je Hub unter `replicas/`, Abgleich am Node (`internal/node/replica`), Reset bei
-    `hub_id`-Wechsel bzw. `since` > Hub-Revision.
+    `hub_id`-Wechsel bzw. `since` > Hub-Revision;
+  - `node sync`, `node doc list|get`, `status` je Hub und Collection; Durchlauf über `local`
+    im README.
+- **Task 005 — Kommunikation** (2026-09-26, Etappen 1–6): Accounts am Hub (`hub account …`,
+  `SYSTEM:A:`-Zeilen, `admin` reserviert, Export Format 4); Vertrag um `whoami`/`rotate`, Hub
+  über HTTP `/v1/`; Node mit Transport `http`, `node hub check`, `--create`,
+  `node account rotate|check`; `serve` nur auf Loopback mit Sperrdatei; Node als MCP-Server
+  `/mcp` mit `whoami`; Durchlauf mit Testaccounts über `local` und `http`.
+- **Task 007 — Review-Befunde aus Task 005** (2026-09-26): `rotate` stellt die Antwort vor dem
+  Commit zusammen, unklarer Ausgang auch über `local`; Account-Zeile zuerst gesperrt,
+  `principal_names` (Hub-Schema 4); HTTP-Client ohne Weiterleitungen, Hub prüft `Host`
+  (`internal/loopback`).
 - **Task 006 — User je Account** (2026-09-26): `hub account add|set --user` (ohne Angabe der
   Name des Accounts), `list --user`, `show`; `accounts."user"` mit Index, Hub-Schema 5; User in
   jeder `SYSTEM:A:`-Zeile, `set --user` schreibt alle lebenden Zeilen unter einer Revision;
@@ -105,12 +116,7 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
 
 ## In Arbeit
 
-- **Task 004, Etappe 5 — CLI und status am Node** (uncommittete Änderungen im Arbeitsbaum):
-  - `openHubOf`/`openNodeOf` in `cmd/kephalaion/command.go` (Verdrahtung `local`);
-  - `printListing` für Hub und Replica gemeinsam (`listedDoc` in `doccmd.go`);
-  - `config import` am Node entfernt Replicas nicht mehr enthaltener Hub-Einträge.
-  - Noch offen: `node sync`, `node doc list|get`, `status` je Hub/Collection, Tests über
-    `run()` (import → sync → list/get → rm → sync).
+Nichts.
 
 ## Zu tun
 
@@ -142,18 +148,6 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   dazu `upgrade`; Node.js und `vsce` in der CI (`docs/vscode.md`, „Ein Repository, ein
   Release“; Task 011).
 
-- **Task 004, Etappe 6 — Doku:** README (einspielen, abgleichen), `begriffe.md`,
-  `k-playbook-local/k-playbook.md` (Vertrag, Replica), `konzept.md` nachziehen: Rolle
-  `replica` in `db_info`, Replica als Ausnahme von „nur `init` legt an“, `hubs.node_name`,
-  Abgleich-Verfeinerungen aus `vertrag.md`; Absatz „Stand“ oben im Konzept mit Etappe 5 nachziehen.
-- **Task 004 abschließen** und nach `done/` — Vorbedingung für Task 005.
-- **Task 005 — Kommunikation** (reviewt, nicht begonnen):
-  1. Accounts am Hub (`hub account …`, `SYSTEM:A:`-Zeilen, `admin` reserviert, Export);
-  2. Vertrag um `whoami`/`rotate`, Hub über HTTP `/v1/`;
-  3. Node: Transport `http`, `node hub check`, `--create`, `node account rotate|check`;
-  4. `kephalaion serve` (nur Loopback, Sperrdatei, Logs ohne Token);
-  5. Node als MCP-Server `/mcp` mit Werkzeug `whoami`;
-  6. Durchlauf mit Testaccounts und Doku.
 - **Rotation des Node-Tokens** (vorgemerkt 2026-09-26): Ein Node rotiert sein Token bei einem
   Hub selbst, anders als ein Account — er hält es in `node.db` (`hubs.token`) und kann das neue
   dort ablegen, ohne fremde Konfiguration. Vorbild `rotate` der Accounts: neues Token vor dem
@@ -214,9 +208,6 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   abbricht, ist nirgends beschrieben. Abgleich im Hintergrund mit einem echten Client über längere Zeit;
   Der Race-Detector lief über `cmd/kephalaion` und `internal/node/...` sauber.
 
-- **Task 004, Etappe 5:** Durchlauf Hub + Node in einer config über `local`.
-- **Task 005, Etappe 6:** Durchlauf `rotate` über `local` und `http`, `whoami` per MCP aus
-  einem echten Client, `lock` → `sync` → `whoami` scheitert.
 - **Erster Security-PR von Dependabot** gegen `main`: lokal nach `dev` holen und prüfen, ob
   GitHub ihn nach dem Release als gemergt markiert — auch wenn Dependabot den Branch rebased
   (Task 010, Review-Punkt 5, vertagt).

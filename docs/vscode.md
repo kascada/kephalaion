@@ -163,16 +163,17 @@ mittelbar:
   übersetzen. Für Kephalaion ungeeignet: SQLite, Dateizugriff und Netz sind aus WASM heraus
   mühsam, und die Logik gibt es ohnehin schon im Node.
 
-**Für Kephalaion: TypeScript als Übersetzer, geschätzt 200–400 Zeilen; die Logik bleibt im
-Binary.**
+**Für Kephalaion: ein dünner Übersetzer; die Logik bleibt im Binary.** Gebaut ist er in
+reinem JavaScript ohne Abhängigkeiten (siehe „Umsetzung“).
 
 **Weg zum Node: MCP über HTTP.** Der Node ist ohnehin ein MCP-Server über HTTP auf
 `127.0.0.1` (siehe [`konzept.md`](konzept.md), „Kommunikation“), und `list`, `read`, `write`,
 `rename`, `delete` sind genau die Vorgänge, die der Provider braucht. Die Erweiterung ist damit
-ein MCP-Client wie jeder andere (`@modelcontextprotocol/sdk`); ein eigenes Protokoll entfällt.
+ein MCP-Client wie jeder andere; ein eigenes Protokoll entfällt, und das SDK
+(`@modelcontextprotocol/sdk`) braucht sie nicht — JSON-RPC über das `fetch` von Node.js genügt.
 Voraussetzung ist ein laufender Node (`kephalaion serve`). Account und Token trägt die
-Erweiterung als Header ein, wie jeder Client; das Token liegt im `SecretStorage` von VS Code,
-nicht in den Einstellungen.
+Erweiterung als Header ein, wie jeder Client; sie liest sie aus den Token-Dateien (siehe
+„Status und Auswahl“), nie aus den Einstellungen.
 
 ## WSL und Remote: `extensionKind`
 
