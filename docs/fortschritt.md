@@ -177,8 +177,7 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
 
 ## Zu besprechen
 
-- **Name:** TMview-Recherche (griechische nationale Marken, wegen Kefalaio) und Domain
-  reservieren. Marke erst bei Entscheidung zur Vermarktung (siehe Konzept, „Der Name“).
+- **Name:** TMview-Recherche (griechische nationale Marken, wegen Kefalaio). Marke erst bei Entscheidung zur Vermarktung (siehe Konzept, „Der Name“).
 - **Release-Signatur** statt nur `SHA256SUMS` (cosign/minisign/Attestations) — wann?
 - **Welcher entfernte Transport zuerst:** `https` oder `ssh`?
 - **Obergrenze je Schreibvorgang** oder Datenstrom für große `sync`-Seiten über HTTP.

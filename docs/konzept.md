@@ -74,8 +74,9 @@ das DPMA hat „KI Wissen“ 2023 mangels Unterscheidungskraft und als beschreib
 zurückgewiesen (3020232353446), und der Name geht in der Suche unter.
 
 **Marke und Domains:** Kephalaion ist vorerst für den eigenen Gebrauch. Eine Anmeldung bei
-DPMA oder EUIPO folgt erst, wenn es vermarktet werden soll — unabhängig von v1.0. Eine
-Domain wird reserviert. Als Veröffentlichung gilt erst das erste Release ab v1.0; ein
+DPMA oder EUIPO folgt erst, wenn es vermarktet werden soll — unabhängig von v1.0. Domain
+ist `kephalaion.com` (2026-09-26); sie leitet vorerst mit 302 auf das GitHub-Repo weiter, eine
+eigene Seite folgt mit Logo und englischer Doku. Als Veröffentlichung gilt erst das erste Release ab v1.0; ein
 v0.x-Release gilt nicht als solche (entschieden am 2026-09-25).
 
 ## Wozu
