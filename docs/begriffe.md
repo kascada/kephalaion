@@ -299,6 +299,14 @@ Ausführlich: [`konzept.md`](konzept.md).
   `kephalaion`, `/etc/kephalaion/config.yaml`, `/var/lib/kephalaion/`, System-Unit;
   eingerichtet per Ansible. Die User sind nur Clients. Je Rechner gibt es genau eine der
   beiden Arten (`konzept.md`, „Installation und Betrieb“).
-- **service** — *vorgemerkt, Name vorläufig.* `kephalaion service`: richtet den Dienst ein, der
-  `serve` startet — pro User Benutzer-Unit bzw. LaunchAgent, global gibt es die System-Unit
-  aus.
+- **service** (Dienst) — `kephalaion service install|uninstall|status`: richtet den Dienst pro
+  User ein, der `serve` startet, entfernt und zeigt ihn — unter Linux die Benutzer-Unit
+  `~/.config/systemd/user/kephalaion.service` (systemd `--user`), auf macOS den LaunchAgent
+  `io.github.kephalaion`. `kephalaion service unit --system` gibt die System-Unit der globalen
+  Installation aus, die Ansible oder der Verwalter ablegt; `service unit` ohne `--system` die
+  Unit bzw. den LaunchAgent pro User. Festgelegt am 2026-09-26; `init` richtet keinen Dienst
+  ein, es nennt nur den nächsten Schritt.
+- **unit** (Unit) — die Datei, mit der systemd einen Dienst startet; hier `kephalaion.service`,
+  pro User oder global (System-Unit). Erzeugt vom Binary, damit sie zur Version passt.
+- **LaunchAgent** — das Gegenstück auf macOS: eine plist unter `~/Library/LaunchAgents/`,
+  geladen von launchd für den angemeldeten User. Label `io.github.kephalaion`.
