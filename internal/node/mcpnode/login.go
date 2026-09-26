@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/kephalaion/kephalaion/internal/contract"
@@ -26,9 +27,52 @@ const (
 	// Node hat noch keine Replica dieses Hubs. Die Gründe unterscheidet der
 	// Node nicht.
 	LoginInvalid = "invalid"
-	// LoginMissing: nichts geschickt.
+	// LoginMissing: nichts geschickt, oder die Replica des Hubs ist nicht
+	// lesbar — dann auch mit Header-Paar: Ohne lesbare Replica gibt es
+	// nichts, wogegen der Node prüfen könnte.
 	LoginMissing = "missing"
 )
+
+// ReplicaUnreadable ist der feste Satz, den whoami als letzten Fehler eines
+// Hubs zeigt, dessen Replica sich nicht lesen lässt — ohne Pfad, ohne
+// Meldung.
+const ReplicaUnreadable = "Replica nicht lesbar"
+
+// UnreadableError meldet die Replica eines Hub-Eintrags, die sich nicht
+// lesen ließ: jeder Fehler beim Öffnen oder Lesen außer einer fehlenden
+// Datei und einem abgebrochenen ctx. Er betrifft nur diesen Hub. Die Meldung
+// nennt den Pfad: Sie gehört ins Log von serve bzw. nach stderr der CLI, nie
+// in eine Antwort.
+type UnreadableError struct {
+	Hub string
+	Err error
+}
+
+func (e *UnreadableError) Error() string { return fmt.Sprintf("Hub %s: %v", e.Hub, e.Err) }
+func (e *UnreadableError) Unwrap() error { return e.Err }
+
+// unreadable ordnet einen Fehler an der Replica eines Eintrags ein: Ist ctx
+// abgebrochen, bleibt er ein Fehler der Anfrage, sonst ist die Replica nicht
+// lesbar.
+func unreadable(ctx context.Context, hub string, err error) error {
+	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	var ue *UnreadableError
+	if errors.As(err, &ue) {
+		return err
+	}
+	return &UnreadableError{Hub: hub, Err: err}
+}
+
+// asUnreadable liefert den UnreadableError in err oder nil.
+func asUnreadable(err error) *UnreadableError {
+	var ue *UnreadableError
+	if errors.As(err, &ue) {
+		return ue
+	}
+	return nil
+}
 
 // Login ist die Anmeldung an einem Hub-Eintrag.
 type Login struct {
@@ -44,6 +88,9 @@ type Login struct {
 	// Rights sind die Rechte je Collection, nach Collection; nur bei
 	// LoginOK.
 	Rights []Right
+	// Unreadable ist gesetzt, wenn sich die Replica beim Prüfen nicht lesen
+	// ließ; State ist dann LoginMissing.
+	Unreadable *UnreadableError
 }
 
 // Right ist das Recht eines Accounts in einer Collection.
@@ -74,8 +121,10 @@ func (l Logins) Valid() []Login {
 // Authenticate prüft die Header einer Anfrage gegen alle Hub-Einträge — die
 // eine Anmeldung, auf der whoami und jedes Werkzeug aufsetzen, das Inhalte
 // liefert. Je Eintrag mit Header-Paar prüft check es gegen die Replica, ohne
-// Cache; ein Eintrag ohne Header ist LoginMissing. Header zu Aliasen ohne
-// Eintrag stehen in Unknown. Fehler sind nur Fehler der Datenbank.
+// Cache; ein Eintrag ohne Header ist LoginMissing, ebenso einer, dessen
+// Replica sich nicht lesen lässt (Login.Unreadable) — das betrifft nur diesen
+// Hub. Header zu Aliasen ohne Eintrag stehen in Unknown. Fehler sind nur
+// Fehler von node.db und ein abgebrochener ctx.
 func (n *Node) Authenticate(ctx context.Context, header http.Header) (Logins, error) {
 	hubs, err := n.nodes.Hubs(ctx)
 	if err != nil {
@@ -95,7 +144,9 @@ func (n *Node) Authenticate(ctx context.Context, header http.Header) (Logins, er
 			continue
 		}
 		login, err := n.check(ctx, h, p)
-		if err != nil {
+		if ue := asUnreadable(err); ue != nil {
+			login = Login{Hub: h.Name, Node: h.NodeName, State: LoginMissing, Unreadable: ue}
+		} else if err != nil {
 			return Logins{}, err
 		}
 		out.Hubs = append(out.Hubs, login)
@@ -163,25 +214,28 @@ func decodeRow(row replica.Document) (contract.AccountContent, bool) {
 // Eintrags. Die Replica wird je Anfrage geöffnet: Der Abgleich kann sie
 // verwerfen und neu anlegen, node hub rm entfernt sie; eine offen gehaltene
 // Datei zeigte dann den alten Stand. Eine Replica, die zu einem früheren
-// Eintrag gleichen Namens gehört, zählt nicht.
+// Eintrag gleichen Namens gehört, zählt nicht. Lässt sie sich nicht lesen,
+// ist der Fehler ein UnreadableError.
 func accountRows(ctx context.Context, nodes store.Store, h store.Hub, account string) ([]replica.Document, error) {
 	rep, err := openReplica(ctx, nodes, h)
 	if err != nil || rep == nil {
 		return nil, err
 	}
 	defer rep.Close()
-	return rep.AccountRows(ctx, account)
+	rows, err := rep.AccountRows(ctx, account)
+	return rows, unreadable(ctx, h.Name, err)
 }
 
 // openReplica öffnet die Replica eines Eintrags; fehlt sie oder gehört sie
-// zu einem anderen Eintrag, ist sie nil.
+// zu einem anderen Eintrag, ist sie nil. Jeder andere Fehler beim Öffnen ist
+// ein UnreadableError, außer bei abgebrochenem ctx.
 func openReplica(ctx context.Context, nodes store.Store, h store.Hub) (*replica.Replica, error) {
 	rep, err := replica.Open(ctx, nodes.ReplicaPath(h.Name))
 	if errors.Is(err, sqlitedb.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, unreadable(ctx, h.Name, err)
 	}
 	if rep.EntryID() != h.EntryID {
 		_ = rep.Close()
@@ -193,7 +247,8 @@ func openReplica(ctx context.Context, nodes store.Store, h store.Hub) (*replica.
 // AccountLogins liefert für die Kommandozeile (node whoami <account>), was
 // Authenticate einem Client mit gültigen Zugangsdaten dieses Accounts an
 // jedem Hub liefern würde — ohne Token: LoginOK, wo der Account lebende
-// Zeilen hat, sonst LoginMissing. Wer die CLI aufruft, kann node.db ohnehin
+// Zeilen hat, sonst LoginMissing, auch bei einer Replica, die sich nicht
+// lesen lässt (Login.Unreadable). Wer die CLI aufruft, kann node.db ohnehin
 // lesen; ob ein Token gilt, prüft node account check.
 func AccountLogins(ctx context.Context, nodes store.Store, account string) (Logins, error) {
 	hubs, err := nodes.Hubs(ctx)
@@ -204,7 +259,9 @@ func AccountLogins(ctx context.Context, nodes store.Store, account string) (Logi
 	for _, h := range hubs {
 		login := Login{Hub: h.Name, Node: h.NodeName, State: LoginMissing}
 		rows, err := accountRows(ctx, nodes, h, account)
-		if err != nil {
+		if ue := asUnreadable(err); ue != nil {
+			login.Unreadable = ue
+		} else if err != nil {
 			return Logins{}, err
 		}
 		for _, row := range rows {
@@ -235,25 +292,21 @@ type Account struct {
 }
 
 // KnownAccounts liefert die Accounts aller Replicas, nach Hub und Account —
-// für node whoami ohne Argument.
-func KnownAccounts(ctx context.Context, nodes store.Store) ([]Account, error) {
+// für node whoami ohne Argument. Eine Replica, die sich nicht lesen lässt,
+// trägt nichts bei; sie steht in unread, die übrigen Hubs gelten weiter.
+func KnownAccounts(ctx context.Context, nodes store.Store) (out []Account, unread []*UnreadableError, err error) {
 	hubs, err := nodes.Hubs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var out []Account
 	for _, h := range hubs {
-		rep, err := openReplica(ctx, nodes, h)
-		if err != nil {
-			return nil, err
-		}
-		if rep == nil {
+		rows, err := allAccountRows(ctx, nodes, h)
+		if ue := asUnreadable(err); ue != nil {
+			unread = append(unread, ue)
 			continue
 		}
-		rows, err := rep.AllAccountRows(ctx)
-		_ = rep.Close()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		byName := map[string]int{}
 		for _, row := range rows {
@@ -271,5 +324,17 @@ func KnownAccounts(ctx context.Context, nodes store.Store) ([]Account, error) {
 			out[i].Rights = append(out[i].Rights, Right{Collection: row.Collection, Rights: c.Rights})
 		}
 	}
-	return out, nil
+	return out, unread, nil
+}
+
+// allAccountRows liest alle lebenden Account-Zeilen der Replica eines
+// Eintrags; ohne Replica keine.
+func allAccountRows(ctx context.Context, nodes store.Store, h store.Hub) ([]replica.Document, error) {
+	rep, err := openReplica(ctx, nodes, h)
+	if err != nil || rep == nil {
+		return nil, err
+	}
+	defer rep.Close()
+	rows, err := rep.AllAccountRows(ctx)
+	return rows, unreadable(ctx, h.Name, err)
 }

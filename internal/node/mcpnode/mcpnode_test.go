@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/ident"
 	"github.com/kephalaion/kephalaion/internal/node/replica"
 	"github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 // env ist ein Node mit zwei Hub-Einträgen und ihren Replicas: keph mit
@@ -436,5 +438,200 @@ func TestWhoamiRowWithoutUser(t *testing.T) {
 	if got := hubOf(t, out, "keph"); got.Login != LoginOK || got.User != "carl" || len(got.Collections) != 1 ||
 		got.Collections[0].Collection != "privat" {
 		t.Errorf("gültige Zeile neben einer ohne user: %+v", got)
+	}
+}
+
+// breakReplicas trägt zwei Hubs mit kaputter Replica ein: alt mit Replica
+// alter Schemafassung — zuletzt gelungen, danach ein Fehler in hub_sync —
+// und kaputt mit einer Datei aus Müll-Bytes, nie gelungen, aber mit einem
+// alten Fehler. bob hat an beiden dasselbe Token wie an keph.
+func (e *env) breakReplicas(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	for _, alias := range []string{"alt", "kaputt"} {
+		if err := e.nodes.AddHub(ctx, store.Hub{Name: alias, NodeName: "laptop", Transport: store.TransportHTTPS,
+			Address: "https://hub.example.org", Token: token(t)}, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.nodes.AddCollection(ctx, "alt", "team-x"); err != nil {
+		t.Fatal(err)
+	}
+	alt, err := e.nodes.Hub(ctx, "alt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := contract.EncodeAccountContent(contract.AccountContent{Hash: ident.HashToken(e.tokens["keph/bob"]),
+		User: "kleist"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []contract.Row{{ID: ulid.Make().String(), Collection: "team-x", Name: contract.AccountRowName("bob"),
+		Content: &content, Revision: 1, CreatedBy: "admin", UpdatedBy: "admin"}}
+	if _, _, err := replica.WriteAccountRows(ctx, e.nodes, alt, ulid.Make().String(), rows); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlitedb.Open(ctx, e.nodes.ReplicaPath("alt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlitedb.SetInfo(ctx, db, sqlitedb.KeySchemaVersion, "2"); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	ok := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC).UnixMilli()
+	if err := e.nodes.RecordSync(ctx, "alt", alt.EntryID, store.SyncRecord{At: ok}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.nodes.RecordSync(ctx, "alt", alt.EntryID, store.SyncRecord{At: ok + 60000, Err: "Hub weg",
+		ErrKind: string(replica.KindUnreachable)}); err != nil {
+		t.Fatal(err)
+	}
+	kaputt, err := e.nodes.Hub(ctx, "kaputt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.nodes.ReplicaPath("kaputt"), []byte(strings.Repeat("kein SQLite, nur Müll ", 400)),
+		0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.nodes.RecordSync(ctx, "kaputt", kaputt.EntryID, store.SyncRecord{At: ok, Err: "Hub weg",
+		ErrKind: string(replica.KindUnreachable)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Eine Replica, die sich nicht lesen lässt — alte Schemafassung oder Müll —,
+// betrifft nur ihren Hub: login missing auch mit Header-Paar, keine
+// Revision, als letzter Fehler „Replica nicht lesbar“ ohne Zeit statt des
+// Fehlers aus hub_sync, never_synced nur ohne Erfolg. Die übrigen Hubs
+// erscheinen vollständig; die Antwort nennt keinen Pfad und keine Meldung.
+func TestWhoamiUnreadableReplica(t *testing.T) {
+	e := newEnv(t)
+	e.breakReplicas(t)
+	bob := e.tokens["keph/bob"]
+	out, raw := e.whoami(t, merge(pair("keph", "bob", bob), pair("alt", "bob", bob), pair("kaputt", "bob", bob)))
+	if got := hubOf(t, out, "keph"); got.Login != LoginOK || got.User != "kleist" || len(got.Collections) != 2 ||
+		got.Sync.Revision == nil {
+		t.Errorf("gesunder Hub: %+v", got)
+	}
+	if got := hubOf(t, out, "team.x_y"); got.Login != LoginMissing || got.Sync.Revision == nil || got.Sync.LastError != "" {
+		t.Errorf("gesunder Hub ohne Header: %+v", got)
+	}
+	wantAlt := HubInfo{Hub: "alt", Login: LoginMissing, Node: "laptop",
+		Sync: SyncInfo{LastSuccess: "2026-09-26T10:00:00Z", LastError: ReplicaUnreadable}}
+	if got := hubOf(t, out, "alt"); !reflect.DeepEqual(got, wantAlt) {
+		t.Errorf("alt: %+v", got)
+	}
+	wantKaputt := HubInfo{Hub: "kaputt", Login: LoginMissing, Node: "laptop",
+		Sync: SyncInfo{NeverSynced: true, LastError: ReplicaUnreadable}}
+	if got := hubOf(t, out, "kaputt"); !reflect.DeepEqual(got, wantKaputt) {
+		t.Errorf("kaputt: %+v", got)
+	}
+	for _, want := range []string{
+		"keph (Node laptop): angemeldet als bob (User kleist)",
+		"alt (Node laptop): Anmeldung nicht prüfbar; abgeglichen 2026-09-26T10:00:00Z; letzter Fehler: Replica nicht lesbar",
+		"kaputt (Node laptop): Anmeldung nicht prüfbar; noch nie abgeglichen; letzter Fehler: Replica nicht lesbar",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("Text ohne %q:\n%s", want, raw)
+		}
+	}
+	e.noSecrets(t, raw, bob)
+	dir := filepath.Dir(e.nodes.ReplicaPath("alt"))
+	for _, not := range []string{dir, "replicas", ".db", "Schemafassung", "db_info", "database", "last_error_at",
+		"Hub weg", "nicht erreichbar", "entry_id", "alt:team-x"} {
+		if strings.Contains(raw, not) {
+			t.Errorf("Antwort enthält %q:\n%s", not, raw)
+		}
+	}
+
+	// Ohne Header dasselbe Bild; AccountLogins (node whoami <account>) auch.
+	out, _ = e.whoami(t, nil)
+	if got := hubOf(t, out, "alt"); !reflect.DeepEqual(got, wantAlt) {
+		t.Errorf("alt ohne Header: %+v", got)
+	}
+	ctx := context.Background()
+	logins, err := AccountLogins(ctx, e.nodes, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, _, unread, err := Whoami(ctx, e.nodes, "test", logins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hubOf(t, cli, "keph"); got.Login != LoginOK {
+		t.Errorf("AccountLogins keph: %+v", got)
+	}
+	if got := hubOf(t, cli, "kaputt"); !reflect.DeepEqual(got, wantKaputt) {
+		t.Errorf("AccountLogins kaputt: %+v", got)
+	}
+	if len(unread) != 2 || unread[0].Hub != "alt" || unread[1].Hub != "kaputt" ||
+		!strings.Contains(unread[1].Error(), e.nodes.ReplicaPath("kaputt")) {
+		t.Errorf("Meldungen: %v", unread)
+	}
+	accounts, unreadAccounts, err := KnownAccounts(ctx, e.nodes)
+	if err != nil || len(unreadAccounts) != 2 {
+		t.Fatalf("KnownAccounts: %v, %v", unreadAccounts, err)
+	}
+	for _, a := range accounts {
+		if a.Hub == "alt" || a.Hub == "kaputt" {
+			t.Errorf("Account aus kaputter Replica: %+v", a)
+		}
+	}
+}
+
+// Ein abgebrochener ctx ist ein Fehler der Anfrage, keine unlesbare Replica.
+func TestWhoamiCanceled(t *testing.T) {
+	e := newEnv(t)
+	e.breakReplicas(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h, err := e.nodes.Hub(context.Background(), "kaputt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openReplica(ctx, e.nodes, h); err == nil || asUnreadable(err) != nil {
+		t.Errorf("openReplica mit abgebrochenem ctx: %v", err)
+	}
+	if _, err := accountRows(ctx, e.nodes, h, "bob"); err == nil || asUnreadable(err) != nil {
+		t.Errorf("accountRows mit abgebrochenem ctx: %v", err)
+	}
+	if _, _, _, err := Whoami(ctx, e.nodes, "test", Logins{}); err == nil {
+		t.Error("Whoami mit abgebrochenem ctx ohne Fehler")
+	}
+	if _, err := AccountLogins(ctx, e.nodes, "bob"); err == nil {
+		t.Error("AccountLogins mit abgebrochenem ctx ohne Fehler")
+	}
+	if _, err := e.whoamiErr(t, ctx); err == nil {
+		t.Error("Authenticate mit abgebrochenem ctx ohne Fehler")
+	}
+}
+
+func (e *env) whoamiErr(t *testing.T, ctx context.Context) (Logins, error) {
+	t.Helper()
+	n := &Node{nodes: e.nodes, version: "test"}
+	return n.Authenticate(ctx, pair("kaputt", "bob", e.tokens["keph/bob"]))
+}
+
+// DescribeSync kommt ohne Revision und ohne Zeit des Fehlers aus.
+func TestDescribeSync(t *testing.T) {
+	rev := int64(7)
+	cases := []struct {
+		in   SyncInfo
+		want string
+	}{
+		{SyncInfo{NeverSynced: true}, "noch nie abgeglichen"},
+		{SyncInfo{Revision: &rev}, "Revision 7"},
+		{SyncInfo{LastSuccess: "T", Revision: &rev}, "abgeglichen T, Revision 7"},
+		{SyncInfo{LastSuccess: "T", Revision: &rev, LastError: "x", LastErrorAt: "U"}, "abgeglichen T, Revision 7; letzter Fehler U: x"},
+		{SyncInfo{LastSuccess: "T", LastError: ReplicaUnreadable}, "abgeglichen T; letzter Fehler: Replica nicht lesbar"},
+		{SyncInfo{LastError: ReplicaUnreadable}, "letzter Fehler: Replica nicht lesbar"},
+		{SyncInfo{}, ""},
+	}
+	for _, c := range cases {
+		if got := DescribeSync(c.in); got != c.want {
+			t.Errorf("DescribeSync(%+v) = %q, erwartet %q", c.in, got, c.want)
+		}
 	}
 }

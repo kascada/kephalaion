@@ -142,6 +142,14 @@ einen fremden Hub-Eintrag und hält das Beenden von `serve` nicht auf.
 - `docs/fortschritt.md`: die drei Punkte und das Verwerfen einer beschädigten Replica nach
   „Erledigt“.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — whoami robust gegen eine unlesbare Replica | erledigt | 2026-09-26 | `mcpnode.UnreadableError`; `openReplica`/Lesefehler je Hub eingeordnet (ctx → Fehler der Anfrage); `Whoami` liefert die Meldungen zurück (Log per `reqlog.NoteError`, stderr in `node whoami`); `DescribeSync` ohne nil/Zeit; Tests MCP, CLI, `status` |
+| 2 — Verwerfen, Replica-Anlage und Beenden von serve | offen | | |
+| 3 — Doku | offen | | |
+
 ---
 ## Review-Log (2026-09-26)
 

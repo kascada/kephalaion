@@ -29,6 +29,10 @@ für diesen Account an jedem Hub gültige Zugangsdaten schickt — login ok, wo
 der Account in der Replica steht, sonst missing. Aus derselben Funktion wie
 das Werkzeug.
 
+Lässt sich die Replica eines Hubs nicht lesen, steht der Hub ohne Accounts
+und mit „Replica nicht lesbar“ da; die übrigen Hubs gelten weiter. Die volle
+Meldung, samt Pfad, steht auf stderr (wie in kephalaion status).
+
 Ohne Token: Wer die Kommandozeile aufruft, kann die Datenbanken des Nodes
 ohnehin lesen. Ob ein Token gilt, prüft kephalaion node account check.
 
@@ -55,7 +59,7 @@ func runNodeWhoami(args []string, stdout, stderr io.Writer) int {
 			if *asJSON {
 				return errors.New("--json gibt es nur mit <account>: die Struktur ist die des Werkzeugs whoami")
 			}
-			return printNodeOverview(ctx, stdout, s, version, *hub)
+			return printNodeOverview(ctx, stdout, stderr, s, version, *hub)
 		}
 		account := pos[0]
 		if err := ident.CheckPrincipalName("Account", account); err != nil {
@@ -66,10 +70,11 @@ func runNodeWhoami(args []string, stdout, stderr io.Writer) int {
 			return err
 		}
 		logins.Hubs = onlyHub(logins.Hubs, *hub)
-		out, text, err := mcpnode.Whoami(ctx, s, version, logins)
+		out, text, unread, err := mcpnode.Whoami(ctx, s, version, logins)
 		if err != nil {
 			return err
 		}
+		reportUnreadable(stderr, unread)
 		if *asJSON {
 			enc := json.NewEncoder(stdout)
 			enc.SetIndent("", "  ")
@@ -78,6 +83,21 @@ func runNodeWhoami(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, text)
 		return nil
 	})
+}
+
+// onlyUnreadable grenzt die Meldungen zu unlesbaren Replicas auf einen Alias
+// ein; leer lässt alle.
+func onlyUnreadable(list []*mcpnode.UnreadableError, alias string) []*mcpnode.UnreadableError {
+	if alias == "" {
+		return list
+	}
+	var out []*mcpnode.UnreadableError
+	for _, ue := range list {
+		if ue.Hub == alias {
+			out = append(out, ue)
+		}
+	}
+	return out
 }
 
 // onlyHub grenzt die Anmeldungen auf einen Alias ein; leer lässt alle.
@@ -94,9 +114,26 @@ func onlyHub(logins []mcpnode.Login, alias string) []mcpnode.Login {
 	return out
 }
 
+// reportUnreadable meldet Replicas, die sich nicht lesen ließen, mit der
+// vollen Meldung auf stderr — Diagnose wie in status; die Ausgabe auf stdout
+// nennt nur den festen Satz, keinen Pfad. Je Hub eine Zeile.
+func reportUnreadable(stderr io.Writer, unread ...[]*mcpnode.UnreadableError) {
+	seen := map[string]bool{}
+	for _, list := range unread {
+		for _, ue := range list {
+			if !seen[ue.Hub] {
+				seen[ue.Hub] = true
+				fmt.Fprintf(stderr, "node whoami: %v\n", ue)
+			}
+		}
+	}
+}
+
 // printNodeOverview zeigt Version, je Hub Node-Name und Stand des Abgleichs
-// — aus Whoami, ohne Anmeldung — und die bekannten Accounts.
-func printNodeOverview(ctx context.Context, w io.Writer, s nodestore.Store, version, alias string) error {
+// — aus Whoami, ohne Anmeldung — und die bekannten Accounts. Ein Hub, dessen
+// Replica sich nicht lesen lässt, steht mit dem Hinweis darauf und ohne
+// Accounts da.
+func printNodeOverview(ctx context.Context, w, stderr io.Writer, s nodestore.Store, version, alias string) error {
 	hubs, err := s.Hubs(ctx)
 	if err != nil {
 		return err
@@ -106,7 +143,7 @@ func printNodeOverview(ctx context.Context, w io.Writer, s nodestore.Store, vers
 		none.Hubs = append(none.Hubs, mcpnode.Login{Hub: h.Name, Node: h.NodeName, State: mcpnode.LoginMissing})
 	}
 	none.Hubs = onlyHub(none.Hubs, alias)
-	out, _, err := mcpnode.Whoami(ctx, s, version, none)
+	out, _, unread, err := mcpnode.Whoami(ctx, s, version, none)
 	if err != nil {
 		return err
 	}
@@ -119,10 +156,11 @@ func printNodeOverview(ctx context.Context, w io.Writer, s nodestore.Store, vers
 	for _, h := range out.Hubs {
 		fmt.Fprintf(w, "  %s (Node %s): %s\n", h.Hub, h.Node, mcpnode.DescribeSync(h.Sync))
 	}
-	accounts, err := mcpnode.KnownAccounts(ctx, s)
+	accounts, more, err := mcpnode.KnownAccounts(ctx, s)
 	if err != nil {
 		return err
 	}
+	reportUnreadable(stderr, unread, onlyUnreadable(more, alias))
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	n := 0
 	for _, a := range accounts {

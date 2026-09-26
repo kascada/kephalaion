@@ -12,6 +12,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/ident"
 	"github.com/kephalaion/kephalaion/internal/node/replica"
 	"github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/reqlog"
 )
 
 // WhoamiOutput ist die Antwort des Werkzeugs whoami (docs/konzept.md,
@@ -47,15 +48,18 @@ type HubInfo struct {
 type SyncInfo struct {
 	// NeverSynced: Der Node hat noch keine Replica dieses Hubs; dann fehlt
 	// revision, und eine Anmeldung ist invalid, auch mit richtigen
-	// Zugangsdaten.
+	// Zugangsdaten. Bei einer Replica, die sich nicht lesen lässt, nur, wenn
+	// hub_sync keinen gelungenen Abgleich kennt.
 	NeverSynced bool `json:"never_synced,omitempty"`
 	// LastSuccess ist der letzte gelungene Abgleich.
 	LastSuccess string `json:"last_success,omitempty"`
 	// Revision ist der Stand, bis zu dem alle Collections der Replica
-	// abgeglichen sind.
+	// abgeglichen sind; fehlt ohne lesbare Replica.
 	Revision *int64 `json:"revision,omitempty"`
 	// LastError ist die Art des letzten Fehlers als kurzer Satz, ohne
-	// Adresse; leer, wenn der letzte Versuch gelang.
+	// Adresse; leer, wenn der letzte Versuch gelang. Lässt sich die Replica
+	// nicht lesen, steht hier ReplicaUnreadable statt eines Fehlers aus
+	// hub_sync, und LastErrorAt bleibt leer.
 	LastError   string `json:"last_error,omitempty"`
 	LastErrorAt string `json:"last_error_at,omitempty"`
 }
@@ -70,20 +74,27 @@ type CollectionRights struct {
 // Whoami baut die Antwort von whoami aus den Anmeldungen, samt Textteil —
 // eine Zeile je Hub. Dieselbe Funktion dient dem Werkzeug (über
 // Authenticate) und der Kommandozeile (node whoami, über AccountLogins).
-func Whoami(ctx context.Context, nodes store.Store, version string, logins Logins) (WhoamiOutput, string, error) {
+//
+// Eine Replica, die sich nicht lesen lässt, betrifft nur ihren Hub: login
+// missing, ohne Account, im Stand des Abgleichs ReplicaUnreadable. Die vollen
+// Meldungen dazu stehen in unread, je Hub eine — fürs Log bzw. stderr, nie
+// für die Antwort. Der Fehler ist nur einer von node.db oder ein
+// abgebrochener ctx.
+func Whoami(ctx context.Context, nodes store.Store, version string, logins Logins) (out WhoamiOutput, text string,
+	unread []*UnreadableError, err error) {
 	status, err := nodes.SyncStatus(ctx)
 	if err != nil {
-		return WhoamiOutput{}, "", err
+		return WhoamiOutput{}, "", nil, err
 	}
 	hubs, err := nodes.Hubs(ctx)
 	if err != nil {
-		return WhoamiOutput{}, "", err
+		return WhoamiOutput{}, "", nil, err
 	}
 	entries := make(map[string]store.Hub, len(hubs))
 	for _, h := range hubs {
 		entries[h.Name] = h
 	}
-	out := WhoamiOutput{Version: version, Hubs: make([]HubInfo, 0, len(logins.Hubs)), UnknownHubs: logins.Unknown}
+	out = WhoamiOutput{Version: version, Hubs: make([]HubInfo, 0, len(logins.Hubs)), UnknownHubs: logins.Unknown}
 	if out.UnknownHubs == nil {
 		out.UnknownHubs = []string{}
 	}
@@ -91,13 +102,24 @@ func Whoami(ctx context.Context, nodes store.Store, version string, logins Login
 	for _, l := range logins.Hubs {
 		info := HubInfo{Hub: l.Hub, Login: l.State, Node: l.Node}
 		sync, err := syncInfo(ctx, nodes, entries[l.Hub], status[l.Hub])
-		if err != nil {
-			return WhoamiOutput{}, "", err
+		ue := asUnreadable(err)
+		if err != nil && ue == nil {
+			return WhoamiOutput{}, "", nil, err
+		}
+		if ue == nil {
+			ue = l.Unreadable
+		}
+		if ue != nil {
+			unread = append(unread, ue)
+			sync = unreadableSync(status[l.Hub])
+			info.Login = LoginMissing
 		}
 		info.Sync = sync
 		var who string
-		switch l.State {
-		case LoginOK:
+		switch {
+		case ue != nil:
+			who = "Anmeldung nicht prüfbar"
+		case l.State == LoginOK:
 			info.Account, info.User = l.Account, l.User
 			parts := make([]string, 0, len(l.Rights))
 			for _, r := range l.Rights {
@@ -107,7 +129,7 @@ func Whoami(ctx context.Context, nodes store.Store, version string, logins Login
 				parts = append(parts, fmt.Sprintf("%s (%s)", addr, r.Rights))
 			}
 			who = fmt.Sprintf("angemeldet als %s (User %s): %s", l.Account, l.User, strings.Join(parts, ", "))
-		case LoginInvalid:
+		case l.State == LoginInvalid:
 			who = "Anmeldung ungültig"
 		default:
 			who = "keine Zugangsdaten"
@@ -121,11 +143,12 @@ func Whoami(ctx context.Context, nodes store.Store, version string, logins Login
 	if len(out.UnknownHubs) > 0 {
 		lines = append(lines, "Zugangsdaten für Hubs, die dieser Node nicht kennt: "+strings.Join(out.UnknownHubs, ", "))
 	}
-	return out, strings.Join(lines, "\n"), nil
+	return out, strings.Join(lines, "\n"), unread, nil
 }
 
 // syncInfo liest den Stand des Abgleichs eines Eintrags: hub_sync und die
-// Revision seiner Replica.
+// Revision seiner Replica. Lässt sich die Replica nicht lesen, ist der Fehler
+// ein UnreadableError.
 func syncInfo(ctx context.Context, nodes store.Store, h store.Hub, st store.SyncStatus) (SyncInfo, error) {
 	var out SyncInfo
 	if st.OKAt != 0 {
@@ -145,10 +168,22 @@ func syncInfo(ctx context.Context, nodes store.Store, h store.Hub, st store.Sync
 	defer rep.Close()
 	rev, err := rep.Revision(ctx)
 	if err != nil {
-		return SyncInfo{}, err
+		return SyncInfo{}, unreadable(ctx, h.Name, err)
 	}
 	out.Revision = &rev
 	return out, nil
+}
+
+// unreadableSync ist der Stand eines Eintrags, dessen Replica sich nicht
+// lesen lässt: keine Revision, als letzter Fehler der feste Satz ohne Zeit —
+// er ersetzt einen Fehler aus hub_sync —, der letzte Erfolg aus hub_sync;
+// never_synced nur, wenn es keinen gab.
+func unreadableSync(st store.SyncStatus) SyncInfo {
+	out := SyncInfo{LastError: ReplicaUnreadable, NeverSynced: st.OKAt == 0}
+	if st.OKAt != 0 {
+		out.LastSuccess = formatTime(st.OKAt)
+	}
+	return out
 }
 
 func formatTime(ms int64) string { return time.UnixMilli(ms).UTC().Format(time.RFC3339) }
@@ -156,17 +191,27 @@ func formatTime(ms int64) string { return time.UnixMilli(ms).UTC().Format(time.R
 // DescribeSync ist der Stand des Abgleichs als Text, wie im Textteil von
 // whoami.
 func DescribeSync(s SyncInfo) string {
-	var text string
+	var parts []string
 	switch {
 	case s.NeverSynced:
-		text = "noch nie abgeglichen"
+		parts = append(parts, "noch nie abgeglichen")
 	case s.LastSuccess != "":
-		text = fmt.Sprintf("abgeglichen %s, Revision %d", s.LastSuccess, *s.Revision)
-	default:
-		text = fmt.Sprintf("Revision %d", *s.Revision)
+		parts = append(parts, "abgeglichen "+s.LastSuccess)
 	}
+	if s.Revision != nil {
+		parts = append(parts, fmt.Sprintf("Revision %d", *s.Revision))
+	}
+	text := strings.Join(parts, ", ")
 	if s.LastError != "" {
-		text += fmt.Sprintf("; letzter Fehler %s: %s", s.LastErrorAt, s.LastError)
+		last := "letzter Fehler"
+		if s.LastErrorAt != "" {
+			last += " " + s.LastErrorAt
+		}
+		last += ": " + s.LastError
+		if text == "" {
+			return last
+		}
+		text += "; " + last
 	}
 	return text
 }
@@ -178,11 +223,17 @@ func (n *Node) whoami(ctx context.Context, req *mcp.CallToolRequest, _ struct{})
 	}
 	logins, err := n.Authenticate(ctx, header)
 	if err != nil {
+		reqlog.NoteError(ctx, err)
 		return nil, WhoamiOutput{}, fmt.Errorf("Datenbank des Nodes nicht lesbar")
 	}
-	out, text, err := Whoami(ctx, n.nodes, n.version, logins)
+	out, text, unread, err := Whoami(ctx, n.nodes, n.version, logins)
 	if err != nil {
+		reqlog.NoteError(ctx, err)
 		return nil, WhoamiOutput{}, fmt.Errorf("Datenbank des Nodes nicht lesbar")
+	}
+	// Die vollen Meldungen nennen den Pfad: nur ins Log.
+	for _, ue := range unread {
+		reqlog.NoteError(ctx, ue)
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, out, nil
 }
