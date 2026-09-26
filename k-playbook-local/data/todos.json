@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "nextId": 12,
+  "nextId": 13,
   "migratedOn": "2026-09-25",
   "todos": [
     {
@@ -59,6 +59,12 @@
       "text": "init nach Schemawechsel: Die Fehlermeldung bei falscher Schemafassung empfiehlt `kephalaion node init` (bzw. hub init), aber init bricht ab, weil die Rolle noch in der config steht — man muss den Abschnitt von Hand aus config.yaml entfernen. init soll einen vorhandenen Abschnitt ohne Datenbankdatei übernehmen (oder ein ausdrücklicher Schalter dafür), Meldung und Hilfe entsprechend.",
       "created": "2026-09-26",
       "origin": "Gespräch 2026-09-26, Neuanlage node.db nach Task 008"
+    },
+    {
+      "id": 12,
+      "text": "Update-Hinweis in whoami/node whoami einstellbar machen (nicht immer ausgeben) oder die Antwort cachen — node whoami fragt heute GitHub bei jedem Aufruf (bis 10 s ohne Netz, geteiltes Limit 60/h). Siehe docs/fortschritt.md „Zu tun“, Task 011 Code-Review Punkt 1.",
+      "created": "2026-09-26",
+      "origin": "Task 011"
     }
   ]
 }

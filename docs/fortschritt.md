@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt; Task 009 Etappen 1–5 erledigt; Task 011 Etappen 1–7 erledigt)
+Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt; Task 009 Etappen 1–5 erledigt; Task 011 abgeschlossen, in `done/`)
 
 ## So wird diese Datei aktualisiert
 
@@ -119,6 +119,22 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   36259254294 im dritten Versuch und 36260980326) — die Race-Condition, die Task 013 behebt
   (Task 011, Etappe 5; Befund `material/befunde/ci-macos.md`).
 
+- **Update-Hinweis einstellbar oder zwischengespeichert** (vorgemerkt 2026-09-26, Todo):
+  `node whoami` fragt GitHub bei jedem Aufruf, auch ohne Account und vor der Prüfung des
+  Namens (ohne Netz bis zu 10 s, geteiltes Limit 60 Anfragen je Stunde und Adresse); `whoami`
+  zeigt `update` immer. Nicht immer ausgeben: einstellbar machen oder die Antwort
+  zwischenspeichern, auch für die Kommandozeile. Hängt mit „Tägliche Frage nach einem Update
+  abschaltbar?“ unter „Zu besprechen“ zusammen (Task 011, Code-Review, Punkt 1).
+- **Kleinere Punkte aus dem Review von Task 011** (`done/011-…`, „Code-Review“, Punkte 2–5):
+  - `upgrade` endet mit Exit 1, wenn nach dem Ersetzen der Neustart des Dienstes scheitert;
+    die Hilfe sagt zu Exit 1 „das Binary bleibt unverändert“ — eigener Exit-Code oder Hilfe
+    und `docs/installation.md` ergänzen (2);
+  - `serve` fragt bei jedem Start nach einem Update; „höchstens einmal am Tag“ gilt je Prozess,
+    häufige Neustarts (`make dev-install`, `Restart=on-failure`) fragen jedes Mal (3);
+  - `config.Location.System()` erkennt die globale config nur am bereinigten Pfad; über einen
+    Symlink gilt sie nicht als global (Weg des Upgrades, Dienstzeile) (4);
+  - `make dev-install` wiederholt Unit-Name und Label aus `internal/service` (5).
+
 - **VS-Code-Erweiterung in die Installation:** heute nur aus `vscode/` von Hand gebaut und
   mit `code --install-extension` installiert. Gehört ins gemeinsame Release und in die
   Installation — als Asset `.vsix` oder ins Binary eingebettet (`kephalaion vscode install`),
@@ -223,7 +239,8 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
 ## Zu besprechen
 
 - **Tägliche Frage nach einem Update abschaltbar?** (ohne Netz, Datenschutz; `konzept.md`,
-  „Offene Punkte“, Node als Dienst).
+  „Offene Punkte“, Node als Dienst). Richtung (2026-09-26): einstellbar oder zwischengespeichert,
+  siehe „Zu tun“, Update-Hinweis.
 - **Name:** TMview-Recherche (griechische nationale Marken, wegen Kefalaio). Marke erst bei Entscheidung zur Vermarktung (siehe Konzept, „Der Name“).
 - **Release-Signatur** statt nur `SHA256SUMS` (cosign/minisign/Attestations) — wann?
 - **Welcher entfernte Transport zuerst:** `https` oder `ssh`?
