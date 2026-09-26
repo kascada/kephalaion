@@ -1,5 +1,10 @@
 # kephalaion
 
+> **Vorerst für den eigenen Gebrauch.** Kephalaion ist in früher Entwicklung und läuft bisher
+> nur auf dem Rechner des Autors. Schnittstellen, Datenbankschema und Konfiguration ändern
+> sich bis v1.0 ohne Rücksicht auf bestehende Installationen. Der Code ist öffentlich,
+> Unterstützung gibt es keine.
+
 Eine geteilte Wissensdatenbank mehrerer Nutzer und Projekte: ein Binary mit zwei Rollen —
 dem Hub für Store, Journal und Accounts und dem Node als lokalem MCP-Server mit Replica.
 Was geplant ist und warum, steht in [`docs/konzept.md`](docs/konzept.md), die Begriffe in
