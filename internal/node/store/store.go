@@ -1,6 +1,8 @@
 // Package store kapselt die Datenbank des Nodes (node.db): seine
-// Einstellungen. Die Replicas kommen später als eigene Dateien daneben. Anders
-// als beim Hub ist hier SQLite-Eigenes erlaubt — dort kommt später FTS5.
+// Einstellungen, Hub-Einträge und gewünschten Collections. Die Replicas liegen
+// als eigene Dateien im Verzeichnis replicas/ daneben (internal/node/replica);
+// hier steht nur, wo. Anders als beim Hub ist hier SQLite-Eigenes erlaubt —
+// dort kommt später FTS5.
 //
 // Der Node kennt den Hub nicht über dessen Pakete: Kein Paket unter
 // internal/node importiert eines unter internal/hub, und umgekehrt.
@@ -10,6 +12,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strconv"
 
 	"github.com/kascada/kephalaion/internal/config"
@@ -46,9 +49,16 @@ type Store interface {
 	// denselben Regeln wie AddHub; siehe ApplyUpdate.
 	SetHub(ctx context.Context, name string, u HubUpdate, hubInConfig bool) error
 	SetHubToken(ctx context.Context, name, token string) error
+	// SetHubID schreibt die Kopie der hub_id in den Hub-Eintrag. Maßgeblich
+	// ist die hub_id in db_info der Replica; der Abgleich schreibt die Kopie
+	// danach, für Anzeige und Export.
+	SetHubID(ctx context.Context, name, hubID string) error
 	// RemoveHub entfernt einen Hub-Eintrag samt seinen gewünschten
-	// Collections.
+	// Collections und seiner Replica.
 	RemoveHub(ctx context.Context, name string) error
+	// ReplicaPath ist der Ort der Replica eines Hub-Eintrags:
+	// replicas/<alias>.db neben node.db. Die Datei muss es nicht geben.
+	ReplicaPath(name string) string
 
 	Collections(ctx context.Context) ([]Wanted, error)
 	// AddCollection prüft nur, dass es den Hub-Eintrag gibt; ob der Hub die
@@ -99,7 +109,7 @@ func Open(ctx context.Context, addr config.DB) (Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("Datenbank %s: %w", addr.Path, err)
 	}
-	return &sqliteStore{db: db}, nil
+	return &sqliteStore{db: db, path: addr.Path}, nil
 }
 
 // Create legt eine neue Node-Datenbank samt Schema an. Existiert die Datei
@@ -117,12 +127,28 @@ func Create(ctx context.Context, addr config.DB) (Store, error) {
 		_ = sqlitedb.Remove(addr.Path)
 		return nil, err
 	}
-	return &sqliteStore{db: db}, nil
+	return &sqliteStore{db: db, path: addr.Path}, nil
+}
+
+// ReplicaDir ist das Verzeichnis der Replicas neben node.db: replicas/.
+func ReplicaDir(nodeDB string) string {
+	return filepath.Join(filepath.Dir(nodeDB), "replicas")
+}
+
+// ReplicaPath ist der Ort der Replica eines Hub-Eintrags neben node.db:
+// replicas/<alias>.db. Der Alias folgt der Namensregel und taugt deshalb als
+// Dateiname.
+func ReplicaPath(nodeDB, alias string) string {
+	return filepath.Join(ReplicaDir(nodeDB), alias+".db")
 }
 
 type sqliteStore struct {
 	db *sql.DB
+	// path ist der Ort von node.db; neben ihr liegen die Replicas.
+	path string
 }
+
+func (s *sqliteStore) ReplicaPath(name string) string { return ReplicaPath(s.path, name) }
 
 func (s *sqliteStore) Info(ctx context.Context) (Info, error) {
 	v, err := sqlitedb.GetInfo(ctx, s.db, sqlitedb.KeySchemaVersion)

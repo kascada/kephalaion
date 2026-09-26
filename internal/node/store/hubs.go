@@ -188,6 +188,7 @@ const (
 		VALUES (?, ?, ?, ?, ?, ?, ?)`
 	qHubUpdate = `UPDATE hubs SET node_name = ?, transport = ?, address = ?, ssh_key = ? WHERE name = ?`
 	qHubToken  = `UPDATE hubs SET token = ? WHERE name = ?`
+	qHubID     = `UPDATE hubs SET hub_id = ? WHERE name = ?`
 	qHubDelete = `DELETE FROM hubs WHERE name = ?`
 	qHubsClear = `DELETE FROM hubs`
 
@@ -411,6 +412,28 @@ func (s *sqliteStore) SetHubToken(ctx context.Context, name, token string) error
 	})
 }
 
+func (s *sqliteStore) SetHubID(ctx context.Context, name, hubID string) error {
+	if _, err := ulid.ParseStrict(hubID); err != nil {
+		return fmt.Errorf("Hub %s: hub_id %q ist keine ULID", name, hubID)
+	}
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, qHubID, hubID, name)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return fmt.Errorf("Hub %s %w", name, ErrNotFound)
+		}
+		return nil
+	})
+}
+
+// RemoveHub entfernt die Replica innerhalb der Transaktion, vor dem Eintrag:
+// Scheitert danach das Commit, fehlt nur die Replica, und die ist abgeleitet
+// — der nächste Abgleich legt sie neu an. Andersherum bliebe eine Replica
+// ohne Eintrag liegen, die ein späteres add unter demselben Alias erbte.
 func (s *sqliteStore) RemoveHub(ctx context.Context, name string) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		if _, err := getHub(ctx, tx, name); err != nil {
@@ -419,8 +442,13 @@ func (s *sqliteStore) RemoveHub(ctx context.Context, name string) error {
 		if _, err := tx.ExecContext(ctx, qWantedOfDel, name); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, qHubDelete, name)
-		return err
+		if _, err := tx.ExecContext(ctx, qHubDelete, name); err != nil {
+			return err
+		}
+		if err := sqlitedb.Remove(s.ReplicaPath(name)); err != nil {
+			return fmt.Errorf("Hub %s: Replica entfernen: %w", name, err)
+		}
+		return nil
 	})
 }
 

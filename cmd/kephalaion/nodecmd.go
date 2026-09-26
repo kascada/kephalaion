@@ -27,7 +27,8 @@ Kommandos:
   show    zeigt einen Hub samt gewünschten Collections
   set     ändert Node-Namen, Transport, Adresse oder Schlüssel; der Rest bleibt
   token   ersetzt das Token dieses Nodes beim Hub
-  rm      entfernt den Eintrag samt seinen gewünschten Collections
+  rm      entfernt den Eintrag samt seinen gewünschten Collections und seiner
+          Replica
 
 Transporte:
   local   Hub im selben Prozess; verlangt einen Hub in derselben config, keine

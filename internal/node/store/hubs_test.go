@@ -3,9 +3,13 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/oklog/ulid/v2"
 
 	"github.com/kascada/kephalaion/internal/ident"
 )
@@ -273,5 +277,81 @@ func TestCheckTables(t *testing.T) {
 		if err := CheckTables(b, true); err == nil {
 			t.Errorf("Fall %d angenommen", i)
 		}
+	}
+}
+
+func TestReplicaPath(t *testing.T) {
+	got := ReplicaPath("/daten/kephalaion/node.db", "privat")
+	if want := filepath.Join("/daten/kephalaion", "replicas", "privat.db"); got != want {
+		t.Errorf("ReplicaPath = %q, erwartet %q", got, want)
+	}
+}
+
+func TestSetHubID(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if err := s.AddHub(ctx, Hub{Name: "privat", NodeName: "laptop", Transport: "https",
+		Address: "https://hub.example.org", Token: token(t)}, false); err != nil {
+		t.Fatal(err)
+	}
+	id := ulid.Make().String()
+	if err := s.SetHubID(ctx, "privat", id); err != nil {
+		t.Fatal(err)
+	}
+	if h, err := s.Hub(ctx, "privat"); err != nil || h.HubID != id {
+		t.Errorf("Hub = %+v, %v", h, err)
+	}
+	if err := s.SetHubID(ctx, "privat", "keine-ulid"); err == nil {
+		t.Error("SetHubID ohne ULID ging durch")
+	}
+	if err := s.SetHubID(ctx, "fremd", id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SetHubID unbekannt: %v", err)
+	}
+}
+
+// TestRemoveHubRemovesReplica: node hub rm nimmt die Replica samt -wal und
+// -shm mit; die Replicas anderer Einträge bleiben.
+func TestRemoveHubRemovesReplica(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	for _, name := range []string{"privat", "team"} {
+		if err := s.AddHub(ctx, Hub{Name: name, NodeName: "laptop", Transport: "https",
+			Address: "https://hub.example.org", Token: token(t)}, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(s.ReplicaPath("privat")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	for _, name := range []string{"privat", "team"} {
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			p := s.ReplicaPath(name) + suffix
+			if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			files = append(files, p)
+		}
+	}
+	if err := s.RemoveHub(ctx, "privat"); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range files {
+		_, err := os.Stat(p)
+		gone := errors.Is(err, os.ErrNotExist)
+		if want := strings.Contains(p, "privat"); gone != want {
+			t.Errorf("%s: entfernt = %v, erwartet %v", p, gone, want)
+		}
+	}
+	// Ohne Replica geht rm ebenso.
+	if err := s.RemoveHub(ctx, "team"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddHub(ctx, Hub{Name: "neu", NodeName: "laptop", Transport: "https",
+		Address: "https://hub.example.org", Token: token(t)}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveHub(ctx, "neu"); err != nil {
+		t.Errorf("rm ohne Replica: %v", err)
 	}
 }

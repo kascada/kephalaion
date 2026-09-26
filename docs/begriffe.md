@@ -82,6 +82,8 @@ Ausführlich: [`konzept.md`](konzept.md).
   Schreiben. Der Node merkt sich je Collection die letzte und fragt „alles seit Revision X“.
 - **replica** (Kopie) — der Ausschnitt des Stores auf einem Node. Abgeleitet, nie selbst
   beschrieben.
+- **sync_state** — Tabelle der Replica: je Collection der Stand des Abgleichs (`revision`) und
+  der Zeitpunkt der letzten Seite (`synced_at`).
 - **contract** (Vertrag) — die Schnittstelle zwischen Node und Hub, beschrieben in
   [`vertrag.md`](vertrag.md), im Code das neutrale Paket `internal/contract`. Trägt eine
   **Fassung** (`version`, derzeit 1); der Hub nennt sie in jeder Antwort.
