@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "nextId": 11,
+  "nextId": 12,
   "migratedOn": "2026-09-25",
   "todos": [
     {
@@ -53,6 +53,12 @@
       "text": "Ereignisstrom Hub → Node (SSE oder Long-Polling): Der Hub meldet Änderungen, statt dass der Node alle 30 s fragt; der Abstand des Abgleichs im Hintergrund wird dann nur Rückfallebene (konzept.md, „Abgleich“, Stufe 1)",
       "created": "2026-09-26",
       "origin": "Gespräch 2026-09-26, Abgleich im Hintergrund"
+    },
+    {
+      "id": 11,
+      "text": "init nach Schemawechsel: Die Fehlermeldung bei falscher Schemafassung empfiehlt `kephalaion node init` (bzw. hub init), aber init bricht ab, weil die Rolle noch in der config steht — man muss den Abschnitt von Hand aus config.yaml entfernen. init soll einen vorhandenen Abschnitt ohne Datenbankdatei übernehmen (oder ein ausdrücklicher Schalter dafür), Meldung und Hilfe entsprechend.",
+      "created": "2026-09-26",
+      "origin": "Gespräch 2026-09-26, Neuanlage node.db nach Task 008"
     }
   ]
 }

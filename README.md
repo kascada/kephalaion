@@ -198,11 +198,17 @@ Node gegen ein eigenes — `rotate`, ein Kommando der Kommandozeile, nie ein MCP
 das Token nicht im Kontext der KI steht:
 
 ```sh
-install -m 600 /dev/null ~/.config/kephalaion/alice.token
-read -rs TOKEN && printf '%s\n' "$TOKEN" > ~/.config/kephalaion/alice.token && unset TOKEN
-kephalaion node account rotate privat alice --token-file ~/.config/kephalaion/alice.token
-kephalaion node account check  privat alice --token-file ~/.config/kephalaion/alice.token
+T=~/.config/kephalaion/tokens/privat          # je Hub ein Verzeichnis, benannt nach dem Alias
+install -d -m 700 ~/.config/kephalaion/tokens "$T"
+install -m 600 /dev/null "$T/alice.token"
+read -rs TOKEN && printf '%s\n' "$TOKEN" > "$T/alice.token" && unset TOKEN
+kephalaion node account rotate privat alice --token-file "$T/alice.token"
+kephalaion node account check  privat alice --token-file "$T/alice.token"
 ```
+
+Die Token-Dateien liegen unter `~/.config/kephalaion/tokens/<hub>/<account>.token`: je Hub
+ein Verzeichnis mit dem Alias des Hub-Eintrags, darin je Account eine Datei. Die Erweiterung
+für VS Code findet sie dort.
 
 `rotate` erzeugt das neue Token am Node, schreibt es vor dem Aufruf nach
 `alice.token.pending`, meldet sich mit dem alten an und schickt dem Hub nur den Hash des
@@ -271,7 +277,7 @@ Token aus einer Umgebungsvariable, damit es nicht im Repository steht:
 
 ```sh
 export KEPH_ACCOUNT=alice
-export KEPH_TOKEN="$(cat ~/.config/kephalaion/alice.token)"
+export KEPH_TOKEN="$(cat ~/.config/kephalaion/tokens/privat/alice.token)"
 ```
 
 Für mehrere Hubs steht je Hub ein Paar darin. Der Node prüft das Paar bei jeder Anfrage gegen

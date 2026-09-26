@@ -130,19 +130,18 @@ und deren Benachrichtigungen brauchen eine Sitzung.
   lesen; eine Einstellung `kephalaion.nodeUrl` braucht es nur zum Überschreiben.
 - **Account und Token** trägt die Erweiterung als Header ein, wie jeder Client
   (`X-Keph-Account-<hub>`, `X-Keph-Token-<hub>`). **Sie liest sie aus den Token-Dateien**
-  `~/.config/kephalaion/<account>.token` (siehe [`konzept.md`](konzept.md), „Orte nach
-  XDG“) — sie läuft als `workspace` auf demselben Rechner und braucht so keine eigene
-  Einrichtung. Ein User hat meist mehrere Accounts und damit mehrere Dateien; die
-  Erweiterung nimmt alle `*.token` (ohne `.pending`) und ordnet sie über `whoami` den Hubs
-  zu: Gilt ein Account an einem Hub (`login: ok`), gehört er dorthin. Solange der Name der
-  Datei den Hub nicht nennt, ist das Ausprobieren; bei einem Hub und einem Account ist es
-  eindeutig. Mehrere gültige Accounts an einem Hub: Auswahl im Menü der Statusleiste.
+  `~/.config/kephalaion/tokens/<hub>/<account>.token` (siehe [`konzept.md`](konzept.md),
+  „Orte nach XDG“) — sie läuft als `workspace` auf demselben Rechner und braucht so keine
+  eigene Einrichtung. Die Zuordnung ist eindeutig: Das Verzeichnis ist der Alias des Hubs und
+  damit der Name im Header, der Dateiname der Account; Dateien auf `.pending` übergeht sie.
+  `whoami` bestätigt danach nur, dass die Anmeldung gilt (`login: ok`). Mehrere Accounts an
+  einem Hub: Auswahl im Menü der Statusleiste.
   Der `SecretStorage` von VS Code bleibt nur der Ausweg, wenn keine Datei da ist; nie
   `settings.json` — die landet leicht im Repository oder in Settings Sync.
-  Geprüft am 2026-09-26: `whoami` mit dem Token aus `kamran-desktop.token` liefert
-  `login: ok`, Account `kamran-desktop`, User `kamran`, Collection `home:eins` mit `read` und
-  `write`. Die
-  MCP-Konfigurationen der KI-Clients (`.mcp.json`, `.cursor/mcp.json`, `opencode.json`,
+  Geprüft am 2026-09-26: `whoami` mit dem Token aus `tokens/home/kamran-desktop.token`
+  liefert `login: ok`, Account `kamran-desktop`, User `kamran`, Collection `home:eins` mit
+  `read` und `write`. Die MCP-Konfigurationen der KI-Clients (`.mcp.json`,
+  `.cursor/mcp.json`, `opencode.json`,
   `.vscode/mcp.json`) liest die Erweiterung nicht.
 
 ## Sprachen
@@ -252,8 +251,6 @@ Treffer (mit etwas Verzögerung, erst nach einer weiteren Suche). Das ist in Ord
 
 - Wie der Node-Dienst gestartet wird, wenn er nicht läuft — Hinweis in VS Code oder selbst
   starten (wie k-playbook beim Briefing).
-- Zuordnung der Token-Dateien zu Hubs, solange der Name nur den Account nennt — z. B.
-  `<hub>/<account>.token` oder ein Eintrag in der config.
 - Abstand der Abfrage von `changes` — fest, oder länger, solange das Fenster nicht im Fokus
   ist.
 - Leere Verzeichnisse: nur in der Erweiterung gemerkt, oder als `SYSTEM:D:`-Zeile am Hub
