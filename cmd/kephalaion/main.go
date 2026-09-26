@@ -40,7 +40,10 @@ Kommandos:
   serve       der Dienst: lauscht je eingerichteter Rolle auf ihrem listen
               (Hub: Vertrag für Nodes, Node: MCP für Clients) und gleicht
               als Node im Hintergrund ab
-  status      zeigt, welche Rollen eingerichtet sind und wo ihre Datenbank liegt
+  service     richtet den Dienst ein, der serve startet (install, uninstall,
+              status), und gibt Units aus (unit, unit --system)
+  status      zeigt, welche config gilt, welche Rollen eingerichtet sind, wo
+              ihre Datenbank liegt und ob der Dienst läuft
   config      zeigt, setzt, sichert und stellt die Einstellungen wieder her
               (show, set, unset, export, import)
 
@@ -74,6 +77,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "serve":
 		return runServe(args[1:], stdout, stderr)
+	case "service":
+		return runService(args[1:], stdout, stderr)
 	case "config":
 		return runConfig(args[1:], stdout, stderr)
 	default:

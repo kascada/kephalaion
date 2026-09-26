@@ -360,7 +360,8 @@ const statusUsage = `Aufruf:
   kephalaion status [--config pfad]
 
 Zeigt, welche config gilt und woher (--config, KEPHALAION_CONFIG, pro User oder
-global), welche Rollen auf diesem Rechner eingerichtet sind, wo ihre Datenbank
+global), ob der Dienst eingerichtet ist und läuft (pro User bzw. bei der
+globalen config die System-Unit; ohne systemd „ohne systemd“), welche Rollen auf diesem Rechner eingerichtet sind, wo ihre Datenbank
 liegt, wo ihr Dienst lauscht, ob kephalaion serve für sie läuft (geprüft an
 der Sperrdatei <db>.lock, ohne zu warten), und ihre Kennzahlen. Am Node steht je Hub
 der Stand des Abgleichs (letzter Erfolg, letzter Fehler — von serve und node
@@ -374,7 +375,7 @@ Installation und den Weg, sie zu verwalten, statt eines Fehlers.
 
 Exit-Code:
   0   alles geprüft; auch bei einer globalen Installation, deren Datenbanken
-      der Aufrufer nicht lesen darf
+      der Aufrufer nicht lesen darf. Die Zeile Dienst ändert ihn nie.
   1   die config ist nicht lesbar, die Datenbank einer eingerichteten Rolle
       fehlt oder passt nicht, oder es gibt die config des Users und die
       globale nebeneinander (zwei Arten der Installation auf einem Rechner)
@@ -402,6 +403,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	printConfigLine(stdout, loc, exists)
 
 	ctx := context.Background()
+	fmt.Fprintf(stdout, "Dienst: %s\n", serviceLine(ctx, loc))
 	failed := false
 	if loc.BothKinds() {
 		fmt.Fprintf(stdout, "Fehler: zwei Arten der Installation auf diesem Rechner — es gibt die config pro User (%s) "+

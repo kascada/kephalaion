@@ -164,14 +164,31 @@ mutate: ## Mutationstests mit gremlins (dauert)
 	  TMPDIR="$$work/tmp" go run $(GREMLINS) unleash \
 	    --timeout-coefficient 30 --output-statuses lt "$(MUTATE)"
 
-dev-install: dist-host ## Baut diese Plattform und ersetzt ~/.local/bin/kephalaion
+# Läuft der Dienst pro User (kephalaion service install), startet dev-install
+# ihn neu — sonst liefe nach dem Bauen weiter das alte Binary. Unit und Label
+# wie in internal/service.
+dev-install: dist-host ## Baut diese Plattform, ersetzt ~/.local/bin/kephalaion, startet den Dienst neu
 	@set -eu; \
 	  binary="$(DIST_DIR)/$(BINARY)-$(HOST_TARGET)"; \
 	  target="$$HOME/.local/bin/$(BINARY)"; \
 	  mkdir -p "$${target%/*}"; \
 	  command -p install -m 755 "$$binary" "$$target.tmp"; \
 	  mv -f "$$target.tmp" "$$target"; \
-	  printf 'Installiert: %s\n' "$$target"
+	  printf 'Installiert: %s\n' "$$target"; \
+	  case "$$(uname -s)" in \
+	  Linux) \
+	    if command -v systemctl >/dev/null 2>&1 && \
+	      systemctl --user is-active --quiet kephalaion.service 2>/dev/null; then \
+	      systemctl --user restart kephalaion.service; \
+	      echo "Dienst neu gestartet (systemctl --user restart kephalaion.service)"; \
+	    fi ;; \
+	  Darwin) \
+	    agent="gui/$$(id -u)/io.github.kephalaion"; \
+	    if launchctl print "$$agent" >/dev/null 2>&1; then \
+	      launchctl kickstart -k "$$agent"; \
+	      echo "Dienst neu gestartet (launchctl kickstart -k $$agent)"; \
+	    fi ;; \
+	  esac
 
 clean: ## Entfernt ./dist/ und ./coverage/
 	rm -rf "$(DIST_DIR)" "$(COVER_DIR)"

@@ -191,6 +191,14 @@ path_hint() {
 	say "und eine neue Shell öffnen."
 }
 
+next_steps() {
+	say ""
+	say "Nächste Schritte (docs/installation.md):"
+	say "  kephalaion node init          Rollen einrichten, siehe README, „Einrichten“"
+	say "  kephalaion service install    den Dienst einrichten, der kephalaion serve startet"
+	say "                                (systemd --user bzw. LaunchAgent)"
+}
+
 cleanup() {
 	[ -z "${PART:-}" ] || rm -f "$PART"
 	[ -z "${TMP:-}" ] || rm -rf "$TMP"
@@ -217,6 +225,7 @@ main() {
 	say "Installiert: $TARGET"
 	"$TARGET" version || true
 	path_hint
+	next_steps
 }
 
 main "$@"

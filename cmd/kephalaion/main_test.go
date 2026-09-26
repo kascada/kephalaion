@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/service"
 )
 
 // TestMain hält die Tests vom Rechner fern: Die globale config liegt in einem
@@ -19,6 +20,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	config.SystemPath = filepath.Join(dir, "etc", "kephalaion", "config.yaml")
+	// Kein Test ruft systemctl oder launchctl: ohne Ersatz sieht status einen
+	// Rechner ohne systemd.
+	newServiceManager = func() *service.Manager { return noSystemd(dir) }
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

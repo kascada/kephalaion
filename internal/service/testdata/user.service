@@ -1,0 +1,12 @@
+[Unit]
+Description=Kephalaion (kephalaion serve, pro User)
+Documentation=https://github.com/kephalaion/kephalaion/blob/main/docs/installation.md
+
+[Service]
+Type=simple
+ExecStart=/home/anna/.local/bin/kephalaion serve
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

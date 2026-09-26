@@ -1,0 +1,22 @@
+[Unit]
+Description=Kephalaion (kephalaion serve, global)
+Documentation=https://github.com/kephalaion/kephalaion/blob/main/docs/installation.md
+After=network.target
+
+[Service]
+Type=simple
+User=kephalaion
+Group=kephalaion
+Environment=KEPHALAION_CONFIG=/etc/kephalaion/config.yaml
+ExecStart=/usr/local/bin/kephalaion serve
+Restart=on-failure
+RestartSec=5s
+StateDirectory=kephalaion
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

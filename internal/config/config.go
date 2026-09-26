@@ -117,9 +117,12 @@ func (c *Config) Empty() bool {
 	return c.Hub == nil && c.Node == nil
 }
 
-// SystemPath ist der Ort der globalen config (system installation). Tests
-// lenken ihn in ein temporäres Verzeichnis.
-var SystemPath = "/etc/kephalaion/config.yaml"
+// SystemConfig ist der feste Ort der globalen config (system installation).
+const SystemConfig = "/etc/kephalaion/config.yaml"
+
+// SystemPath ist der Ort, an dem die Suche die globale config erwartet:
+// SystemConfig. Tests lenken ihn in ein temporäres Verzeichnis.
+var SystemPath = SystemConfig
 
 // Die festen Angaben der globalen Installation (docs/installation.md).
 const (
