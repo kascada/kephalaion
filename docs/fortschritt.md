@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt)
+Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt)
 
 ## So wird diese Datei aktualisiert
 
@@ -60,6 +60,15 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt)
   gepusht, CI grün; alle Prüfungen vor dem ersten Push, wiederholbar); `sichern` nur auf
   `dev`; CI-Push nur für `main`/`dev`; Dependabot gegen `dev`; Ruleset „main und dev“ sperrt
   Force-Push und Löschen (`k-playbook-local/k-playbook.md`, „Branches“, „Release“).
+- **Task 012 — Nachbesserung Task 008** (2026-09-26, Etappen 1–3):
+  - `whoami` und `node whoami` bleiben bei einer unlesbaren Replica benutzbar: nur ihr Hub
+    ist betroffen (`login` `missing`, „Replica nicht lesbar“, keine Revision); die volle
+    Meldung ins Log bzw. nach stderr; `DescribeSync` ohne nil-Dereferenz (Review-Vorschlag 4);
+  - der Abgleich verwirft auch eine eindeutig beschädigte Replica und legt sie neu an;
+    vorübergehende Fehler verwerfen nichts;
+  - `replica.Create` prüft nach `Open` die `entry_id`, sonst `ErrChanged` (Vorschlag 1);
+  - `serve` wartet beim Beenden höchstens `shutdownGrace` auf den Abgleich (Vorschlag 2)
+    (`konzept.md`, „`whoami`“, „Im Hintergrund“).
 
 ## In Arbeit
 
@@ -107,18 +116,9 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt)
   - Kommando für eine neue `hub_id` nach Wiederherstellung aus einer Sicherung;
   - Markdown-Export des Stores;
   - Begrenzung von Fehlversuchen bei der Anmeldung.
-- **Nachbesserung Task 008, vor dem nächsten Release** (Code-Review und Intent-Alignment,
-  `done/008-…`, „Ausführung“) — Task 012:
-  - `whoami`/`node whoami` scheitern insgesamt, wenn eine einzige Replica nicht lesbar ist
-    (alte Schemafassung, beschädigt); Fehler je Hub abbilden (Befund 1, Hoch);
-  - Race in `replica.Create` zwischen `os.Link` und `Open`: nach `Open` die `entry_id` prüfen,
-    sonst `ErrChanged` (Vorschlag 1);
-  - `serve` wartet beim Beenden ohne Frist auf den Abgleich (`<-bgDone`); mit
-    `shutdownGrace` begrenzen (Vorschlag 2).
 - **Kleinere Punkte aus dem Review von Task 008** (`done/008-…`, „Code-Review“, Vorschläge 3–12):
   - `reset` prüft nur `entry_id`, nicht die alte `hub_id` — doppeltes Verwerfen bei zwei
     parallelen Resets (3);
-  - `DescribeSync` dereferenziert `Revision` ohne nil-Prüfung (4);
   - neues `sync_interval` wirkt erst nach dem laufenden Timer, bei `0` bis zu 30 s
     (`syncIdle`); in der Hilfe nennen (5, Ausführung);
   - `outcome`/`skipped` in `bgsync.go` für entfernte Einträge nicht geräumt; https → http →

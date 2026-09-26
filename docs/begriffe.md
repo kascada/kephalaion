@@ -118,7 +118,9 @@ Ausführlich: [`konzept.md`](konzept.md).
   selbst beschrieben: Sie enthält genau die Zeilen, die der Hub geliefert hat, und lässt sich
   jederzeit neu abgleichen. Der erste `sync` eines Hub-Eintrags legt sie an; `node hub rm`
   löscht sie mit, ebenso `config import` für Aliase, die im Export fehlen. Eine Replica mit
-  fremder Schemafassung verwirft `sync` und legt sie neu an.
+  fremder Schemafassung, fremder `entry_id` oder eindeutig beschädigt verwirft `sync` und legt
+  sie neu an. Lässt sie sich nicht lesen, zeigt `whoami` für ihren Hub `login` `missing` und
+  „Replica nicht lesbar“; die übrigen Hubs betrifft das nicht.
 - **sync_state** — Tabelle der Replica: je Collection der Stand des Abgleichs (`revision`) und
   der Zeitpunkt der letzten Seite (`synced_at`).
 - **contract** (Vertrag) — die Schnittstelle zwischen Node und Hub, beschrieben in

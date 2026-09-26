@@ -76,8 +76,10 @@ Regeln dazu:
 - **Die Replica ist abgeleitet.** Sie enthält nur, was der Hub geliefert hat, und darf wie
   der Node-Store SQLite-Eigenes benutzen. Angelegt wird sie nur vom Abgleich, nie von `init`;
   `node hub rm` und `config import` (für weggefallene Aliase) entfernen sie mit, innerhalb der
-  Transaktion, die den Eintrag entfernt. Passt ihre Schemafassung nicht, verwirft der
-  Abgleich sie.
+  Transaktion, die den Eintrag entfernt. Passt ihre Schemafassung nicht, gehört sie zu einem
+  anderen Eintrag oder ist sie eindeutig beschädigt (`NOTADB`/`CORRUPT`, `db_info` oder die IDs
+  fehlen), verwirft der Abgleich sie; vorübergehende Fehler verwerfen nichts. Eine unlesbare
+  Replica betrifft in `whoami` nur ihren Hub.
 - **Hub-SQL bleibt PostgreSQL-tauglich.** Die Abfragen (DML) des Hubs und des Unterbaus
   stehen zentral in einer Struktur (`queries` bzw. `sqlitedb.Queries`), mit Platzhaltern
   `$n` über `sqlq.Bind` — kein `INSERT OR`, kein `PRAGMA`, kein `AUTOINCREMENT`, kein rohes
@@ -138,8 +140,9 @@ Regeln dazu:
   `reqlog`. Als Node gleicht `serve` im Hintergrund ab (`cmd/kephalaion/bgsync.go`): beim Start
   und je `sync_interval` (`settings`, je Runde gelesen, `0` aus), je Hub-Eintrag eine
   Goroutine, verdrahtet über `connector` wie `node sync` — `local` bekommt den Hub-Store
-  desselben `serve`. Beim Beenden bricht er ab, bevor die Stores schließen. Log nur bei
-  Zeilen, erstem Fehler, Wechsel der Fehlerart (`replica.ErrorKind`) und Erholung.
+  desselben `serve`. Beim Beenden bricht er ab, bevor die Stores schließen; `serve` wartet
+  darauf höchstens `shutdownGrace`. Log nur bei Zeilen, erstem Fehler, Wechsel der Fehlerart
+  (`replica.ErrorKind`) und Erholung.
 - **Nebenläufigkeit am Node:** `node sync`, `node hub rm|add`, `config import` und `rotate`
   laufen als eigene Prozesse neben `serve`. Keine Sperre über Prozesse: Jedes Schreiben des
   Abgleichs ist an `hubs.entry_id` gebunden (ULID, beim Anlegen vergeben, nie wiederkehrend,

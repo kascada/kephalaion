@@ -445,6 +445,16 @@ Fehler beim ersten Mal nach dem Start, beim Übergang von Erfolg zu Fehler und w
 Art ändert, und die Erholung. Der Stand je Hub steht in `hub_sync` (letzter Erfolg, letzter
 Fehler mit Zeit und Art), geschrieben auch von `node sync`; abgeleitet, nicht im Export.
 
+Ergänzt in Task 012: Vor dem Verbinden mit dem Hub verwirft der Abgleich eine Replica alter
+Schemafassung, fremder `entry_id` oder eindeutig beschädigt und legt sie neu an; das Ergebnis
+nennt den Grund. Eindeutig beschädigt heißt: SQLite meldet `NOTADB` oder `CORRUPT` (beim
+Öffnen oder beim Lesen von `db_info`), `db_info` fehlt oder hat keine Rolle, oder `hub_id`
+bzw. `entry_id` fehlen. Vorübergehende Fehler verwerfen nichts — eine belegte Datei (`BUSY`,
+`LOCKED`), ein abgebrochener Abgleich, ein Fehler von `stat` oder der Zugriffsrechte —, ebenso
+wenig eine Datei fremder Rolle; sie bleiben ein Fehler des Abgleichs. Beim Beenden wartet
+`serve` höchstens die Frist (10 s) auf den Abgleich; ein Hub, der den Abbruch nicht beachtet,
+hält es nicht auf. Ein danach noch laufender Abgleich hält nichts mehr in `hub_sync` fest.
+
 **Nebenläufigkeit — entschieden am 2026-09-26.** `node sync`, `node hub rm|add` und `config
 import` laufen als eigene Prozesse neben `serve`. Statt einer Sperre über Prozesse ist das
 Schreiben des Abgleichs an die `entry_id` des Hub-Eintrags gebunden — eine ULID, beim Anlegen
@@ -1349,7 +1359,7 @@ Node“; ein eigenes `status` brächte kaum mehr. Die Antwort:
 |---|---|---|
 | `version` | Version des Nodes; die Erweiterung für VS Code vergleicht sie mit ihrer | ja |
 | je Hub: `hub` | Alias — **alle** Hub-Einträge des Nodes, nicht nur die mit Header-Paar | ja |
-| `login` | `ok`, `invalid` (geschickt, aber ungültig) oder `missing` (nichts geschickt) | ja |
+| `login` | `ok`, `invalid` (geschickt, aber ungültig) oder `missing` (nichts geschickt oder Replica nicht lesbar) | ja |
 | `node` | Name dieses Nodes am Hub | ja |
 | `sync` | letzter erfolgreicher Abgleich (Zeit), Revision der Replica, letzter Fehler mit Zeit — leer, wenn der letzte Versuch gelang | ja |
 | `account`, `user` | Account und User | nein |
@@ -1365,6 +1375,22 @@ Header-Paar, ist `login` `invalid`, auch mit richtigen Zugangsdaten; den Grund e
 und Erweiterung an `sync`. Ein halbes Header-Paar ist `invalid`. Der Textteil nennt die
 Version und je Hub eine Zeile.
 
+**Replica nicht lesbar — entschieden am 2026-09-26, gebaut in Task 012.** Lässt sich die
+Replica eines Hubs nicht öffnen oder lesen — alte Schemafassung, ohne `entry_id`, beschädigt,
+jeder Fehler außer einer fehlenden Datei und einem abgebrochenen ctx —, betrifft das nur
+diesen Hub; die übrigen erscheinen vollständig. `login` ist dann `missing`, auch wenn ein
+Header-Paar kam: Ohne lesbare Replica gibt es nichts, wogegen der Node prüfen könnte. Anders
+als bei einer **fehlenden** Replica — dort macht ein Header-Paar `invalid`, und `sync` sagt
+„noch nie abgeglichen“. In `sync` fehlt `revision`; `last_error` ist der feste Satz „Replica
+nicht lesbar“, ohne Pfad und ohne Meldung, und ersetzt einen Fehler aus `hub_sync`;
+`last_error_at` bleibt leer — die Replica hat keinen Zeitstempel, gegen den sich ein Fehler
+aus `hub_sync` vergleichen ließe. `last_success` kommt weiter aus `hub_sync`, `never_synced`
+ist nur gesetzt, wenn dort kein gelungener Abgleich steht. Die volle Meldung, samt Pfad, geht
+ins Log von `serve` bzw. nach stderr von `node whoami`; `status` zeigt sie wie bisher je Hub.
+Ein Fehler von `node.db` bleibt ein Fehler der ganzen Anfrage. Der nächste Abgleich verwirft
+eine solche Replica, wenn sie eindeutig unlesbar ist, und legt sie neu an (siehe „Im
+Hintergrund“).
+
 Nie in der Antwort: Token, Hash, Adresse und Transport des Hubs, `hub_id`. Dass alle Hubs
 erscheinen, ist unbedenklich: Der Node lauscht nur auf Loopback, die Prüfung von Host und
 Origin hält Browser fern. `invalid` unterscheidet weiterhin nicht zwischen unbekanntem
@@ -1377,7 +1403,8 @@ ohnehin lesen. Ob ein Token gilt, prüft weiterhin `node account check`. Gebaut 
 Ohne Account nennt es Version, je Hub Node-Name und Stand und die Accounts aus den lebenden
 `SYSTEM:A:`-Zeilen mit User, Collections und Rechten; mit Account ist `login` `ok`, wo er
 lebende Zeilen hat, sonst `missing`. `--hub <alias>` grenzt ein, `--json` gibt die Struktur
-des Werkzeugs aus — aus derselben Funktion.
+des Werkzeugs aus — aus derselben Funktion. Einen Hub mit unlesbarer Replica zeigt die Liste
+mit „Replica nicht lesbar“ und ohne Accounts.
 
 **Keine Werkzeuge eigens für VS Code** (2026-09-26): Was die Erweiterung braucht —
 `whoami`, `list`, `read`, `changes`, zum Schreiben die Werkzeuge unten —, taugt auch für
