@@ -84,6 +84,24 @@ type Store interface {
 	// nil ist, die lokalen Tabellen, und schreibt config.import in actions.
 	Import(ctx context.Context, settings map[string]string, tables *Tables) error
 
+	// PutDocument legt ein Dokument an oder ersetzt seinen Inhalt — der
+	// Admin-Upsert der CLI. Unveränderter Inhalt schreibt nichts und zählt
+	// keine Revision.
+	PutDocument(ctx context.Context, collection, name, content string) (PutResult, error)
+	// Document liest ein lebendes Dokument; eine Löschmarke gilt als nicht
+	// vorhanden.
+	Document(ctx context.Context, collection, name string) (Document, error)
+	// Documents liest die lebenden Dokumente unter einem Verzeichnis (samt
+	// Unterverzeichnissen, "" für alle), nach Name sortiert, ohne
+	// SYSTEM:-Zeilen.
+	Documents(ctx context.Context, collection, dir string) ([]Document, error)
+	// DeleteDocument setzt eine Löschmarke: Inhalt NULL, deleted = 1, neue
+	// Revision.
+	DeleteDocument(ctx context.Context, collection, name string) (Document, error)
+	// ImportDocuments legt an oder ersetzt wie PutDocument, alle Dokumente in
+	// einer Transaktion und unter einer Revision. Was fehlt, bleibt.
+	ImportDocuments(ctx context.Context, collection string, docs []DocumentInput) (ImportResult, error)
+
 	Close() error
 }
 
@@ -92,7 +110,17 @@ var queries = struct {
 	CountDocuments string
 	LockRevision   string
 
-	ActionInsert string
+	ActionInsert         string
+	ActionInsertDocument string
+
+	DocumentLive       string
+	DocumentsAll       string
+	DocumentsInDir     string
+	DocumentLiveCount  string
+	DocumentsUnderLive string
+	DocumentInsert     string
+	DocumentReplace    string
+	DocumentDelete     string
 
 	CollectionsAll        string
 	CollectionGet         string
@@ -129,6 +157,37 @@ var queries = struct {
 	LockRevision: `UPDATE db_info SET value = value WHERE key = $1`,
 
 	ActionInsert: `INSERT INTO actions (at, account, action, subject) VALUES ($1, $2, $3, $4)`,
+	ActionInsertDocument: `INSERT INTO actions (at, account, action, document_id, revision)
+		VALUES ($1, $2, $3, $4, $5)`,
+
+	// Dokumente: documentColumns in dieser Reihenfolge, gelesen mit scanDocument.
+	DocumentLive: `SELECT ` + documentColumns + ` FROM documents
+		WHERE collection = $1 AND name = $2 AND deleted = 0`,
+	// DocumentsAll und DocumentsInDir lesen die lebenden Dokumente einer
+	// Collection bzw. unter einem Verzeichnis, ohne SYSTEM:-Zeilen, nach Name.
+	// Das Verzeichnis grenzt ein Bereich ein: name >= 'tasks/' AND name <
+	// 'tasks0' ('0' folgt auf '/') — nutzt den Index auf (collection, name).
+	DocumentsAll: `SELECT ` + documentColumns + ` FROM documents
+		WHERE collection = $1 AND deleted = 0 AND substr(name, 1, 7) <> 'SYSTEM:'
+		ORDER BY name`,
+	DocumentsInDir: `SELECT ` + documentColumns + ` FROM documents
+		WHERE collection = $1 AND deleted = 0 AND name >= $2 AND name < $3
+		AND substr(name, 1, 7) <> 'SYSTEM:'
+		ORDER BY name`,
+	DocumentLiveCount: `SELECT COUNT(*) FROM documents
+		WHERE collection = $1 AND name = $2 AND deleted = 0`,
+	DocumentsUnderLive: `SELECT COUNT(*) FROM documents
+		WHERE collection = $1 AND deleted = 0 AND name >= $2 AND name < $3`,
+	// meta bleibt NULL; der Hub deutet es nicht, und die CLI setzt es nicht.
+	DocumentInsert: `INSERT INTO documents
+		(id, collection, name, content, meta, deleted, revision, created_at, created_by, updated_at, updated_by)
+		VALUES ($1, $2, $3, $4, NULL, 0, $5, $6, $7, $8, $9)`,
+	DocumentReplace: `UPDATE documents SET content = $2, revision = $3, updated_at = $4, updated_by = $5
+		WHERE id = $1`,
+	// Die Löschmarke behält id, Collection und Name, verliert Inhalt und meta.
+	DocumentDelete: `UPDATE documents SET content = NULL, meta = NULL, deleted = 1,
+		revision = $2, updated_at = $3, updated_by = $4
+		WHERE id = $1`,
 
 	CollectionsAll: `SELECT name, COALESCE(description, ''), created_at, created_by
 		FROM collections ORDER BY name`,
@@ -304,8 +363,8 @@ func (s *sqliteStore) Close() error { return s.db.Close() }
 // derselben Transaktion, gerechnet im Code — keine SEQUENCE, kein
 // Autoincrement, keine Umwandlung in SQL. Die Zeile wird zuerst schreibend
 // gesperrt (für PostgreSQL; unter SQLite hält die Transaktion die Sperre seit
-// BEGIN IMMEDIATE). Noch schreibt niemand Dokumente; die Funktion steht für
-// die Schreibvorgänge bereit.
+// BEGIN IMMEDIATE). Schreibvorgänge an Dokumenten holen sie über
+// lazyRevision, höchstens einmal je Transaktion.
 func nextRevision(ctx context.Context, tx *sql.Tx) (int64, error) {
 	if _, err := tx.ExecContext(ctx, q(queries.LockRevision), keyRevision); err != nil {
 		return 0, fmt.Errorf("Revision sperren: %w", err)

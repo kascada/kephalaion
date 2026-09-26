@@ -30,8 +30,8 @@ Kommandos:
   help        zeigt diese Übersicht
   version     zeigt Version, Commit, Go-Version und Plattform
   upgrade     aktualisiert dieses Binary auf das neueste Release
-  hub         richtet den Hub ein und pflegt seine Collections und Nodes
-              (init, collection, node)
+  hub         richtet den Hub ein, pflegt seine Collections und Nodes und
+              spielt Dokumente ein (init, collection, node, doc, import)
   node        richtet den Node ein und pflegt seine Hubs und gewünschten
               Collections (init, hub, collection)
   status      zeigt, welche Rollen eingerichtet sind und wo ihre Datenbank liegt
@@ -44,7 +44,8 @@ Siehe https://github.com/kascada/kephalaion
 `
 
 // run verteilt auf die Unterkommandos und liefert den Exit-Code. stdin
-// liest nur, wer es ausdrücklich verlangt (--token-stdin).
+// liest nur, wer es ausdrücklich verlangt: --token-stdin, und hub doc put
+// ohne --file.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stdout, usage)

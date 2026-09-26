@@ -39,13 +39,15 @@ func dispatch(group, usage string, args []string, stdout, stderr io.Writer, cmds
 // command ist ein Blatt-Kommando wie `hub node add`: Optionen samt --config,
 // Pflicht-Positionsargumente, Fehlerausgabe.
 type command struct {
-	name   string
-	usage  string
-	args   []string
-	stdout io.Writer
-	stderr io.Writer
-	fs     *flag.FlagSet
-	cfg    *string
+	name  string
+	usage string
+	args  []string
+	// optional zählt die Positionsargumente, die nach args folgen dürfen.
+	optional int
+	stdout   io.Writer
+	stderr   io.Writer
+	fs       *flag.FlagSet
+	cfg      *string
 }
 
 // newCommand legt ein Blatt-Kommando an. args nennt die Positionsargumente,
@@ -64,7 +66,7 @@ func (c *command) parse(args []string) (pos []string, code int, ok bool) {
 			"Shell-Verlauf und in der Prozessliste; --token-stdin liest es von der Standardeingabe\n", c.name)
 		return nil, 2, false
 	}
-	pos, code, ok = parseFlags(c.fs, args, c.usage, len(c.args), c.stderr)
+	pos, code, ok = parseFlags(c.fs, args, c.usage, len(c.args)+c.optional, c.stderr)
 	if !ok {
 		return nil, code, false
 	}

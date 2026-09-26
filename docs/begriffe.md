@@ -63,6 +63,15 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **name** (Name) — Pfad eines Dokuments in seiner Collection, Segmente durch `/` getrennt;
   eindeutig je Collection. Verzeichnisse gibt es nur als Präfix vorhandener Namen. Regeln in
   `konzept.md`, „Datenmodell“. Einzige Ausnahme: `SYSTEM:`-Zeilen.
+- **deleted** (Löschmarke) — ein gelöschtes Dokument: Die Zeile bleibt mit `deleted = 1`, ohne
+  Inhalt und mit neuer Revision, damit der Abgleich davon erfährt. Der Name ist danach wieder
+  frei; eine Neuanlage bekommt eine neue `id`.
+- **doc** — `kephalaion hub doc put|get|list|rm`: Dokumente am Hub. `put` legt an oder
+  ersetzt (Admin-Upsert; unveränderter Inhalt zählt keine Revision), `rm` setzt eine
+  Löschmarke.
+- **hub import** — `kephalaion hub import <collection> <verzeichnis>`: spielt ein Verzeichnis
+  als Dokumente ein, Name = relativer Pfad; ein Schreibvorgang, eine Revision. Nicht zu
+  verwechseln mit `config import`.
 - **mask** (Maske) — Glob auf das letzte Segment eines Namens (`*.md`, `0*-*.md`), etwa bei
   `list`; kein regulärer Ausdruck.
 - **tool** (Werkzeug) — ein MCP-Werkzeug des Nodes für Clients. Gesammelt in `konzept.md`,

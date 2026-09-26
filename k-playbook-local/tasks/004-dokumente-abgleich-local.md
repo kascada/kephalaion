@@ -167,7 +167,7 @@ Node:
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
 | 1 — listen und node_name | erledigt | 2026-09-25 | `config.Section.Listen` + `Config.Listen(r)` (Standard, wenn leer), `CheckListen` verlangt Host; Node-Schema 3 mit `hubs.node_name NOT NULL`, `--node` bei add/set; Exportformat 3 (Format 2 ohne `node_name` scheitert an der Prüfung); README-Beispiele nachgezogen |
-| 2 — Dokumente am Hub | offen | | |
+| 2 — Dokumente am Hub | erledigt | 2026-09-26 | `ident.CheckDocName`/`DocDirPrefix`/`DocChild`; Store `PutDocument`, `Document`, `Documents`, `DeleteDocument`, `ImportDocuments` über `docTx` (eine Transaktion, `lazyRevision` = höchstens eine Revision, nur bei Änderung); actions `create`/`update`/`delete` je Dokument; kein NUL im Inhalt (PostgreSQL); Import bricht bei Namens- oder Pfadkonflikt ganz ab, übergeht versteckte Dateien still, meldet Nicht-UTF-8, >1 MiB und Nicht-Reguläre (Symlinks); Hub-Schema unverändert (2) |
 | 3 — Vertrag und Hub-Seite | offen | | |
 | 4 — Replica und Abgleich am Node | offen | | |
 | 5 — CLI und status am Node | offen | | |

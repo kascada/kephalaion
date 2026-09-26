@@ -73,3 +73,83 @@ func TestToken(t *testing.T) {
 		t.Error("MaskToken(leer)")
 	}
 }
+
+func TestCheckDocName(t *testing.T) {
+	good := []string{"a", "a.md", "tasks/001-a.md", "Groß/Übersicht.md", "a b/c d.md", "a:b",
+		"system:x", "Système/x", ".hidden", "a/.b", "...", "a..b",
+		strings.Repeat("x", MaxDocSegmentBytes),
+		strings.TrimSuffix(strings.Repeat(strings.Repeat("x", 99)+"/", 10), "/") + "/" + strings.Repeat("y", 23)}
+	for _, n := range good {
+		if err := CheckDocName(n); err != nil {
+			t.Errorf("%q: %v", n, err)
+		}
+	}
+	bad := map[string]string{
+		"":                "fehlt",
+		"/a":              "beginnt oder endet",
+		"a/":              "beginnt oder endet",
+		"a//b":            "leeres Segment",
+		"./a":             "'.' und '..'",
+		"a/../b":          "'.' und '..'",
+		"a/..":            "'.' und '..'",
+		`a\b`:             `'\'`,
+		"a\tb":            "Steuerzeichen",
+		"a\nb":            "Steuerzeichen",
+		"a\x7fb":          "Steuerzeichen",
+		"a\u0085b":        "Steuerzeichen",
+		"a\xffb":          "UTF-8",
+		"SYSTEM:A:kleist": "vorbehalten",
+		"SYSTEM:":         "vorbehalten",
+		strings.Repeat("x", MaxDocSegmentBytes+1):     "Segment ist länger",
+		strings.Repeat("x/", MaxDocNameBytes/2) + "x": "länger als 1024",
+	}
+	for n, want := range bad {
+		err := CheckDocName(n)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, erwartet %q", n, err, want)
+		}
+	}
+	if !IsSystemName("SYSTEM:A:x") || IsSystemName("system:a") {
+		t.Error("IsSystemName")
+	}
+}
+
+func TestDocDirPrefix(t *testing.T) {
+	for in, want := range map[string]string{"": "", "/": "", "tasks": "tasks/", "tasks/": "tasks/", "a/b": "a/b/"} {
+		got, err := DocDirPrefix(in)
+		if err != nil || got != want {
+			t.Errorf("DocDirPrefix(%q) = %q, %v; erwartet %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"/a", "a//", "..", "SYSTEM:"} {
+		if _, err := DocDirPrefix(in); err == nil {
+			t.Errorf("DocDirPrefix(%q) hätte abgelehnt werden sollen", in)
+		}
+	}
+}
+
+func TestDocAncestorsAndChild(t *testing.T) {
+	if got := DocAncestors("a/b/c.md"); strings.Join(got, "|") != "a|a/b" {
+		t.Errorf("DocAncestors = %v", got)
+	}
+	if got := DocAncestors("c.md"); len(got) != 0 {
+		t.Errorf("DocAncestors ohne Verzeichnis = %v", got)
+	}
+	cases := []struct {
+		prefix, name, child string
+		isDir, ok           bool
+	}{
+		{"", "a.md", "a.md", false, true},
+		{"", "a/b.md", "a", true, true},
+		{"a/", "a/b.md", "b.md", false, true},
+		{"a/", "a/b/c.md", "b", true, true},
+		{"a/", "ab.md", "", false, false},
+		{"a/", "a", "", false, false},
+	}
+	for _, c := range cases {
+		child, isDir, ok := DocChild(c.prefix, c.name)
+		if child != c.child || isDir != c.isDir || ok != c.ok {
+			t.Errorf("DocChild(%q, %q) = %q, %v, %v", c.prefix, c.name, child, isDir, ok)
+		}
+	}
+}

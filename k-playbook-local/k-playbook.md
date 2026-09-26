@@ -28,7 +28,8 @@ Pakete unter `internal/`:
   nehmen die Schreibsperre sofort, auch wenn sie nur lesen — reine Lesezugriffe laufen
   deshalb ohne Transaktion.
 - `ident` — neutral, für Hub und Node: Namensregel, Adresse `<hub>:<collection>`, Token
-  erzeugen, hashen, Format prüfen, gekürzt anzeigen.
+  erzeugen, hashen, Format prüfen, gekürzt anzeigen; Pfadregeln für Dokumentnamen
+  (`CheckDocName`, `SYSTEM:` abgelehnt).
 - `sqlq` — Hilfe für PostgreSQL-taugliche Abfragen: Platzhalter `$n`, `Bind` je Dialekt,
   `Check` auf verbotene Konstrukte.
 - `hub/store`, `node/store` — die gekapselten Datenbanken von Hub und Node, je eine

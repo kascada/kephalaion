@@ -1,8 +1,8 @@
 // Package ident hält, was Hub und Node beide über Namen und Token wissen: die
 // Namensregel für Collections, Nodes und Hub-Aliase, die Adresse
 // <hub>:<collection>, das Token-Format keph_…, seinen Hash und die gekürzte
-// Anzeige. Es kennt weder Hub noch Node und steht beiden offen, später auch
-// den Accounts.
+// Anzeige, dazu die Pfadregeln für die Namen von Dokumenten. Es kennt weder
+// Hub noch Node und steht beiden offen, später auch den Accounts.
 package ident
 
 import (
@@ -10,9 +10,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // namePattern ist die Namensregel: klein, beginnt mit Buchstabe oder Ziffer,
@@ -106,4 +109,102 @@ func MaskToken(token string) string {
 		return TokenPrefix + "…"
 	}
 	return TokenPrefix + "…" + token[len(token)-4:]
+}
+
+// SystemPrefix steht vor den Namen der Zeilen in documents, die nur der Hub
+// selbst schreibt, etwa SYSTEM:A:<account>. Er ist die einzige Ausnahme von
+// „der Name ist ein Pfad“; Groß- und Kleinschreibung zählt wie überall im
+// Namen.
+const SystemPrefix = "SYSTEM:"
+
+// Grenzen für den Namen eines Dokuments, in Bytes.
+const (
+	MaxDocNameBytes    = 1024
+	MaxDocSegmentBytes = 255
+)
+
+// IsSystemName sagt, ob ein Dokumentname eine SYSTEM:-Zeile bezeichnet.
+func IsSystemName(name string) bool { return strings.HasPrefix(name, SystemPrefix) }
+
+// CheckDocName prüft den Namen eines Dokuments nach den Pfadregeln: relativ,
+// Segmente durch '/' getrennt, kein '/' am Anfang oder Ende, kein leeres
+// Segment, kein '.' oder '..'; UTF-8 ohne Steuerzeichen und ohne '\';
+// höchstens MaxDocNameBytes gesamt und MaxDocSegmentBytes je Segment.
+// SYSTEM:-Namen lehnt sie ab — die schreibt nur der Hub selbst.
+func CheckDocName(name string) error {
+	if name == "" {
+		return errors.New("Dokument: Name fehlt")
+	}
+	if !utf8.ValidString(name) {
+		return fmt.Errorf("Dokument %q: der Name ist kein gültiges UTF-8", name)
+	}
+	if IsSystemName(name) {
+		return fmt.Errorf("Dokument %q: Namen mit dem Präfix %s sind dem Hub vorbehalten", name, SystemPrefix)
+	}
+	if len(name) > MaxDocNameBytes {
+		return fmt.Errorf("Dokument %q: der Name ist länger als %d Bytes", name, MaxDocNameBytes)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("Dokument %q: der Name enthält ein Steuerzeichen", name)
+		}
+		if r == '\\' {
+			return fmt.Errorf("Dokument %q: der Name enthält '\\'; Verzeichnisse trennt '/'", name)
+		}
+	}
+	if strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") {
+		return fmt.Errorf("Dokument %q: der Name beginnt oder endet mit '/'; erwartet ist ein relativer Pfad", name)
+	}
+	for _, seg := range strings.Split(name, "/") {
+		switch {
+		case seg == "":
+			return fmt.Errorf("Dokument %q: der Name enthält ein leeres Segment ('//')", name)
+		case seg == "." || seg == "..":
+			return fmt.Errorf("Dokument %q: '.' und '..' sind als Segment nicht erlaubt", name)
+		case len(seg) > MaxDocSegmentBytes:
+			return fmt.Errorf("Dokument %q: ein Segment ist länger als %d Bytes", name, MaxDocSegmentBytes)
+		}
+	}
+	return nil
+}
+
+// DocDirPrefix prüft ein Verzeichnis für list oder import und liefert es als
+// Präfix mit genau einem '/' am Ende; das Wurzelverzeichnis ("" oder "/")
+// ergibt "". Ein '/' am Ende der Angabe ist erlaubt.
+func DocDirPrefix(dir string) (string, error) {
+	if dir == "" || dir == "/" {
+		return "", nil
+	}
+	trimmed := strings.TrimSuffix(dir, "/")
+	if err := CheckDocName(trimmed); err != nil {
+		return "", fmt.Errorf("Verzeichnis %q: %w", dir, err)
+	}
+	return trimmed + "/", nil
+}
+
+// DocAncestors liefert die Verzeichnisse über einem Namen, von oben nach
+// unten: für a/b/c.md also a und a/b. Keines davon darf selbst ein Dokument
+// sein.
+func DocAncestors(name string) []string {
+	var out []string
+	for i := 0; i < len(name); i++ {
+		if name[i] == '/' {
+			out = append(out, name[:i])
+		}
+	}
+	return out
+}
+
+// DocChild liefert den Eintrag, unter dem ein Name im Verzeichnis prefix
+// erscheint (prefix wie von DocDirPrefix): das nächste Segment und, ob es ein
+// Unterverzeichnis ist. ok ist false, wenn der Name nicht unter prefix liegt.
+func DocChild(prefix, name string) (child string, isDir, ok bool) {
+	rest, ok := strings.CutPrefix(name, prefix)
+	if !ok || rest == "" {
+		return "", false, false
+	}
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		return rest[:i], true, true
+	}
+	return rest, false, true
 }
