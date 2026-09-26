@@ -571,7 +571,9 @@ Drei Stufen:
   bleibt aber lesbar.
 - **Löschen** über einen Node (Eigenes mit `write`, Fremdes mit `supersede`) setzt eine
   Löschmarke: Der Inhalt verschwindet aus Store und Replicas, die Zeile bleibt als Marke. Den
-  Namen darf danach jeder mit `write` neu anlegen.
+  Namen darf danach jeder mit `write` neu anlegen. Ein Verzeichnis wird als Ganzes gelöscht,
+  nur ausdrücklich (`recursive`): alle Dokumente darunter unter einer Revision, alles oder
+  nichts (Task 014).
 - **Endgültiges Löschen gehört allein dem Admin.** Es läuft direkt am Hub, nicht über einen
   Node, und ist der Weg für etwas Vertrauliches, das versehentlich eingeliefert wurde. Entfernt
   wird auch, was sonst bliebe — Einlieferung, ältere Fassungen, sobald es sie gibt. Im
@@ -643,13 +645,22 @@ verwalten. Die Wege dafür stehen unter „Kommunikation“.
 verwaltet sie: ausstellen, Rechte je Collection hinterlegen, zurückziehen. Lokal liegt das
 Token in der Nutzerkonfiguration mit engen Rechten, nie im Repository.
 
-**Ein Schreibvorgang scheitert auf zwei Arten, und beide werden gemeldet:**
+**Ein Schreibvorgang scheitert auf drei Arten, und jede wird gemeldet — entschieden am
+2026-09-26 (Task 014):**
 
-- **Abgelehnt** — fehlendes Recht, unbrauchbare Eingabe, unbekannte Collection. Das ist
-  endgültig; der Aufrufer erfährt den Grund und kann korrigieren. Kein erneuter Versuch.
-- **Nicht erreichbar** — der Node versucht es mit wachsendem Abstand erneut und meldet nach
-  einer Frist, dass nichts gespeichert wurde. Ausdrücklich: *nichts gespeichert*, nicht
-  „vielleicht“.
+- **Abgelehnt** — fehlendes Recht, unbrauchbare Eingabe, unbekannte Collection, Name
+  vergeben, veraltete Revision. Das ist endgültig; der Aufrufer erfährt den Grund und kann
+  korrigieren. Kein erneuter Versuch.
+- **Nicht erreichbar** — die Anfrage hat den Hub nachweislich nicht erreicht (keine
+  Verbindung, eine Weiterleitung). Dann ist *nichts gespeichert*, und so heißt die Meldung.
+- **Ausgang unklar** — die Anfrage war abgeschickt, dann kam keine brauchbare Antwort
+  (Zeitüberschreitung, abgebrochene Verbindung, 5xx). Der Hub kann gespeichert haben. Ein
+  Schreibvorgang wird deshalb **nie wiederholt**, wie `rotate`: Ein zweiter Versuch ergäbe
+  „Name vergeben“ oder einen Konflikt mit sich selbst. Die Meldung sagt, dass gespeichert sein
+  kann; der Node gleicht danach ab, und der Aufrufer sieht nach. Früher stand hier, der Node
+  wiederhole mit wachsendem Abstand und melde danach „nichts gespeichert“ — das lässt sich ohne
+  einen Schlüssel, an dem der Hub eine Wiederholung erkennt, nicht halten. Ein solcher
+  Schlüssel kommt, wenn überhaupt, mit `https` und `ssh`.
 
 ## Authentifizierung
 
@@ -1568,6 +1579,35 @@ Erweiterung ist ein Client wie jeder andere ([`vscode.md`](vscode.md)).
 | `delete` | löschen | Löschmarke; Eigenes mit `write`, Fremdes mit `supersede` |
 | `replace_directory` | ein ganzes Verzeichnis ersetzen | für Generatoren, in k-playbook heute `publish` |
 
+**Festgelegt am 2026-09-26 für `create`, `write`, `delete` und `rename` (Task 014)** —
+`rename` ist dafür aus Stufe 3 in Stufe 2 vorgezogen, weil Umbenennen und Verschieben im
+Explorer von VS Code darauf laufen und ein Ersatz aus Anlegen und Löschen die `id` verlöre:
+
+- **Vier Vorgänge des Vertrags**, je einer je Werkzeug, in Fassung 1 (sie kommen nur hinzu).
+  Der Node prüft Anmeldung und Lesbarkeit wie beim Lesen und reicht dann Account und Token an
+  den Hub; ob geschrieben werden darf, entscheidet allein der Hub — so wirkt eine Sperre beim
+  Schreiben sofort.
+- **Rechte am Hub:** `write` für `create` und für Eigenes (`created_by` ist der User des
+  Accounts), `supersede` zusätzlich für Fremdes — bei Verzeichnissen für jedes Dokument darunter.
+  Collection unbekannt, nicht für den Node erlaubt oder nicht für den Account: eine Antwort.
+  `created_by`/`updated_by` ist der User; `actions` nennt Account und Node.
+- **Revision als Vorbedingung:** `write`, `delete` und `rename` nehmen wahlweise die Revision,
+  auf der sie beruhen (`base_revision`); weicht die des Dokuments ab, lehnt der Hub mit eigenem
+  Code ab. Weil die Revision global ist und nur steigt, genügt der Vergleich auf Gleichheit.
+- **Fehlercodes:** Name vergeben (`name_taken`), Revision veraltet (`stale_revision`), Datei
+  und Verzeichnis zugleich (`path_conflict`), nicht gefunden (`not_found`), Recht fehlt
+  (`forbidden`), nicht lesbar (`not_readable`).
+- **Verzeichnisse als Ganzes:** `delete` mit `recursive` und `rename` eines Verzeichnisses
+  wirken auf alle Dokumente darunter, alles oder nichts, eine Revision. `rename` überschreibt
+  kein belegtes Ziel und bleibt in seiner Collection.
+- **Die eigene Änderung steht sofort in der Replica:** Die Antwort des Hubs trägt die
+  geschriebenen Zeilen; der Node schreibt sie in die Replica, bevor er antwortet, und stößt
+  danach den Abgleich an. Sonst lieferte `read` nach dem Speichern noch die alte Revision, und
+  schon das zweite Speichern scheiterte an der eigenen Vorbedingung.
+- **Nie wiederholt**, siehe „Transport, Token und Fehlschläge“.
+- **Leere Verzeichnisse** gibt es am Hub weiter nicht; die Erweiterung für VS Code merkt sich
+  ein neu angelegtes, bis darin etwas liegt.
+
 ### Verwaltung über MCP (vorgemerkt am 2026-09-25)
 
 Was heute nur die Kommandozeile kann, soll auch über MCP gehen — nur mit dem passenden Recht:
@@ -1626,7 +1666,8 @@ sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
 
 1. **Nur lesen.** Node liefert Suchen, Lesen, Abgleich; eine Collection, ein Token, ein Recht.
 2. **Schreiben mit Rechten, ohne KI.** Dateien werden deterministisch abgelegt, der Hub prüft
-   Recht und Form. Accounts, `rotate`, Ablehnungen, Fehlschläge.
+   Recht und Form. Accounts, `rotate`, Ablehnungen, Fehlschläge; dazu Umbenennen, vorgezogen
+   aus Stufe 3 (Task 014).
 3. **Vorgänge auf Dateien.** Anhängen, Abschnitt ändern, abschließen, Verzeichnis ersetzen.
 4. **Schnipsel und Einordnen durch den Hub** (zurückgestellt). Zuerst Regeln. Erst danach, und
    getrennt entschieden, eine KI im Hub, mit Protokoll und Warteschlange.

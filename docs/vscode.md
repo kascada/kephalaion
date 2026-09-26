@@ -68,9 +68,9 @@ Welche Collections es gibt, fragt die Erweiterung ab; sie stehen nirgends in VS 
 | `stat(uri)` | `read` mit `content: false`: Dokument, Verzeichnis oder nichts; `updated` als `mtime`, Größe als `size`, schreibbar ja/nein |
 | `readDirectory(uri)` | `list` mit `path`, ohne Unterverzeichnisse, Verzeichnisse als eigene Einträge, mit Cursor bis zum Ende |
 | `readFile(uri)` | `read` — aus der Replica, lokal und schnell, auch offline |
-| `writeFile(uri, …)` | `create` bzw. `write` mit der Revision, auf der die Änderung beruht |
-| `rename(alt, neu)` | `rename`, `id` bleibt |
-| `delete(uri)` | `delete` (Löschmarke) bzw. `supersede`, je nach Recht |
+| `writeFile(uri, …)` | gibt es das Dokument noch nicht (`read` mit `content: false`), `create`; sonst `write` mit der Revision aus diesem `read`. Was die Replica schon kennt, fängt VS Code über `mtime` selbst ab („Datei ist neuer“); was noch nicht abgeglichen ist, lehnt der Hub an der Revision ab |
+| `rename(alt, neu)` | `rename`, `id` bleibt; ein Verzeichnis als Ganzes. Nur innerhalb einer Collection, kein Überschreiben eines belegten Ziels |
+| `delete(uri)` | `delete` (Löschmarke) — Eigenes mit `write`, Fremdes nur mit `supersede`; ein Verzeichnis als Ganzes (`recursive`) |
 | `createDirectory(uri)` | nichts am Hub — Verzeichnisse sind nur Präfixe von Namen; die Erweiterung merkt sich das leere Verzeichnis, bis darin etwas angelegt wird |
 | `watch` / Event `onDidChangeFile` | `changes` mit dem Cursor der letzten Antwort, abgefragt alle paar Sekunden — aus der Replica, ohne Netz. Ein Umbenennen erkennt die Erweiterung an der `id` (alter Name gelöscht, neuer angelegt); `changes` nennt keinen alten Namen. Bei `reset` liest sie den Hub neu mit `list`, bei `dropped` entfernt sie die Collection |
 
@@ -259,8 +259,8 @@ Treffer (mit etwas Verzögerung, erst nach einer weiteren Suche). Das ist in Ord
   starten (wie k-playbook beim Briefing).
 - Abstand der Abfrage von `changes` — fest, oder länger, solange das Fenster nicht im Fokus
   ist.
-- Leere Verzeichnisse: nur in der Erweiterung gemerkt, oder als `SYSTEM:D:`-Zeile am Hub
-  (vgl. „Persönliche Verzeichnisse“ im Konzept).
+- Leere Verzeichnisse: vorerst nur in der Erweiterung gemerkt (Task 014); ob später als
+  `SYSTEM:D:`-Zeile am Hub, bleibt offen (vgl. „Persönliche Verzeichnisse“ im Konzept).
 - Wie die Erweiterung mit `personal`-Verzeichnissen umgeht (nur Eigenes zeigen, Schalter für
   alles).
 - Ob eine TreeView zusätzlich zum Dateisystem sinnvoll ist, etwa für Status und Abgleich.

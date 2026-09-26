@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Tasks 001–012 abgeschlossen, in `done/`; Task 013 offen)
+Stand: 2026-09-26 (Tasks 001–012 abgeschlossen, in `done/`; Tasks 013 und 014 offen)
 
 ## So wird diese Datei aktualisiert
 
@@ -120,6 +120,12 @@ Nichts.
 
 ## Zu tun
 
+- **Task 014 — Schreiben über MCP** (angelegt 2026-09-26, nicht begonnen): Vertrag und
+  Werkzeuge `create`, `write`, `delete`, `rename` mit Rechten (`write`/`supersede`), Revision
+  als Vorbedingung, eigene Fehlercodes, Verzeichnisse als Ganzes, eigene Änderung sofort in der
+  Replica, nie wiederholt; danach die Erweiterung für VS Code (`konzept.md`, „Allgemein —
+  schreiben“, „Transport, Token und Fehlschläge“).
+
 - **macOS-Job in CI wieder einschalten:** seit 2026-09-26 auf Wunsch des Nutzers abgeschaltet
   (`if: false` in `.github/workflows/ci.yml`, Job `macos`); später `if: false` entfernen. Stand:
   Er lief, einzig `TestBackgroundSync` scheiterte (Läufe 36260080975, 36260519391; grün waren
@@ -158,11 +164,9 @@ Nichts.
   ist (`konzept.md`, „Offene Punkte“, Token-Rotation).
 - **Danach (Konzept, „Stufen“):**
   - Stufe 1: Zerlegung in Abschnitte, FTS5-Index, MCP-Werkzeug `search`, Abschnitte in
-    `read`; Ereignisstrom (SSE/Long-Polling, Todo #10); Abgleich unmittelbar nach eigenem
-    Schreiben;
-  - Stufe 2: Schreiben über den Node mit Rechten (`create`, `write`, `delete`,
-    `create_numbered`), Fehlercodes „Name vergeben“, Revision als Vorbedingung;
-  - Stufe 3: `append`, `replace_section`, `rename`, `supersede`, `replace_directory`;
+    `read`; Ereignisstrom (SSE/Long-Polling, Todo #10);
+  - Stufe 2, Rest nach Task 014: `create_numbered`;
+  - Stufe 3: `append`, `replace_section`, `supersede`, `replace_directory`;
   - Transporte `https` und `ssh`; Hub außerhalb von Loopback;
   - Lauschen auf der Docker-Bridge für Devcontainer — die globale Installation erreichen bis
     dahin nur User auf dem Rechner selbst (Task 011);
