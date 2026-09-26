@@ -13,10 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kascada/kephalaion/internal/buildinfo"
 	"github.com/kascada/kephalaion/internal/config"
 	"github.com/kascada/kephalaion/internal/contract/httpapi"
 	"github.com/kascada/kephalaion/internal/hub/replication"
 	hubstore "github.com/kascada/kephalaion/internal/hub/store"
+	"github.com/kascada/kephalaion/internal/node/mcpnode"
 	nodestore "github.com/kascada/kephalaion/internal/node/store"
 	"github.com/kascada/kephalaion/internal/reqlog"
 )
@@ -235,9 +237,9 @@ func startRole(ctx context.Context, cfg config.Config, r config.Role, sec *confi
 	return rl, nil
 }
 
-// newNodeHandler ist der Eingang des Nodes für Clients.
-func newNodeHandler(_ nodestore.Store) http.Handler {
-	return http.NotFoundHandler()
+// newNodeHandler ist der Eingang des Nodes für Clients: MCP unter /mcp.
+func newNodeHandler(st nodestore.Store) http.Handler {
+	return mcpnode.NewHandler(st, buildinfo.Get().Version)
 }
 
 // lockPath ist die Sperrdatei neben einer Datenbank: <db>.lock.

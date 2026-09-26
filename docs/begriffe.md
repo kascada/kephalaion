@@ -47,6 +47,12 @@ Ausführlich: [`konzept.md`](konzept.md).
   welche Verbindungen bestehen.
 - **client** (MCP-Client) — was per MCP mit dem Node redet: Claude Code, Cursor, OpenCode,
   k-playbook. Für ihn ist der Node der MCP-Server. Die KI im Client sieht Name und Token nicht.
+- **header** (Header-Paar) — wie ein Client sich am Node anmeldet, je Hub ein Paar:
+  `X-Keph-Account-<alias>` und `X-Keph-Token-<alias>`, eingetragen in seiner MCP-Konfiguration.
+  Header-Namen zählen ohne Groß- und Kleinschreibung; der Alias ist der Rest des Namens nach
+  dem Präfix, klein geschrieben. Der Node prüft das Paar bei jeder Anfrage gegen die
+  `SYSTEM:A:`-Zeilen der Replica dieses Hubs, ohne Cache. Zum Hub meldet sich der Node selbst
+  mit `X-Keph-Node` und `Authorization: Bearer <token>`.
 - **node** (Knoten) — Rolle, Abschnitt `node:`. Einmal je Rechner. MCP-Server über HTTP
   für Clients, Client eines oder mehrerer Hubs. Hält Replica, Index, Suche,
   Revisionen.

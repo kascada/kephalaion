@@ -244,7 +244,7 @@ MCP (Node, /mcp):
 | 2 — Vertrag erweitert, Hub über HTTP | erledigt | 2026-09-26 | `whoami`/`rotate` in Vertrag und `replication`, `internal/contract/httpapi` (Handler, Client), Vertragstests gegen local und HTTP; make check grün |
 | 3 — Node: Transport http, check, --create, rotate | erledigt | 2026-09-26 | Connector mit `http`, `node hub check`, `--create`, `node account rotate` und `check` samt `.pending`; Replica-Schema 2 mit `documents_system`; make check grün |
 | 4 — serve | erledigt | 2026-09-26 | `serve` je Rolle auf Loopback, Sperrdatei `<db>.lock` (flock), Log je Anfrage über `internal/reqlog`, Beenden mit Frist, `status` zeigt serve; make check grün |
-| 5 — Node als MCP-Server | offen | | |
+| 5 — Node als MCP-Server | erledigt | 2026-09-26 | `internal/node/mcpnode` (go-sdk v1.7.0, zustandslos), Host/Origin-Prüfung, Header-Paare je Hub, Werkzeug `whoami` gegen die Replica; make check grün |
 | 6 — Durchlauf und Doku | offen | | |
 
 ---
