@@ -111,7 +111,7 @@ so, dass die Erweiterung für VS Code darauf ihren `FileSystemProvider` bauen ka
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
 | 1 — Adresse, Anmeldung, Abfragen | erledigt | 2026-09-26 | `mcpnode/access.go`: `resolve` (Hub-Teil optional), `open`/`eachValid` über `Authenticate`, eine Meldung „nicht lesbar“, „noch nie abgeglichen“, unlesbare Replica nur für ihren Hub; `replica/read.go` (Abfragen ohne Transaktion); `generation` in `db_info`, Schemafassung 4 |
-| 2 — `list` | offen | | |
+| 2 — `list` | erledigt | 2026-09-26 | `mcpnode/list.go`: Collections (alle Hubs, `<hub>:`), Verzeichnisse zuerst, Dokumente nach `name`/`created`/`updated`, Keyset-Cursor mit Fingerabdruck der Anfrage, `limit` Standard 100, höchstens 1000; `mask` per `path.Match` auf das letzte Segment; `unreadable_hubs` |
 | 3 — `read` | offen | | |
 | 4 — `changes` | offen | | |
 | 5 — Durchlauf und Doku | offen | | |

@@ -5,9 +5,11 @@
 // Replica dieses Hubs — ohne Cache, die Datenbank ist die einzige Wahrheit.
 //
 // Werkzeuge: whoami (Version, alle Hubs mit Anmeldung, Node-Name und Stand
-// des Abgleichs; bei gültiger Anmeldung Account, User, Collections).
-// Transport und initialize gehen ohne Anmeldung; spätere Werkzeuge verlangen
-// eine gültige. Die Anmeldung über alle Hubs prüft Authenticate, einmal je
+// des Abgleichs; bei gültiger Anmeldung Account, User, Collections) und zum
+// Lesen aus der Replica list, read und changes (access.go: gemeinsamer
+// Schritt aus Anmeldung, Adresse und Recht). Transport und initialize gehen
+// ohne Anmeldung; list, read und changes liefern Inhalte nur aus Collections,
+// in denen der gültig angemeldete Account read hat. Die Anmeldung über alle Hubs prüft Authenticate, einmal je
 // Anfrage. Kein Token und kein Hash steht je in einer Antwort, auch nicht
 // Adresse, Transport oder hub_id eines Hubs.
 //
@@ -57,6 +59,7 @@ func NewHandler(nodes store.Store, version string) http.Handler {
 			"des Abgleichs; bei ok Account, User und Collections mit Adresse und Rechten (read, write, " +
 			"supersede). Ohne Argumente.",
 	}, n.whoami)
+	mcp.AddTool(srv, &mcp.Tool{Name: "list", Description: listDescription}, n.list)
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	mux := http.NewServeMux()

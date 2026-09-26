@@ -106,6 +106,15 @@ Ausführlich: [`konzept.md`](konzept.md).
   Hub fortlaufend nummeriert. Ersetzt den früheren Gedanken der „Reihen“ (`series_*`).
 - **mask** (Maske) — Glob auf das letzte Segment eines Namens (`*.md`, `0*-*.md`), etwa bei
   `list`; kein regulärer Ausdruck.
+- **directory** (Verzeichnis) — ein Präfix von Namen bis zu einem `/`; es gibt es, solange ein
+  lebendes Dokument darunter liegt. `list` zeigt die Verzeichnisse der nächsten Ebene als
+  eigene Einträge (Art `directory`), `read` erkennt eines an seinem Namen.
+- **list** — Werkzeug des Nodes: Inhalt eines Verzeichnisses aus der Replica, ohne Löschmarken
+  und `SYSTEM:`-Namen; ohne `collection` die lesbaren Collections. Sortiert nach `name`,
+  `created` oder `updated`, geblättert mit `limit` und `cursor`, gefiltert mit `mask`.
+- **cursor** — undurchsichtige Angabe in der Antwort von `list` und `changes`, mit der der
+  nächste Aufruf weiterfragt; der Client gibt sie unverändert zurück. Bei `list` die Stelle
+  nach dem letzten Eintrag, bei `changes` der Stand je Collection und die `generation` je Hub.
 - **tool** (Werkzeug) — ein MCP-Werkzeug des Nodes für Clients. Gesammelt in `konzept.md`,
   „Werkzeuge“.
 - **id** (Kennung) — stabile Kennung eines Dokuments, vom Hub vergeben.
@@ -218,7 +227,8 @@ Ausführlich: [`konzept.md`](konzept.md).
   nie als Argument übergeben und nur gekürzt angezeigt (`keph_…` und die letzten vier
   Zeichen).
 - **--token-file** — eine Datei, die das Token eines Accounts als eine Zeile hält (`0600`), bei
-  `node account rotate|check`. Daneben **pending** (`<datei>.pending`): das neue Token eines
+  `node account rotate|check`; üblicher Ort `~/.config/kephalaion/tokens/<hub>/<account>.token`,
+  `<hub>` der Alias des Hub-Eintrags. Daneben **pending** (`<datei>.pending`): das neue Token eines
   laufenden `rotate`, geschrieben vor dem Aufruf; nach Erfolg ersetzt es die Datei, bei
   unklarem Ausgang bleibt es, bis `check` es klärt.
 - **check** — `kephalaion node hub check <alias>`: `whoami` am Hub, zeigt Erreichbarkeit,

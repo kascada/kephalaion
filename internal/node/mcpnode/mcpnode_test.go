@@ -127,8 +127,15 @@ func (e *env) whoami(t *testing.T, header http.Header) (WhoamiOutput, string) {
 	}
 	defer session.Close()
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 1 || tools.Tools[0].Name != "whoami" {
-		t.Fatalf("Werkzeuge: %+v, %v", tools, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tool := range tools.Tools {
+		got = append(got, tool.Name)
+	}
+	if !reflect.DeepEqual(got, wantTools) {
+		t.Fatalf("Werkzeuge: %v", got)
 	}
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "whoami"})
 	if err != nil {
@@ -145,6 +152,9 @@ func (e *env) whoami(t *testing.T, header http.Header) (WhoamiOutput, string) {
 	}
 	return out, string(raw)
 }
+
+// wantTools sind die Werkzeuge des Nodes, nach Name.
+var wantTools = []string{"list", "whoami"}
 
 func pair(alias, account, tok string) http.Header {
 	h := http.Header{}
