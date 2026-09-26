@@ -34,8 +34,9 @@ import (
 const Role = "replica"
 
 // SchemaVersion ist die Schemafassung der Replica. Passt sie nicht, verwirft
-// der Abgleich die Replica und legt sie neu an; sie ist abgeleitet.
-const SchemaVersion = 3
+// der Abgleich die Replica und legt sie neu an; sie ist abgeleitet. Fassung 4
+// bringt die generation in db_info.
+const SchemaVersion = 4
 
 // KeyHubID ist der Schlüssel der hub_id in db_info. Sie ist maßgeblich; die
 // Spalte hubs.hub_id in node.db ist nur Kopie.
@@ -47,13 +48,20 @@ const KeyHubID = "hub_id"
 // schreibt so nie in die Replica des neuen.
 const KeyEntryID = "entry_id"
 
+// KeyGeneration ist der Schlüssel der generation in db_info: eine ULID, die
+// Create vergibt und reset in derselben Transaktion ersetzt, in der es die
+// Replica leert. Sie wechselt also bei jeder Neuanlage und jedem Leeren, auch
+// bei gleicher hub_id (Hub aus einer Sicherung). changes trägt sie je Hub im
+// Cursor und erkennt daran, dass der Stand eines Aufrufers nicht mehr gilt.
+const KeyGeneration = "generation"
+
 // ErrNotFound meldet eine Collection oder ein Dokument, das es in der
 // Replica nicht gibt.
 var ErrNotFound = errors.New("gibt es in der Replica nicht")
 
-// errNoIDs meldet eine Replica, deren db_info keine hub_id oder entry_id
-// nennt.
-var errNoIDs = errors.New("db_info ohne hub_id oder entry_id")
+// errNoIDs meldet eine Replica, deren db_info keine hub_id, entry_id oder
+// generation nennt.
+var errNoIDs = errors.New("db_info ohne hub_id, entry_id oder generation")
 
 // afterLink läuft in Create zwischen dem Linken an den Ort und dem Öffnen;
 // nur Tests setzen es, um die Datei dazwischen zu ersetzen.
@@ -148,9 +156,10 @@ const (
 
 // Replica ist eine geöffnete Replica.
 type Replica struct {
-	db      *sql.DB
-	hubID   string
-	entryID string
+	db         *sql.DB
+	hubID      string
+	entryID    string
+	generation string
 }
 
 // State ist der Stand des Abgleichs einer Collection: bis zu welcher
@@ -177,12 +186,12 @@ func Open(ctx context.Context, path string) (*Replica, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("Replica %s: %w", path, err)
 	}
-	id, entry := info[KeyHubID], info[KeyEntryID]
-	if id == "" || entry == "" {
+	id, entry, gen := info[KeyHubID], info[KeyEntryID], info[KeyGeneration]
+	if id == "" || entry == "" || gen == "" {
 		_ = db.Close()
 		return nil, fmt.Errorf("Replica %s: %w", path, errNoIDs)
 	}
-	return &Replica{db: db, hubID: id, entryID: entry}, nil
+	return &Replica{db: db, hubID: id, entryID: entry, generation: gen}, nil
 }
 
 // Create legt eine neue Replica für den Hub hubID und den Hub-Eintrag
@@ -203,7 +212,8 @@ func Create(ctx context.Context, path, hubID, entryID string) (*Replica, error) 
 	if err != nil {
 		return nil, err
 	}
-	err = sqlitedb.CreateSchema(ctx, db, schema, Role, SchemaVersion, map[string]string{KeyHubID: hubID, KeyEntryID: entryID})
+	err = sqlitedb.CreateSchema(ctx, db, schema, Role, SchemaVersion, map[string]string{KeyHubID: hubID, KeyEntryID: entryID,
+		KeyGeneration: ulid.Make().String()})
 	if cerr := db.Close(); err == nil {
 		err = cerr
 	}
@@ -245,6 +255,12 @@ func (r *Replica) HubID() string { return r.hubID }
 
 // EntryID ist der Hub-Eintrag, für den die Replica angelegt wurde.
 func (r *Replica) EntryID() string { return r.entryID }
+
+// Generation ist die generation aus db_info, gelesen beim Öffnen — vor allem,
+// was danach aus der Replica gelesen wird. Wer sie zusammen mit Gelesenem
+// weitergibt, erfährt von einem reset dazwischen spätestens beim nächsten
+// Öffnen.
+func (r *Replica) Generation() string { return r.generation }
 
 // checkOwner prüft in einer Transaktion, die schreiben will, dass die Datei
 // noch die ist, die der Aufrufer meint: gleicher Eintrag, gleiche hub_id.
@@ -498,9 +514,10 @@ func dropCollection(ctx context.Context, tx *sql.Tx, collection string) (dropped
 	return dropped{rows: n}, nil
 }
 
-// reset leert die Replica und schreibt die neue hub_id, in einer
-// Transaktion.
+// reset leert die Replica und schreibt die neue hub_id und eine neue
+// generation, in einer Transaktion.
 func (r *Replica) reset(ctx context.Context, hubID string) error {
+	gen := ulid.Make().String()
 	err := r.inTx(ctx, func(tx *sql.Tx) error {
 		info, err := sqlitedb.ReadInfo(ctx, tx)
 		if err != nil {
@@ -514,6 +531,9 @@ func (r *Replica) reset(ctx context.Context, hubID string) error {
 				return err
 			}
 		}
+		if err := sqlitedb.SetInfo(ctx, tx, KeyGeneration, gen); err != nil {
+			return err
+		}
 		return sqlitedb.SetInfo(ctx, tx, KeyHubID, hubID)
 	})
 	if errors.Is(err, ErrChanged) {
@@ -522,6 +542,6 @@ func (r *Replica) reset(ctx context.Context, hubID string) error {
 	if err != nil {
 		return fmt.Errorf("Replica leeren: %w", err)
 	}
-	r.hubID = hubID
+	r.hubID, r.generation = hubID, gen
 	return nil
 }

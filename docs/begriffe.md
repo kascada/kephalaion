@@ -47,7 +47,8 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **db_info** — Tabelle `db_info (key, value)` in der Datenbank jeder Rolle und in jeder
   Replica. Hält die Schemafassung (`schema_version`), die Rolle (`role`: `hub`, `node` oder
   `replica`), die Anlagezeit (`created_at`), am Hub auch die Revision (`revision`), in der
-  Replica die `hub_id` und die `entry_id` des Hub-Eintrags. Passt Fassung oder Rolle nicht, wird die Datenbank nicht benutzt.
+  Replica die `hub_id`, die `entry_id` des Hub-Eintrags und die `generation`. Passt Fassung oder
+  Rolle nicht, wird die Datenbank nicht benutzt.
 - **init** — `kephalaion hub init`, `kephalaion node init`: richtet eine Rolle ein — Datenbank,
   Schema, Abschnitt in der config. Nur `init` legt eine Datenbank an; einzige Ausnahme ist die
   Replica, die der erste `sync` anlegt.
@@ -113,7 +114,7 @@ Ausführlich: [`konzept.md`](konzept.md).
   Schreiben. Der Node merkt sich je Collection die letzte und fragt „alles seit Revision X“.
 - **replica** (Kopie) — der Ausschnitt des Stores auf einem Node: je Hub-Eintrag eine eigene
   SQLite-Datei `replicas/<alias>.db` neben `node.db` (Verzeichnis `0700`), in `db_info` mit
-  der Rolle `replica`, der `hub_id` und der `entry_id`. Darin `documents` wie am Hub, aber ohne eindeutigen
+  der Rolle `replica`, der `hub_id`, der `entry_id` und der `generation`. Darin `documents` wie am Hub, aber ohne eindeutigen
   Index auf den Namen — auf dem Node zählt die `id` —, und `sync_state`. Abgeleitet, nie
   selbst beschrieben: Sie enthält genau die Zeilen, die der Hub geliefert hat, und lässt sich
   jederzeit neu abgleichen. Der erste `sync` eines Hub-Eintrags legt sie an; `node hub rm`
@@ -121,6 +122,10 @@ Ausführlich: [`konzept.md`](konzept.md).
   fremder Schemafassung, fremder `entry_id` oder eindeutig beschädigt verwirft `sync` und legt
   sie neu an. Lässt sie sich nicht lesen, zeigt `whoami` für ihren Hub `login` `missing` und
   „Replica nicht lesbar“; die übrigen Hubs betrifft das nicht.
+- **generation** (Generation der Replica) — Kennung in `db_info` der Replica, eine ULID. Sie
+  wechselt bei jeder Neuanlage und jedem Leeren der Replica (andere `hub_id`, Hub aus einer
+  Sicherung), sonst nie — auch bei gleicher `hub_id`. `changes` trägt sie je Hub im Cursor und
+  meldet `reset`, wenn sie nicht mehr passt.
 - **sync_state** — Tabelle der Replica: je Collection der Stand des Abgleichs (`revision`) und
   der Zeitpunkt der letzten Seite (`synced_at`).
 - **contract** (Vertrag) — die Schnittstelle zwischen Node und Hub, beschrieben in
