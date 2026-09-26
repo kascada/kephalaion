@@ -178,6 +178,8 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
 - **k-playbook ↔ Kephalaion:** welche k-playbook-Werkzeuge (Eingang, Warteschlange, Todos,
   Tasks, `publish`, Status) Kephalaion trägt; welche die KI nicht sehen soll; in welcher
   Collection die Tasks eines Projekts liegen; wie Werkzeuge zuschaltbar werden.
+- **Token-Dateien:** Ort `~/.config/kephalaion/<account>.token` ist bisher nur Konvention;
+  Zuordnung zum Hub bei mehreren Hubs (`konzept.md`, „Orte nach XDG“; `vscode.md`, „Offen“).
 - **Token-Rotation mit Frist** für Menschen/KIs; wie ein neues Token zu k-playbook gelangt.
 - **Persönliche Verzeichnisse** (`personal`, `numbered` als Eigenschaften eines Verzeichnisses)
   — vorgemerkt; ob es sie braucht, wer sie setzt, Übergabe an einen anderen User

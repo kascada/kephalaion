@@ -845,11 +845,20 @@ Projekte dieses Rechners.
 
 | Verzeichnis | Zweck | Kephalaion |
 |---|---|---|
-| `~/.config/kephalaion/` (`XDG_CONFIG_HOME`) | Konfiguration, klein, lesbar | `config.yaml` |
+| `~/.config/kephalaion/` (`XDG_CONFIG_HOME`) | Konfiguration, klein, lesbar | `config.yaml`, `<account>.token` je Account (`0600`) |
 | `~/.local/share/kephalaion/` (`XDG_DATA_HOME`) | Daten, die bleiben müssen | `hub.db`, `node.db` |
 | `~/.local/share/kephalaion/replicas/` | wiederherstellbar durch Abgleich | `<alias>.db` je Hub-Eintrag |
 | `~/.local/state/kephalaion/` (`XDG_STATE_HOME`) | Zustand, Logs | später |
 
+- **Token-Dateien — festgehalten am 2026-09-26:** Die Tokens der Accounts liegen neben der
+  config, **eine Datei je Account**: `~/.config/kephalaion/<account>.token`, Rechte `0600`,
+  das Token in der ersten Zeile. Ein User hat meist mehrere Accounts (siehe
+  [`begriffe.md`](begriffe.md), „user“), also auch mehrere Dateien — etwa einen je Rechner
+  oder je Hub. Während `rotate` liegt daneben `<account>.token.pending`. Bisher ist das eine
+  Konvention (README, `node account rotate --token-file`); der Code legt den Ort nicht fest.
+  Wer ihn kennt: die Erweiterung für VS Code liest die Tokens von dort
+  ([`vscode.md`](vscode.md)). **Offen:** Der Name der Datei nennt nur den Account, nicht den
+  Hub, für den er gilt; bei mehreren Hubs braucht es eine Zuordnung.
 - **Die Replicas liegen in einem eigenen Unterverzeichnis** `replicas/` im Verzeichnis von
   `node.db` (liegt `node.db` per `--db` anderswo, dann dort), nicht direkt daneben: So ist
   sichtbar, was sich neu abgleichen lässt und was nicht. Eine Sicherung kann `replicas/`
