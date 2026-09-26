@@ -170,3 +170,72 @@ Ja. Gelesen wird nur aus der Replica, mit `Check` je Aufruf und derselben Meldun
 
 ### Offen (nicht gefixt)
 - keine
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** Der Node bietet über MCP neu `list`, `read` und `changes` über der Replica an. Adresse und Anmeldung löst `mcpnode/access.go` auf Basis von `Authenticate` auf, die Abfragen stehen in `replica/read.go`. `changes` ist lückenlos: Der Cursor trägt je Hub die Generation und je Collection die Revision, dazu kommen `reset` je Hub, `dropped` und `unreadable_hubs`. Die Replica hat Schemafassung 4 mit `generation` in `db_info`. Ein Durchlauf über `serve` mit dem MCP-Client des go-sdk ist als `TestMCPReadThroughServe` festgehalten. Die Doku ist nachgezogen in README, begriffe, konzept (Festlegungen: `limit` 100/1000, Cursor-Format, Zeiten), vscode, fortschritt und k-playbook.md. `make check` ist grün, ebenso `-race` über `internal/node/...` und die MCP-Tests. Commits: 7db6a33, 208aed3, c1e0435, b4690d8, 745d8fd.
+
+**Geänderte Dateien** (`git diff 6bcbeaf 745d8fd --stat`, ohne den fremden Commit 778f313 `vscode/*`, ohne Task 013 und `todos.json`):
+```
+ README.md                                     |  33 +++-
+ cmd/kephalaion/mcp_test.go                    |  81 ++++++++++
+ docs/begriffe.md                              |  31 +++-
+ docs/fortschritt.md                           |  17 ++-
+ docs/konzept.md                               |  77 ++++++++--
+ docs/vscode.md                                |  29 +++-
+ internal/node/mcpnode/access.go               | 307 +++++++++++++++++
+ internal/node/mcpnode/access_test.go          | 167 ++++++++++
+ internal/node/mcpnode/changes.go              | 376 +++++++++++++++++++++
+ internal/node/mcpnode/changes_test.go         | 354 +++++++++++++++++++
+ internal/node/mcpnode/cursor.go               |  69 +++++
+ internal/node/mcpnode/docenv_test.go          | 261 ++++++++++++++
+ internal/node/mcpnode/list.go                 | 312 +++++++++++++++++
+ internal/node/mcpnode/list_test.go            | 275 +++++++++++++++
+ internal/node/mcpnode/mcpnode.go              |  11 +-
+ internal/node/mcpnode/mcpnode_test.go         |  14 +-
+ internal/node/mcpnode/read.go                 | 146 ++++++++
+ internal/node/mcpnode/read_test.go            | 132 ++++++++
+ internal/node/replica/read.go                 | 319 +++++++++++++++++
+ internal/node/replica/read_test.go            | 215 ++++++++++++
+ internal/node/replica/replica.go              |  50 ++--
+ k-playbook-local/k-playbook.md                |  17 ++-
+ k-playbook-local/tasks/009-lesen-ueber-mcp.md |  10 +-
+ 23 files changed, 3246 insertions(+), 57 deletions(-)
+```
+
+**Code-Änderungen:** Der Diff umfasst ca. 3700 Zeilen, fast nur neue Dateien und davon rund die Hälfte Tests. Deshalb gibt es hier nur einen Überblick statt Hunks:
+- `mcpnode/access.go`: `resolve` (Adresse, Hub-Teil optional), `open`/`openHub`/`eachValid`, `toolFailure` (Meldungen „nicht lesbar“, „noch nie abgeglichen“, unlesbare Replica ohne Pfad).
+- `mcpnode/list.go`: Collections, Verzeichnisse der nächsten Ebene, dann die Dokumente. Der Keyset-Cursor hat einen Fingerabdruck der Anfrage, `mask` läuft über `path.Match`.
+- `mcpnode/read.go`: per Name oder `id`; ergibt `document`, `directory` oder `none`; `writable`.
+- `mcpnode/changes.go`, `cursor.go`: Cursor je Hub (`generation`) und je Collection (Revision, letzte `id`). Gelesen wird bis zum Stand in `sync_state`; dazu `since`, `reset`, `dropped`, `unreadable_hubs`.
+- `replica/read.go`, `replica.go`: Abfragen ohne Transaktion und `generation` in `db_info`. `Create` vergibt sie, `reset` ersetzt sie. Die Schemafassung steigt von 3 auf 4.
+
+**Offene Punkte aus der Ausführung:**
+- `changes` mit `path` sieht keine Umbenennung aus dem Verzeichnis heraus; das ist dokumentiert.
+- Eine Sicherung am Hub mit Weiterschreiben vor dem Abgleich wird nicht erkannt; das ist eine Grenze des Abgleichs.
+- „Unlesbar mitten im Lesen“ ist nicht getestet.
+- Commit 208aed3 enthält einen fremden Hunk der Konzept-Sitzung in `docs/begriffe.md` (`--token-file`, `tokens/<hub>/<account>.token`).
+
+**Code-Review:**
+Grundlage ist nur der Diff (engineering:code-review).
+1. **Warnung:** `changes.go`, `unreadable()`. Wird eine Replica erst nach einer vollen Seite unlesbar, bleibt `More = true` stehen.
+   - Folge: Die nachfolgenden Hubs werden ausgehungert. Ist der Lesefehler dauerhaft, pollt der Client endlos.
+   - Empfehlung: `More` und `len(Changes)` vor dem Hub sichern und in `unreadable()` wiederherstellen.
+2. **Warnung:** Der Fingerabdruck in `changes` und `list` bindet den rohen Wert von `collection`, nicht das aufgelöste Ziel.
+   - Bei einer Adresse ohne Hub-Teil kann der Hub wechseln. Dann fällt der alte Hub ohne `dropped` oder `reset` aus dem Cursor, und `list` blättert in einer anderen Collection weiter.
+   - Empfehlung: den Fingerabdruck über `t.Address()` bilden.
+3. **Warnung:** `access.go`, `toolFailure`. Bei abgebrochenem ctx geht `err` unverändert an den Client und kann einen Pfad enthalten.
+   - Empfehlung: nur `ctx.Err()` oder eine feste Meldung zurückgeben.
+4. **Vorschlag:** Ein Hub, der beim Aufruf „ab jetzt“ unlesbar war, fehlt im Cursor und liefert später seine ganze Historie. Das sollte dokumentiert oder der Startstand festgelegt werden.
+5. **Vorschlag:** Die Annahme prüfen und testen, dass `sync_state.revision` nur über vollständig angewendete Revisionen vorrückt. Sonst entsteht in `changes` eine Lücke.
+6. **Vorschlag:** `readByName` liefert für `"a.md/"` das Dokument `a.md`. Ein `/` am Ende sollte nur `directory` oder `none` ergeben.
+7. **Vorschlag:** `read` per `id` liefert eine verdeckte, ältere Zeile gleichen Namens. `list` und `read` per Name verbergen sie über `newest`; das ist inkonsistent.
+8. **Vorschlag (Leistung):**
+   - `qChanged` materialisiert über `length(CAST(content AS BLOB))` den Inhalt.
+   - `ChildDirs` durchläuft je Seite alle Namen unter dem Präfix.
+   - Für `sort` `created`/`updated` gibt es keinen Index.
+   - `changes` ohne `collection` öffnet bei jedem Poll alle Replicas.
+
+Gesamturteil: solide und gut getestet. Die Befunde 1 bis 3 sollten vor dem nächsten Release behoben werden.
