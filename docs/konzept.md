@@ -137,7 +137,8 @@ andere in der Datenbank.** Die Datei sagt, welche Rollen auf diesem Rechner eing
 wo ihre Datenbank liegt und wo ihr Dienst lauscht — mehr nicht:
 
 ```yaml
-# ~/.config/kephalaion/config.yaml   (abweichend: --config, KEPHALAION_CONFIG, XDG_CONFIG_HOME)
+# ~/.config/kephalaion/config.yaml   (abweichend: --config, KEPHALAION_CONFIG, XDG_CONFIG_HOME;
+#                                     global /etc/kephalaion/config.yaml, siehe „Installation und Betrieb“)
 hub:                          # nur auf dem Rechner des Hubs
   db: sqlite:///home/kleist/.local/share/kephalaion/hub.db
   # später: postgres://keph@db.intern/kephalaion
@@ -218,8 +219,9 @@ Mitziehen.
 ## Kommunikation
 
 **Entschieden am 2026-09-25: Der Node ist ein MCP-Server über HTTP (Streamable HTTP), lokal
-wie entfernt, mit einem einzigen Eingang.** Er läuft einmal je Rechner als Dienst (systemd
-`--user`, launchd); jede Anfrage bedient eine eigene Goroutine. HTTP auf `127.0.0.1` braucht
+wie entfernt, mit einem einzigen Eingang.** Er läuft einmal je Rechner als Dienst, pro User
+oder global für alle User (siehe „Installation und Betrieb“); jede Anfrage bedient eine
+eigene Goroutine. HTTP auf `127.0.0.1` braucht
 keinen Webserver auf dem Rechner. Zusätzlich prüft k-playbook beim Briefing, ob der Node
 läuft, und startet ihn sonst. Nur der Node hält den Index warm, später ein
 Einbettungsmodell, und nur er führt die Abgleichschleife und die Verbindungen zu den Hubs.
@@ -818,9 +820,10 @@ Projekte dieses Rechners.
   hieße einen vollständigen Abgleich.
 - **macOS folgt ebenfalls XDG**, nicht `~/Library/Application Support`: dieselbe Doku,
   dieselben Tests, derselbe Pfad im Devcontainer.
-- **Ein Hub als Serverdienst** unter eigenem Systembenutzer gehört nach
-  `/var/lib/kephalaion/` (systemd `StateDirectory=`). Das ist kein Standard von `init`,
-  sondern kommt mit der Einrichtung als Dienst: `--db` oder `XDG_DATA_HOME` in der Unit.
+- **Eine globale Installation** — Node und Hub unter dem Systembenutzer `kephalaion` —
+  gehört nach `/var/lib/kephalaion/` (systemd `StateDirectory=`). Das ist kein Standard von
+  `init`, sondern kommt mit der Einrichtung: `--db` beim `init`, `KEPHALAION_CONFIG` in der
+  Unit (siehe „Installation und Betrieb“).
 - **Nie auf einem synchronisierten oder Netzlaufwerk.** SQLite im WAL-Modus braucht ein
   lokales Dateisystem mit funktionierenden Sperren. Ein Sync-Ordner (HiDrive, OneDrive,
   Dropbox, iCloud) oder unter WSL `/mnt/<laufwerk>/` kann die Datenbank beschädigen oder sehr
@@ -853,6 +856,110 @@ CREATE TABLE documents (
 );
 CREATE UNIQUE INDEX documents_name ON documents(collection, name) WHERE deleted = 0;
 CREATE INDEX documents_revision ON documents(collection, revision);
+
+## Installation und Betrieb
+
+**Entschieden am 2026-09-26: zwei Arten der Installation, je Rechner genau eine.**
+
+| | pro User (user installation) | global (system installation) |
+|---|---|---|
+| Für | einen Menschen auf seinem Rechner | alle User eines Rechners, auch aus Devcontainern |
+| Plattform | Linux, macOS | nur Linux |
+| Binary | `~/.local/bin/kephalaion`, gehört dem User | `/usr/local/bin/kephalaion`, root, `0755` |
+| Installiert durch | `install.sh`, direkt oder über k-playbook | Ansible, nach `docs/installation.md` |
+| Läuft als | der User | Systembenutzer `kephalaion` |
+| config | `~/.config/kephalaion/config.yaml` | `/etc/kephalaion/config.yaml` |
+| Daten | `~/.local/share/kephalaion/` | `/var/lib/kephalaion/` |
+| Dienst | systemd `--user`, auf macOS LaunchAgent | systemd, System-Unit |
+| Upgrade | der User: `kephalaion upgrade` | der Verwalter: Ansible oder `sudo kephalaion upgrade` |
+
+- **Ohne Clone.** Keine der beiden Arten braucht Git oder Go: Binary und `SHA256SUMS` kommen
+  aus dem Release — über `install.sh` oder über Ansible (`get_url` mit
+  `checksum: sha256:<URL von SHA256SUMS>`, das Modul sucht die Zeile zum Asset selbst heraus).
+  Namen und URLs der Assets sind damit eine Schnittstelle und ändern sich nicht ohne Hinweis
+  im Release.
+- **Nie beide auf einem Rechner.** Sie wollten dieselben Ports, und ein Client wüsste nicht,
+  welchen Node er meint. `init` ohne `--config` richtet nur pro User ein und bricht ab, wenn
+  es die globale config findet.
+- **Global ist ein Dienst für alle.** Node und, falls eingerichtet, Hub laufen in einem
+  `serve` unter dem Systembenutzer. Die User betreiben nichts, sie sind Clients: je User ein
+  Account mit Token und der Eintrag in seinen MCP-Clients (Sache von k-playbook). Das
+  Anmeldemodell trägt das schon — jede Anfrage bringt Account und Token mit, und der Node
+  prüft gegen die Rechte dieses Accounts. Loopback teilen alle User eines Rechners;
+  Devcontainer erreichen den Node über die Docker-Bridge (siehe „Kommunikation“). Die ist für
+  die globale Installation Voraussetzung und noch nicht gebaut.
+- **Rechte im Dateisystem, global:** Die config ist für alle lesbar — sie enthält kein
+  Geheimnis und sagt, wo der Node lauscht. Die Datenbanken gehören `kephalaion`
+  (`/var/lib/kephalaion`, `0700`). Verwaltet wird als Systembenutzer, etwa
+  `sudo -u kephalaion kephalaion hub account add …`. Ruft ein anderer User `status` auf, sagt
+  es, dass die Installation global ist und wie man sie verwaltet, statt an der Datenbank zu
+  scheitern.
+- **Kein Token in Ansible.** Ansible legt Binary, Systembenutzer, Verzeichnisse, config und
+  Dienst an und richtet die Rollen ein (`init` mit ausdrücklichem `--config` und `--db`). Die
+  Hub-Einträge des Nodes (`node hub add`, erstes `rotate`) richtet der Verwalter von Hand ein;
+  die Tokens der User gehören den Usern bzw. k-playbook.
+
+**Die config wird gefunden — entschieden am 2026-09-26.** Reihenfolge:
+
+1. `--config`,
+2. `KEPHALAION_CONFIG`,
+3. `$XDG_CONFIG_HOME/kephalaion/config.yaml` bzw. `~/.config/kephalaion/config.yaml`, wenn
+   die Datei existiert,
+4. `/etc/kephalaion/config.yaml`, wenn die Datei existiert,
+5. sonst der Ort aus 3 — dort legt `init` pro User an.
+
+Die System-Unit setzt `KEPHALAION_CONFIG` ausdrücklich; der Dienst hängt nicht an der Suche.
+`status` nennt, welche config gilt und woher (Flag, Umgebung, User, global).
+
+**Der Dienst — entschieden am 2026-09-26: systemd auf Linux, launchd auf macOS.**
+
+- **Das hängt nicht an der Distribution.** systemd läuft auf praktisch allen verbreiteten —
+  Debian, Ubuntu, Fedora, RHEL und Nachbauten, openSUSE, Arch —, und die Unit ist überall
+  dieselbe, `useradd` ebenso. Ohne systemd (Alpine mit OpenRC, schlanke Container, WSL ohne
+  `systemd=true` in `/etc/wsl.conf`) nennt die Doku nur den Aufruf `kephalaion serve` für
+  einen eigenen Supervisor; eigene Dateien dafür gibt es nicht.
+- **Die Units erzeugt das Binary** (Kommando `service`, Name vorläufig): Pro User schreibt es
+  die Benutzer-Unit bzw. den LaunchAgent, aktiviert und startet ihn; global gibt es die
+  System-Unit aus, und Ansible legt sie ab. Eine Quelle, passend zur Version des Binarys.
+- **Nach `upgrade`** startet ein laufender Dienst pro User neu, damit er das neue Binary
+  benutzt; global gehört der Neustart zum Upgrade des Verwalters.
+- **macOS nur pro User.** Systembenutzer und LaunchDaemon sind dort umständlich; hier ist
+  macOS nur selten zu testen. Die CI prüft es auf `macos-latest` — für ein öffentliches
+  Repo kostenlos.
+
+**Upgrade — entschieden am 2026-09-26.**
+
+- **Pro User** wie bisher `kephalaion upgrade`: atomar per Umbenennen. Das ist auf macOS
+  nötig: Ein signiertes Binary, das an Ort und Stelle überschrieben wird, beendet macOS beim
+  nächsten Start sofort.
+- **Global kann ein User nicht upgraden, und er soll es nicht** — sonst tauschte jeder das
+  Binary aller aus. Der Verwalter hebt die Version in Ansible an (Playbook, Neustart) oder
+  ruft `sudo kephalaion upgrade && sudo systemctl restart kephalaion`.
+- **Ob es ein Update gibt und wie es geht, sagt Kephalaion selbst** — auf der
+  Kommandozeile (`kephalaion upgrade --check`, mit `--json` für k-playbook) und über MCP
+  (in `whoami`): installierte und neueste Version, ob dieses Binary sich selbst ersetzen kann
+  (Schreibrecht in seinem Verzeichnis) und der Weg — pro User `kephalaion upgrade`, global
+  der Befehl für den Verwalter. Das Werkzeug meldet nur; ersetzen kann das Binary über MCP
+  niemand.
+- **Über MCP ohne Anfrage an GitHub je Aufruf.** Ohne Anmeldung erlaubt die GitHub-API 60
+  Anfragen je Stunde und Adresse, geteilt von allen Usern eines Rechners. `serve` fragt
+  höchstens einmal am Tag und merkt sich die Antwort; `upgrade --check` fragt direkt.
+- **k-playbook** bietet das Update in seiner Oberfläche an, wenn das Binary sich selbst
+  ersetzen kann; sonst weist es nur auf die neue Version und den Weg hin.
+
+**Doku für Menschen, Ansible und KI — entschieden am 2026-09-26.** `docs/installation.md`
+beschreibt beide Arten, Dienst und Upgrade, dazu einen Abschnitt „Für Automatisierung“ mit
+den festen Angaben: URL-Schema der Assets, `SHA256SUMS`, Architekturen (`x86_64` → `amd64`,
+`aarch64` → `arm64`), Pfade, Systembenutzer, die Schritte in ihrer Reihenfolge, das Upgrade.
+Das README bringt beide Arten kurz und verweist dorthin. Weil `main` der Release-Stand ist,
+beschreibt `https://raw.githubusercontent.com/kephalaion/kephalaion/main/docs/installation.md`
+immer das neueste Release, mit dem Tag statt `main` eine feste Version. Diese URL nennt das
+Ansible-Repo, das anderswo liegt, in seiner Anleitung — für Menschen wie für eine KI.
+
+**Später: ein deb-Paket.** Gebaut im Release-Workflow aus denselben Binaries (etwa mit
+nfpm), bringt es Systembenutzer, Unit und Neustart mit. Erst, wenn jemand ohne Ansible
+global installieren will; der eigentliche Aufwand ist ein signiertes apt-Repository, ohne
+das `apt upgrade` es nicht findet. Für macOS entspräche dem ein Homebrew-Tap.
 
 CREATE TABLE actions (                 -- Protokoll, befristet
   at          INTEGER NOT NULL,
@@ -1317,8 +1424,10 @@ sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
   es sie braucht, wer die Eigenschaft setzt und wie eine Übergabe an einen anderen User geht.
 - **Erreichbarkeit:** entschieden — Verschlüsselung ist Pflicht, der Transport ist wählbar
   (HTTPS, SSH, lokal im selben Prozess). Offen ist, welcher entfernte zuerst gebaut wird.
-- **Node als Dienst:** entschieden — er läuft ständig (Benutzerdienst), k-playbook prüft
-  beim Briefing zusätzlich. Offen ist nur die Einrichtung je Betriebssystem.
+- **Node als Dienst:** entschieden — er läuft ständig, pro User als Benutzerdienst oder
+  global als Systemdienst; k-playbook prüft beim Briefing zusätzlich. Eingerichtet mit
+  systemd, auf macOS (nur pro User) mit launchd (2026-09-26, „Installation und Betrieb“).
+  Offen: ob die tägliche Frage nach einem Update abschaltbar sein muss (ohne Netz, Datenschutz).
 - **k-playbook ↔ Kephalaion im Einzelnen:** Welche Werkzeuge eigens für k-playbook kommen
   (Kandidaten unter „Werkzeuge“)? Welche braucht k-playbook, die eine KI-Sitzung nicht sehen
   soll, und hängt das am Token? Das Ersetzen eines ganzen Verzeichnisses

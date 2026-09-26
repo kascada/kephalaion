@@ -231,5 +231,18 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **version** — `kephalaion version`: zeigt Version, Commit, Go-Version und Plattform.
 - **upgrade** — `kephalaion upgrade`: ersetzt das laufende Binary durch das Binary eines
   Releases, nach Prüfung gegen `SHA256SUMS`, atomar. Stuft nie von selbst zurück.
-- **install.sh** — Installationsskript für die Erstinstallation nach
+  `--check` sagt nur, ob es eine neuere Version gibt — *geplant:* auch, ob dieses Binary sich
+  selbst ersetzen kann und wie das Upgrade sonst geht, mit `--json` für k-playbook.
+- **install.sh** — Installationsskript für die Erstinstallation pro User nach
   `~/.local/bin/kephalaion`; liegt im Repo und hängt an jedem Release.
+- **user installation** (Installation pro User) — Binary, config, Daten und Dienst gehören
+  einem User: `~/.local/bin`, `~/.config/kephalaion/`, `~/.local/share/kephalaion/`, systemd
+  `--user` bzw. LaunchAgent. Linux und macOS.
+- **system installation** (globale Installation) — *entschieden, nicht gebaut.* Ein Dienst für
+  alle User eines Rechners, nur Linux: `/usr/local/bin/kephalaion`, Systembenutzer
+  `kephalaion`, `/etc/kephalaion/config.yaml`, `/var/lib/kephalaion/`, System-Unit;
+  eingerichtet per Ansible. Die User sind nur Clients. Je Rechner gibt es genau eine der
+  beiden Arten (`konzept.md`, „Installation und Betrieb“).
+- **service** — *vorgemerkt, Name vorläufig.* `kephalaion service`: richtet den Dienst ein, der
+  `serve` startet — pro User Benutzer-Unit bzw. LaunchAgent, global gibt es die System-Unit
+  aus.
