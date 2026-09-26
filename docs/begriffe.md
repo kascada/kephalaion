@@ -76,6 +76,12 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **hub import** — `kephalaion hub import <collection> <verzeichnis>`: spielt ein Verzeichnis
   als Dokumente ein, Name = relativer Pfad; ein Schreibvorgang, eine Revision. Nicht zu
   verwechseln mit `config import`.
+- **personal** (persönliches Verzeichnis) — *vorgemerkt.* Eigenschaft eines Verzeichnisses:
+  Auflisten, Lesen und Schreiben zeigen nur Dokumente des eigenen Users, der Schalter `all`
+  alles; die Suche bleibt unberührt. Eine Ansicht, kein Recht — anders als eine private
+  Collection, die eine Rechtegrenze ist.
+- **numbered** (nummeriert) — *vorgemerkt.* Eigenschaft eines Verzeichnisses: Namen werden vom
+  Hub fortlaufend nummeriert. Ersetzt den früheren Gedanken der „Reihen“ (`series_*`).
 - **mask** (Maske) — Glob auf das letzte Segment eines Namens (`*.md`, `0*-*.md`), etwa bei
   `list`; kein regulärer Ausdruck.
 - **tool** (Werkzeug) — ein MCP-Werkzeug des Nodes für Clients. Gesammelt in `konzept.md`,
@@ -112,11 +118,18 @@ Ausführlich: [`konzept.md`](konzept.md).
 
 ## Zugriff
 
-- **account** (Konto) — wer zugreift: Mensch, KI oder Programm. Hat einen Namen. Am Hub
+- **account** (Konto) — ein Zugang: eine Zugriffsart auf einem Rechner (KI-Sitzung,
+  Automatisierung, Leseprozess). Name, Token, Rechte je Collection; gehört einem **user**.
+  Liegt auf genau einem Rechner — eine Regel, die nicht geprüft wird; ein zweiter Rechner mit
+  demselben Token verliert den Zugang beim ersten `rotate`. Am Hub
   `kephalaion hub account add|list|show|set|rm|lock|unlock|grant|revoke|token`: Beschreibung,
   gesperrt und den maßgeblichen Hash führt die lokale Tabelle **accounts**; die Rechte je
   Collection stehen in den `SYSTEM:A:`-Zeilen, bei einem gesperrten Account gemerkt in
   `accounts` (`locked_rights`). Name gemeinsam mit den Nodes eindeutig.
+- **user** (Nutzer) — wem ein Account gehört; ein Merkmal am Account wie ein Tag, ohne Token,
+  ohne Rechte, ohne Anmeldung. Setzt nur der Admin (`hub account add … --user`); ohne Angabe
+  der Name des Accounts. Steht in den `SYSTEM:A:`-Zeilen und in `created_by`/`updated_by` der
+  Dokumente. Ein User hat meist mehrere Accounts. Namensregel wie bei Accounts, nicht `admin`.
 - **setup token** (Einrichtungstoken) — das Token, das `hub account add` und `hub account
   token` einmal anzeigen. Es gilt nur für den ersten Vorgang, ein `rotate`.
 - **token** — Geheimnis eines Accounts, Format `keph_<geheimnis>`. Jede Anfrage trägt
@@ -125,7 +138,8 @@ Ausführlich: [`konzept.md`](konzept.md).
   `<collection>:<recht>`. Ein Account hat mehrere. Gespeichert je Collection in der
   Account-Zeile. Rechte:
   - `read` — hat jeder in der Collection eingetragene Account.
-  - `write` — anlegen; Eigenes ändern und löschen; gelöschte Namen neu anlegen.
+  - `write` — anlegen; Eigenes (`created_by` = eigener User) ändern und löschen; gelöschte
+    Namen neu anlegen.
   - `supersede` — Fremdes ändern, ablösen, löschen.
   - `replicate` — kein Scope eines Accounts, sondern das Recht eines Nodes: Inhalt und
     Account-Zeilen der Collection abgleichen. Steht am Hub in `node_collections`.
@@ -146,9 +160,9 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **lock** / **unlock** — `kephalaion hub node lock <name>`: sperrt einen Node; `unlock` hebt
   die Sperre auf. `hub account lock` macht alle Zeilen eines Accounts zu Löschmarken und merkt
   seine Rechte; `unlock` legt sie wieder an.
-- **admin** — der Account, als der die CLI am Hub handelt; steht in `created_by` und in
+- **admin** — Account und User, als die die CLI am Hub handelt; steht in `created_by` und in
   `actions`. Als Account- und Node-Name reserviert (`ident.CheckPrincipalName`).
-- **actions** (Protokoll) — Tabelle des Hubs: wer wann was getan hat. `subject` nennt das
+- **actions** (Protokoll) — Tabelle des Hubs: wer (Account, nicht User) wann was getan hat. `subject` nennt das
   Ziel einer Handlung ohne Dokument — Collection, Node oder `<node>:<collection>`.
 - **--token-stdin** — liest ein Token als eine Zeile von der Standardeingabe. Ein Token wird
   nie als Argument übergeben und nur gekürzt angezeigt (`keph_…` und die letzten vier
@@ -161,7 +175,11 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **carrier** (Träger) — der Node, der eine Anfrage an den Hub trägt; meldet sich mit seinem
   eigenen Token an. Das Token des Accounts steht in der Anfrage.
 - **rotate** — ersetzt das Token eines Accounts: altes Token zur Anmeldung, Hash des neuen.
-  Erster Vorgang jedes Accounts; eine eigene Begrüßung gibt es nicht.
+  Erster Vorgang jedes Accounts; eine eigene Begrüßung gibt es nicht. Vorgang des Vertrags,
+  nie wiederholt; ein Schreibvorgang mit einer Zeile `rotate` in `actions`.
+- **whoami** — Vorgang des Vertrags: bestätigt den Node, nennt die `hub_id` und seine
+  erlaubten Collections und prüft wahlweise einen Account (`valid`). Am Node auch ein
+  MCP-Werkzeug für Clients.
 
 ## Auslieferung
 

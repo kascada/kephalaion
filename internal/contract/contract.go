@@ -24,10 +24,18 @@ const Version = 1
 const DefaultPageSize = 500
 
 // Hub ist, was ein Node vom Hub braucht. Jeder Aufruf trägt die Anmeldung des
-// Nodes und wird am Hub geprüft, auch auf dem lokalen Weg.
+// Nodes und wird am Hub geprüft, auch auf dem lokalen Weg. Fehler sind *Error
+// mit einem der Codes dieses Pakets oder Fehler des Transports bzw. der
+// Datenbank.
 type Hub interface {
-	// Sync liefert eine Seite des Abgleichs. Fehler sind *Error mit einem
-	// der Codes dieses Pakets oder Fehler des Transports bzw. der Datenbank.
+	// Whoami bestätigt den Node und nennt seine erlaubten Collections; mit
+	// einem Account-Teil prüft es zusätzlich den Account.
+	Whoami(ctx context.Context, req WhoamiRequest) (WhoamiResponse, error)
+	// Rotate ersetzt das Token eines Accounts: altes Token zur Anmeldung,
+	// Hash des neuen. Nicht wiederholbar — danach gilt das alte Token nicht
+	// mehr; ein Transport wiederholt es deshalb nie.
+	Rotate(ctx context.Context, req RotateRequest) (RotateResponse, error)
+	// Sync liefert eine Seite des Abgleichs.
 	Sync(ctx context.Context, req SyncRequest) (SyncResponse, error)
 }
 
@@ -36,6 +44,72 @@ type Hub interface {
 type NodeAuth struct {
 	Node  string `json:"-"`
 	Token string `json:"-"`
+}
+
+// AccountAuth ist die Anmeldung eines Accounts: sein Name und sein Token. Sie
+// steht im Body — der Node trägt die Anfrage, der Account sagt, in wessen
+// Namen.
+type AccountAuth struct {
+	Account string `json:"account"`
+	Token   string `json:"token"`
+}
+
+// WhoamiRequest fragt den Hub, wer der Node für ihn ist, und wahlweise, ob ein
+// Account gilt.
+type WhoamiRequest struct {
+	// Version ist die Fassung des Nodes; über HTTP im Pfad.
+	Version int `json:"-"`
+	// Auth ist die Anmeldung des Nodes; über HTTP in Headern.
+	Auth NodeAuth `json:"-"`
+	// Account ist wahlweise ein Account, den der Hub prüfen soll.
+	Account *AccountAuth `json:"account,omitempty"`
+}
+
+// WhoamiResponse bestätigt den Node.
+type WhoamiResponse struct {
+	HubID   string `json:"hub_id"`
+	Version int    `json:"version"`
+	// Node ist der Name des Nodes am Hub.
+	Node string `json:"node"`
+	// Allowed sind die Collections, die der Node abgleichen darf, sortiert.
+	Allowed []string `json:"allowed"`
+	// Account ist gesetzt, wenn die Anfrage einen Account-Teil hatte.
+	Account *AccountStatus `json:"account,omitempty"`
+}
+
+// AccountStatus sagt, ob ein Account gilt. Unbekannt, falsches Token und
+// gesperrt sind dieselbe Antwort: Valid false, keine Collections.
+type AccountStatus struct {
+	Account string `json:"account"`
+	Valid   bool   `json:"valid"`
+	// Collections sind die Collections des Accounts, die dieser Node
+	// abgleichen darf, sortiert; nur wenn Valid gilt.
+	Collections []string `json:"collections"`
+}
+
+// RotateRequest ersetzt das Token eines Accounts.
+type RotateRequest struct {
+	// Version ist die Fassung des Nodes; über HTTP im Pfad.
+	Version int `json:"-"`
+	// Auth ist die Anmeldung des Nodes, des Trägers; über HTTP in Headern.
+	Auth NodeAuth `json:"-"`
+	// Account ist der Name des Accounts.
+	Account string `json:"account"`
+	// Token ist das bisherige Token des Accounts.
+	Token string `json:"token"`
+	// NewHash ist sha256 des neuen Tokens, 64 Zeichen hex. Das neue Token
+	// selbst verlässt den Node nie.
+	NewHash string `json:"new_hash"`
+}
+
+// RotateResponse liefert die Zeilen des Accounts nach dem Wechsel,
+// beschränkt auf die Collections, die der Node abgleichen darf.
+type RotateResponse struct {
+	HubID   string `json:"hub_id"`
+	Version int    `json:"version"`
+	// Rows sind die Account-Zeilen (SYSTEM:A:<account>) mit dem neuen Hash,
+	// je eine erlaubte Collection des Accounts, nach Collection.
+	Rows []Row `json:"rows"`
 }
 
 // Since ist ein Paar der Anfrage: alles aus Collection mit einer Revision
@@ -123,7 +197,17 @@ const (
 	// CodeUnsupportedVersion: der Hub kennt oder bedient die Fassung des
 	// Nodes nicht.
 	CodeUnsupportedVersion Code = "unsupported_version"
+	// CodeAccountUnauthenticated: der Node ist angemeldet, der Account nicht
+	// — unbekannt, Token falsch oder gesperrt, dieselbe Antwort.
+	CodeAccountUnauthenticated Code = "account_unauthenticated"
+	// CodeNoSharedCollection: der Account hat keine der Collections, die der
+	// Node abgleichen darf (rotate).
+	CodeNoSharedCollection Code = "no_shared_collection"
 )
+
+// Codes sind alle Fehlercodes des Vertrags.
+var Codes = []Code{CodeUnauthenticated, CodeInvalid, CodeUnsupportedVersion, CodeAccountUnauthenticated,
+	CodeNoSharedCollection}
 
 // Error ist ein Fehler des Vertrags: ein Code und eine Meldung. errors.Is
 // vergleicht nur den Code, so dass jeder *Error mit gleichem Code die
@@ -143,10 +227,21 @@ func (e *Error) Is(target error) bool {
 
 // Fehlervariablen für errors.Is, je Code eine, mit der Standardmeldung.
 var (
-	ErrUnauthenticated    = &Error{Code: CodeUnauthenticated, Message: "nicht angemeldet"}
-	ErrInvalid            = &Error{Code: CodeInvalid, Message: "ungültige Anfrage"}
-	ErrUnsupportedVersion = &Error{Code: CodeUnsupportedVersion, Message: "Fassung nicht unterstützt"}
+	ErrUnauthenticated        = &Error{Code: CodeUnauthenticated, Message: "nicht angemeldet"}
+	ErrInvalid                = &Error{Code: CodeInvalid, Message: "ungültige Anfrage"}
+	ErrUnsupportedVersion     = &Error{Code: CodeUnsupportedVersion, Message: "Fassung nicht unterstützt"}
+	ErrAccountUnauthenticated = &Error{Code: CodeAccountUnauthenticated,
+		Message: "Account nicht angemeldet"}
+	ErrNoSharedCollection = &Error{Code: CodeNoSharedCollection,
+		Message: "der Account hat keine der Collections, die dieser Node abgleichen darf"}
 )
+
+// ErrOutcomeUnknown meldet einen Transportfehler, nach dem offen ist, ob der
+// Hub die Anfrage ausgeführt hat — etwa eine Zeitüberschreitung, nachdem sie
+// abgeschickt war. Für rotate heißt das: prüfen (whoami mit Account-Teil),
+// nicht wiederholen. Ein Fehler, der vor dem Abschicken entstand
+// (Verbindung abgelehnt), ist es nicht.
+var ErrOutcomeUnknown = errors.New("Ausgang unklar")
 
 // Invalid liefert einen Fehler mit Code CodeInvalid und einem Grund.
 func Invalid(reason string) *Error {

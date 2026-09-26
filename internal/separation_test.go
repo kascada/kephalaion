@@ -148,17 +148,26 @@ func TestViolations(t *testing.T) {
 }
 
 // TestContractNeutral prüft, dass der Vertrag weder Hub noch Node kennt: Der
-// Node benutzt ihn, ohne über ihn an den Hub zu kommen.
+// Node benutzt ihn, ohne über ihn an den Hub zu kommen. Das gilt auch für
+// seine Umsetzung über HTTP (internal/contract/httpapi) und das Log der
+// Anfragen (internal/reqlog), die beide Rollen teilen.
 func TestContractNeutral(t *testing.T) {
 	module := modulePath(t)
 	graph := importGraph(t, ".", module+"/internal")
-	contract := module + "/internal/contract"
-	if _, ok := graph[contract]; !ok {
-		t.Fatalf("%s nicht gefunden", contract)
+	var neutral []string
+	for pkg := range graph {
+		if under(pkg, module+"/internal/contract") || under(pkg, module+"/internal/reqlog") {
+			neutral = append(neutral, pkg)
+		}
 	}
-	for _, forbidden := range []string{module + "/internal/hub", module + "/internal/node"} {
-		for _, v := range violations(graph, contract, forbidden) {
-			t.Errorf("%s importiert %s — der Vertrag bleibt neutral", contract, v)
+	if len(neutral) < 3 {
+		t.Fatalf("nur %v gefunden", neutral)
+	}
+	for _, pkg := range neutral {
+		for _, forbidden := range []string{module + "/internal/hub", module + "/internal/node"} {
+			for _, v := range violations(graph, pkg, forbidden) {
+				t.Errorf("%s importiert %s — der Vertrag bleibt neutral", pkg, v)
+			}
 		}
 	}
 }

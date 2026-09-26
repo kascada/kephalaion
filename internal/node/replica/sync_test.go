@@ -628,7 +628,12 @@ func TestNoProgress(t *testing.T) {
 	}
 }
 
-type stuckHub struct{ id string }
+// stuckHub bettet contract.Hub ein, damit es die Schnittstelle erfüllt; nur
+// Sync ist umgesetzt.
+type stuckHub struct {
+	contract.Hub
+	id string
+}
 
 func (s stuckHub) Sync(_ context.Context, req contract.SyncRequest) (contract.SyncResponse, error) {
 	resp := contract.SyncResponse{HubID: s.id, Version: contract.Version, HubRevision: 5, More: true}

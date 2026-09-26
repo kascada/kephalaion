@@ -241,7 +241,7 @@ MCP (Node, /mcp):
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
 | 1 — Accounts am Hub | erledigt | 2026-09-26 | Tabelle `accounts` (Schema 3), `hub account …`, Export-Format 4, `admin` reserviert; make check grün |
-| 2 — Vertrag erweitert, Hub über HTTP | offen | | |
+| 2 — Vertrag erweitert, Hub über HTTP | erledigt | 2026-09-26 | `whoami`/`rotate` in Vertrag und `replication`, `internal/contract/httpapi` (Handler, Client), Vertragstests gegen local und HTTP; make check grün |
 | 3 — Node: Transport http, check, --create, rotate | offen | | |
 | 4 — serve | offen | | |
 | 5 — Node als MCP-Server | offen | | |

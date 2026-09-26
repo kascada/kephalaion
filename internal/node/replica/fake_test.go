@@ -148,3 +148,16 @@ func (f *fakeHub) Sync(_ context.Context, req contract.SyncRequest) (contract.Sy
 	}
 	return resp, nil
 }
+
+// Whoami und Rotate braucht der Abgleich nicht; die Attrappe bestätigt nur
+// den Node.
+func (f *fakeHub) Whoami(_ context.Context, req contract.WhoamiRequest) (contract.WhoamiResponse, error) {
+	if req.Auth.Node != f.node || req.Auth.Token != f.token {
+		return contract.WhoamiResponse{}, contract.ErrUnauthenticated
+	}
+	return contract.WhoamiResponse{HubID: f.id, Version: contract.Version, Node: f.node, Allowed: []string{}}, nil
+}
+
+func (f *fakeHub) Rotate(context.Context, contract.RotateRequest) (contract.RotateResponse, error) {
+	return contract.RotateResponse{}, errors.New("rotate: in der Attrappe nicht umgesetzt")
+}

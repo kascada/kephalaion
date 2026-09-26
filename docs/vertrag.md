@@ -4,15 +4,17 @@ Fassung 1. Dieser Text ist verbindlich; der Code folgt ihm. Im Code steht der Ve
 neutralen Paket `internal/contract` (Typen, Fehler, Schnittstelle `Hub`). Der Hub setzt die
 Schnittstelle um (`internal/hub/replication`), der Node benutzt sie und kennt nur sie. Welche
 Umsetzung er bekommt, entscheidet `cmd/kephalaion`: `local` ist ein Funktionsaufruf im selben
-Prozess, später kommt HTTP mit JSON dazu. Beide prüfen dasselbe.
+Prozess, `http` ist HTTP mit JSON (`internal/contract/httpapi`, siehe „HTTP“). Beide prüfen
+dasselbe; die Tests des Vertrags laufen gegen beide.
 
-Diese Fassung enthält nur den Abgleich (`sync`). Begriffe: [`begriffe.md`](begriffe.md);
-Hintergrund: [`konzept.md`](konzept.md), „Abgleich“ und „Authentifizierung“.
+Drei Vorgänge: `whoami` (wer bin ich, gilt dieser Account), `rotate` (Token eines Accounts
+ersetzen) und `sync` (Abgleich). Begriffe: [`begriffe.md`](begriffe.md); Hintergrund:
+[`konzept.md`](konzept.md), „Abgleich“ und „Authentifizierung“.
 
 ## Fassung
 
 Jede Anfrage nennt die Fassung des Nodes, jede Antwort die des Hubs. Fassung 1 ist die
-einzige. In Go ist sie ein Feld der Anfrage (`SyncRequest.Version`), über HTTP steht sie im
+einzige. In Go ist sie ein Feld jeder Anfrage (`Version`), über HTTP steht sie im
 Pfad (`/v1/…`) und nicht im Body. Eine Fassung, die der Hub nicht kennt oder nicht bedient,
 beantwortet er mit `unsupported_version`, noch vor der Anmeldung.
 
@@ -26,6 +28,63 @@ vergleicht es in konstanter Zeit mit dem gespeicherten Hash. Gibt es den Node ni
 er gegen einen festen Ersatz-Hash, damit die Arbeit dieselbe ist. Unbekannter Node, falsches
 Token und gesperrter Node ergeben dieselbe Antwort: `unauthenticated`. Der Hub prüft bei jedem
 Aufruf, auch auf dem lokalen Weg.
+
+## Anmeldung eines Accounts
+
+`whoami` und `rotate` tragen zusätzlich einen Account: seinen Namen und sein Token, im Body
+(der Node ist der Träger, der Account sagt, in wessen Namen). Der Hub prüft gegen seine Tabelle
+`accounts` — dort steht der maßgebliche Hash, auch für einen gesperrten Account —, hasht das
+Token und vergleicht in konstanter Zeit; einen unbekannten Account vergleicht er gegen einen
+festen Ersatz-Hash. Unbekannt, falsches Token und gesperrt sind dieselbe Antwort.
+
+## whoami
+
+Bestätigt den Node und nennt, was er abgleichen darf. Mit Account-Teil prüft es zusätzlich den
+Account — so prüft ein Node nach einem unklaren `rotate`, welches Token gilt.
+
+| Feld | JSON | Bedeutung |
+|---|---|---|
+| Fassung, Node, Token | — (Pfad, Header) | wie bei `sync` |
+| Account (wahlweise) | `account` | `{"account": <name>, "token": <token>}` |
+
+Antwort:
+
+| Feld | JSON | Bedeutung |
+|---|---|---|
+| Hub-Kennung | `hub_id` | die `hub_id` des Hubs |
+| Fassung | `version` | 1 |
+| Node | `node` | der Name des Nodes am Hub |
+| Erlaubte Collections | `allowed` | alle Collections, die der Node abgleichen darf, sortiert |
+| Account | `account` | nur mit Account-Teil: `{"account", "valid", "collections"}`. `valid` falsch heißt unbekannt, falsches Token oder gesperrt — dieselbe Antwort, kein Fehler. `collections` sind die Collections des Accounts, die dieser Node abgleichen darf, sortiert; leer, wenn `valid` falsch ist. |
+
+## rotate
+
+Ersetzt das Token eines Accounts. Der Node erzeugt das neue Token, schickt nur seinen Hash und
+behält das Token selbst; zur Anmeldung dient das alte.
+
+| Feld | JSON | Bedeutung |
+|---|---|---|
+| Fassung, Node, Token | — (Pfad, Header) | wie bei `sync`; der Node ist der Träger |
+| Account | `account` | Name des Accounts |
+| Altes Token | `token` | das bisherige Token des Accounts |
+| Neuer Hash | `new_hash` | sha256 des neuen Tokens, 64 Zeichen hex |
+
+Der Hub prüft in dieser Reihenfolge: Fassung, Form von `new_hash` (sonst `invalid`),
+Anmeldung des Nodes, altes Token gegen `accounts` (gesperrt gilt nicht:
+`account_unauthenticated`). Hat der Account keine der Collections, die der Node abgleichen
+darf, antwortet er `no_shared_collection` — **vor** jeder Änderung. Sonst ersetzt er den Hash in
+`accounts` und in allen Zeilen des Accounts in **einer** Transaktion: ein Schreibvorgang mit
+einer Revision und genau einer Zeile in `actions` (`account` = der Account, `carrier` = der
+Node, `action` = `rotate`, `subject` = der Account). Fehlversuche stehen nicht in `actions`,
+nur im Log des Hubs (ohne Token).
+
+Antwort: `hub_id`, `version` und `rows` — die Account-Zeilen mit dem neuen Hash, beschränkt auf
+die Collections, die der Node abgleichen darf, nach Collection; Form wie bei `sync`.
+
+**Nicht wiederholbar.** Nach einem erfolgreichen `rotate` gilt das alte Token nicht mehr; ein
+zweiter Versuch mit ihm scheitert. Ein Transport wiederholt `rotate` deshalb nie. Ist nach dem
+Abschicken offen, ob der Hub es ausgeführt hat, meldet der Transport das als eigenen Fall
+(`contract.ErrOutcomeUnknown`), und der Node prüft mit `whoami`.
 
 ## sync
 
@@ -128,14 +187,41 @@ Clients gegen sie. `content` ist JSON in genau dieser Form:
 Ein Fehler hat einen Code und eine Meldung (`contract.Error`, über HTTP als JSON
 `{"code": …, "message": …}`). Nach einem Fehler gibt es keine Antwortdaten.
 
-| Code | Bedeutung |
-|---|---|
-| `unauthenticated` | nicht angemeldet: Node unbekannt, Token falsch oder Node gesperrt — dieselbe Meldung für alle drei |
-| `invalid` | ungültige Anfrage: Seitengröße ≤ 0, Collection doppelt, `since` negativ |
-| `unsupported_version` | Fassung nicht unterstützt |
+| Code | HTTP | Bedeutung |
+|---|---|---|
+| `unauthenticated` | 401 | nicht angemeldet: Node unbekannt, Token falsch oder Node gesperrt — dieselbe Meldung für alle drei |
+| `account_unauthenticated` | 403 | der Node ist angemeldet, der Account nicht: unbekannt, Token falsch oder gesperrt (`rotate`) |
+| `no_shared_collection` | 409 | der Account hat keine der Collections, die der Node abgleichen darf (`rotate`) |
+| `invalid` | 400 | ungültige Anfrage: Seitengröße ≤ 0, Collection doppelt, `since` negativ, `new_hash` kein sha256, kein gültiges JSON; über HTTP auch 404 (unbekannter Vorgang), 405 (nicht POST), 413 (Body zu groß) |
+| `unsupported_version` | 404 | Fassung nicht unterstützt |
 
 Fehler des Transports oder der Datenbank sind keine Fehler des Vertrags; der Node versucht es
-später wieder.
+später wieder. Über HTTP antwortet der Hub dann mit 500 und dem Code `internal`, der kein Code
+des Vertrags ist.
+
+## HTTP
+
+- **Pfad:** `POST /v<Fassung>/<Vorgang>`, also `/v1/whoami`, `/v1/rotate`, `/v1/sync`. Die
+  Fassung im Pfad ist die Fassung des Vertrags. Eine fremde Fassung (`/v2/…`, auch `/v0/…`)
+  beantwortet der Hub mit 404 und `unsupported_version`, vor der Anmeldung; ein unbekannter
+  Vorgang ist 404 mit `invalid`, eine andere Methode als POST 405.
+- **Anmeldung des Nodes** in Headern: `X-Keph-Node: <name>` und `Authorization: Bearer
+  <token>`. Der Body ist JSON (die Felder oben); ein leerer Body gilt als `{}`.
+- **Antwort:** 200 mit JSON, gzip-komprimiert, wenn die Anfrage `Accept-Encoding: gzip` trägt
+  (der Client des Nodes bittet immer darum). Fehler: Status nach der Tabelle oben, Body
+  `{"code": …, "message": …}`.
+- **Grenzen:** Der Body einer Anfrage darf höchstens 1 MiB groß sein (sonst 413). Antworten
+  sind nicht begrenzt — eine Seite des Abgleichs kann eine große Revision ganz tragen. Der
+  Server liest Kopf und Body innerhalb von 10 s bzw. 60 s und darf eine Antwort bis zu 10
+  Minuten lang schreiben. Der Client wartet auf `whoami` und `rotate` 30 s, auf eine Seite
+  von `sync` 10 Minuten.
+- **Wiederholung:** `whoami` und `sync` wiederholt der Client bei Fehlern des Transports und
+  bei 5xx bis zu dreimal, mit wachsendem Abstand (0,5 s, 1 s, 2 s). `rotate` nie.
+- **Unklarer Ausgang bei `rotate`:** Kam die Verbindung nicht zustande, ist nichts geschehen.
+  Jeder andere Fehler nach dem Abschicken — Zeitüberschreitung, abgebrochene Verbindung,
+  unlesbare Antwort, 5xx — ist unklar (`contract.ErrOutcomeUnknown`).
+- **Log:** eine Zeile je Anfrage mit Methode, Pfad, Status, Dauer, Node- und Account-Namen;
+  Namen, die der Namensregel nicht folgen, erscheinen maskiert. Nie ein Token, nie ein Body.
 
 ## Bekannte Grenzen
 
@@ -143,3 +229,5 @@ später wieder.
   einer Revision, und eine Revision kommt immer ganz. Über HTTP wird das später ein Datenstrom
   oder eine Obergrenze je Schreibvorgang; in Fassung 1 gibt es kein Limit.
 - **Wiederherstellung aus einer Sicherung** braucht eine neue `hub_id` (siehe oben).
+- **Fehlversuche werden nicht begrenzt.** Ein Node kann beliebig viele Account-Tokens
+  probieren; er muss dafür aber selbst angemeldet sein. Eine Begrenzung kommt später.

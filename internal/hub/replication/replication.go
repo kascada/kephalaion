@@ -1,7 +1,7 @@
 // Package replication ist die Seite des Hubs im Vertrag (docs/vertrag.md):
-// Es setzt contract.Hub über dem Hub-Store um. Hier stehen Anmeldung,
-// erlaubte Collections und der Schnitt der Seiten; der Store liefert nur
-// Zeilen. So gilt die Logik für jede Umsetzung des Stores, und jeder
+// Es setzt contract.Hub über dem Hub-Store um. Hier stehen Anmeldung von
+// Node und Account, erlaubte Collections und der Schnitt der Seiten; der
+// Store liefert nur Zeilen und schreibt rotate in einer Transaktion. So gilt die Logik für jede Umsetzung des Stores, und jeder
 // Transport (local, später HTTP) ruft dieselbe Prüfung.
 package replication
 
@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/kascada/kephalaion/internal/contract"
 	"github.com/kascada/kephalaion/internal/hub/store"
@@ -20,9 +21,13 @@ import (
 // Anfrage wird darauf begrenzt.
 const MaxPageSize = 5000
 
-// dummyHash wird verglichen, wenn es den Node nicht gibt: So kostet ein
-// unbekannter Name dieselbe Arbeit wie ein falsches Token.
-var dummyHash = ident.HashToken("keph_unbekannter-node")
+// dummyHash wird verglichen, wenn es den Node nicht gibt, dummyAccountHash,
+// wenn es den Account nicht gibt: So kostet ein unbekannter Name dieselbe
+// Arbeit wie ein falsches Token.
+var (
+	dummyHash        = ident.HashToken("keph_unbekannter-node")
+	dummyAccountHash = ident.HashToken("keph_unbekannter-account")
+)
 
 // Hub setzt contract.Hub über einem Hub-Store um.
 type Hub struct {
@@ -58,11 +63,112 @@ func (h *Hub) authenticate(ctx context.Context, auth contract.NodeAuth) ([]strin
 	return n.Collections, nil
 }
 
+// checkAccount prüft Name, Token und Sperre eines Accounts gegen accounts —
+// dort steht der maßgebliche Hash. Unbekannt, falsches Token und gesperrt
+// ergeben ok false; der Hash wird in jedem Fall in konstanter Zeit
+// verglichen.
+func (h *Hub) checkAccount(ctx context.Context, a contract.AccountAuth) (acc store.Account, ok bool, err error) {
+	acc, err = h.st.Account(ctx, a.Account)
+	known := err == nil
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.Account{}, false, err
+	}
+	want := dummyAccountHash
+	if known {
+		want = acc.TokenHash
+	}
+	match := subtle.ConstantTimeCompare([]byte(ident.HashToken(a.Token)), []byte(want)) == 1
+	return acc, known && match && !acc.Locked, nil
+}
+
+// checkVersion prüft die Fassung des Nodes, vor allem anderen.
+func checkVersion(v int) error {
+	if v != contract.Version {
+		return &contract.Error{Code: contract.CodeUnsupportedVersion,
+			Message: fmt.Sprintf("Fassung %d nicht unterstützt, der Hub spricht Fassung %d", v, contract.Version)}
+	}
+	return nil
+}
+
+// Whoami bestätigt den Node. Mit Account-Teil prüft es den Account gegen
+// accounts und nennt, welche seiner Collections dieser Node abgleichen darf.
+// Ein Account, der nicht gilt, ist kein Fehler, sondern Valid false.
+func (h *Hub) Whoami(ctx context.Context, req contract.WhoamiRequest) (contract.WhoamiResponse, error) {
+	if err := checkVersion(req.Version); err != nil {
+		return contract.WhoamiResponse{}, err
+	}
+	allowed, err := h.authenticate(ctx, req.Auth)
+	if err != nil {
+		return contract.WhoamiResponse{}, err
+	}
+	info, err := h.st.Info(ctx)
+	if err != nil {
+		return contract.WhoamiResponse{}, err
+	}
+	resp := contract.WhoamiResponse{HubID: info.HubID, Version: contract.Version, Node: req.Auth.Node,
+		Allowed: append([]string{}, allowed...)}
+	if req.Account != nil {
+		acc, ok, err := h.checkAccount(ctx, *req.Account)
+		if err != nil {
+			return contract.WhoamiResponse{}, err
+		}
+		st := &contract.AccountStatus{Account: req.Account.Account, Valid: ok, Collections: []string{}}
+		if ok {
+			for _, r := range acc.Rights {
+				if slices.Contains(allowed, r.Collection) {
+					st.Collections = append(st.Collections, r.Collection)
+				}
+			}
+		}
+		resp.Account = st
+	}
+	return resp, nil
+}
+
+// Rotate ersetzt das Token eines Accounts. Reihenfolge: Fassung, Form des
+// neuen Hashes, Anmeldung des Nodes, dann das alte Token gegen accounts
+// (gesperrt gilt nicht). Der Store prüft in seiner Transaktion noch einmal
+// und ersetzt den Hash in accounts und allen Zeilen unter einer Revision; hat
+// der Account keine der Collections dieses Nodes, ändert er nichts.
+// Fehlversuche stehen nicht in actions.
+func (h *Hub) Rotate(ctx context.Context, req contract.RotateRequest) (contract.RotateResponse, error) {
+	if err := checkVersion(req.Version); err != nil {
+		return contract.RotateResponse{}, err
+	}
+	if !contract.IsTokenHash(req.NewHash) {
+		return contract.RotateResponse{}, contract.Invalid("new_hash ist kein sha256 in Hex (64 Zeichen 0-9a-f)")
+	}
+	allowed, err := h.authenticate(ctx, req.Auth)
+	if err != nil {
+		return contract.RotateResponse{}, err
+	}
+	_, ok, err := h.checkAccount(ctx, contract.AccountAuth{Account: req.Account, Token: req.Token})
+	if err != nil {
+		return contract.RotateResponse{}, err
+	}
+	if !ok {
+		return contract.RotateResponse{}, contract.ErrAccountUnauthenticated
+	}
+	rows, err := h.st.RotateAccount(ctx, req.Account, ident.HashToken(req.Token), req.NewHash, req.Auth.Node, allowed)
+	switch {
+	case errors.Is(err, store.ErrAccountAuth):
+		return contract.RotateResponse{}, contract.ErrAccountUnauthenticated
+	case errors.Is(err, store.ErrNoSharedCollection):
+		return contract.RotateResponse{}, contract.ErrNoSharedCollection
+	case err != nil:
+		return contract.RotateResponse{}, err
+	}
+	info, err := h.st.Info(ctx)
+	if err != nil {
+		return contract.RotateResponse{}, err
+	}
+	return contract.RotateResponse{HubID: info.HubID, Version: contract.Version, Rows: append([]contract.Row{}, rows...)}, nil
+}
+
 // checkRequest prüft die Anfrage ohne Datenbank.
 func checkRequest(req contract.SyncRequest) error {
-	if req.Version != contract.Version {
-		return &contract.Error{Code: contract.CodeUnsupportedVersion,
-			Message: fmt.Sprintf("Fassung %d nicht unterstützt, der Hub spricht Fassung %d", req.Version, contract.Version)}
+	if err := checkVersion(req.Version); err != nil {
+		return err
 	}
 	if req.PageSize <= 0 {
 		return contract.Invalid(fmt.Sprintf("Seitengröße %d, erwartet > 0", req.PageSize))
