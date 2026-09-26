@@ -604,6 +604,13 @@ und die Collections, die er abgleichen darf (`kephalaion hub node grant <node>
 nur den Hash. Das Token wird vorerst von Hand übergeben. Ein Node trägt sein Token in seine
 Datenbank ein (`kephalaion node hub add …`).
 
+**Auch der erste Vorgang eines Nodes ist ein `rotate` — entschieden am 2026-09-26**, gebaut
+wird es nach dem `rotate` der Accounts. Das angezeigte Token taugt dann nur zur Einrichtung,
+und das erste `rotate` prüft Verbindung und Zusammenspiel gleich beim Einrichten statt später.
+Anders als ein Account legt der Node das neue Token selbst ab, in `node.db`; eine fremde
+Konfiguration muss dafür niemand ändern. Grundsatz: Ein Node wird behandelt wie ein Account,
+außer wo es anders sinnvoll ist.
+
 **Der erste Vorgang jedes Accounts ist ein `rotate`.** Einrichtung und Rotation sind derselbe
 Vorgang:
 
@@ -1128,7 +1135,7 @@ sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
 - **Token-Rotation (später):** Accounts von Menschen und KIs rotieren am Hub mit einer Frist,
   in der altes und neues Token gelten; der neue Hash gleicht sich zu den Nodes ab. Ein Node
   rotiert sein Token selbst: Er erzeugt ein neues und meldet dem Hub nur den Hash, ab da gilt
-  das neue. Wie das neue Token bis zu k-playbook gelangt, ist offen.
+  das neue (erster Vorgang, siehe „Authentifizierung“, „Einrichtung“). Wie das neue Token bis zu k-playbook gelangt, ist offen.
 - **Vormerken bei Nichterreichbarkeit:** derzeit nein, es wird gemeldet. Ob ein Ausgangskorb
   später kommt, ist offen; er bringt Reihenfolge- und Doppelschreibfragen mit.
 - **Anhängen bei mehreren Accounts:** Der Hub serialisiert. Für die lokale Ablage steht
