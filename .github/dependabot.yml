@@ -1,11 +1,22 @@
 version: 2
+
+# Versions-Updates gehen gegen dev, den Arbeitsbranch; main rückt nur über
+# release vor. Dependabot liest diese Datei vom Standard-Branch main, sie wirkt
+# also erst nach dem nächsten Release.
+#
+# Security-Updates gehen trotzdem gegen main: target-branch wirkt auf sie
+# nicht. Solche PRs nicht auf GitHub mergen, sondern lokal nach dev holen
+# (git fetch origin, git merge origin/<branch>, sichern); enthält main die
+# Commits nach dem nächsten Release, gilt der PR als gemergt.
 updates:
   - package-ecosystem: gomod
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly

@@ -209,7 +209,7 @@ In einer Wegwerf-Kopie im Scratchpad, damit nichts auf GitHub landet:
 |---|---|---|---|
 | 1 — dev anlegen | erledigt | 2026-09-26 | `dev` von lokalem `main` (a92d9e1, inkl. 51aa5ac) angelegt, nach `origin/dev` gepusht; `origin/main` bleibt auf e758ee8 |
 | 2 — Makefile: sichern und release | erledigt | 2026-09-26 | `GH_REPO`, `sichern` nur auf `dev` (Push nach `origin dev`, Hinweis auf `git pull --no-rebase`), `release` in 12 Schritten; ls-remote unterscheidet „kein Tag“ (Code 2) von Fehler; Hilfe um Branches ergänzt |
-| 3 — GitHub: CI-Trigger, Dependabot, Ruleset | offen | | |
+| 3 — GitHub: CI-Trigger, Dependabot, Ruleset | erledigt | 2026-09-26 | `ci.yml` push nur `main`/`dev`; `dependabot.yml` `target-branch: dev` mit Hinweis zu Security-Updates; Ruleset „main und dev“ (ID 24044142, active, `deletion` + `non_fast_forward`, keine bypass_actors) angelegt, `rules/branches/main` und `…/dev` zeigen beide Regeln |
 | 4 — Doku | offen | | |
 | 5 — Durchlauf | offen | | |
 

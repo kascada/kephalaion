@@ -1,14 +1,18 @@
 name: CI
 
-# Jeder Push und jeder Pull Request: Format, vet, Tests und der Cross-Build
-# aller vier Plattformen — über dieselben Make-Targets wie lokal. Der Lauf
-# ändert nichts und veröffentlicht nichts.
+# Jeder Push auf main und dev, jeder Pull Request und von Hand: Format, vet,
+# Tests und der Cross-Build aller vier Plattformen — über dieselben
+# Make-Targets wie lokal. Der Lauf ändert nichts und veröffentlicht nichts.
 
 on:
-  # Nur Branches: ein Tag läuft durch release.yml, das selbst prüft.
+  # Push nur für main und dev: andere Branches kommen als Pull Request. Mit
+  # "**" liefen Dependabot-Branches bisher doppelt, einmal für den Push und
+  # einmal für den PR. Tags laufen nicht hier, sondern durch release.yml, das
+  # selbst prüft; release verlangt einen grünen Lauf auf dev.
   push:
     branches:
-      - "**"
+      - main
+      - dev
   pull_request:
   workflow_dispatch:
 
