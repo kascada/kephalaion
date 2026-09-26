@@ -18,11 +18,13 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/kephalaion/kephalaion/internal/sqlq"
+	"modernc.org/sqlite" // Treiber "sqlite", reines Go
+	sqlite3 "modernc.org/sqlite/lib"
 
-	_ "modernc.org/sqlite" // Treiber "sqlite", reines Go
+	"github.com/kephalaion/kephalaion/internal/sqlq"
 )
 
 // ErrNotFound meldet eine fehlende Datenbankdatei.
@@ -30,6 +32,33 @@ var ErrNotFound = errors.New("Datenbankdatei fehlt")
 
 // ErrExists meldet, dass eine anzulegende Datenbankdatei schon existiert.
 var ErrExists = errors.New("Datenbankdatei existiert schon")
+
+// ErrNoInfo meldet eine Datei, die SQLite als Datenbank liest, die aber keine
+// Kephalaion-Datenbank ist: db_info fehlt oder nennt keine Rolle.
+var ErrNoInfo = errors.New("keine Kephalaion-Datenbank")
+
+// IsCorrupt sagt, ob err meldet, dass SQLite die Datei nicht als Datenbank
+// erkennt oder sie beschädigt ist (SQLITE_NOTADB, SQLITE_CORRUPT, auch mit
+// erweitertem Code). Andere Fehler — belegt (BUSY, LOCKED), Zugriffsrechte,
+// abgebrochener ctx — sind es nicht.
+func IsCorrupt(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	switch se.Code() & 0xff {
+	case sqlite3.SQLITE_NOTADB, sqlite3.SQLITE_CORRUPT:
+		return true
+	}
+	return false
+}
+
+// noSuchTable sagt, ob err meldet, dass eine Tabelle fehlt. SQLite hat dafür
+// keinen eigenen Code (SQLITE_ERROR), nur die Meldung.
+func noSuchTable(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code()&0xff == sqlite3.SQLITE_ERROR && strings.Contains(se.Error(), "no such table")
+}
 
 // BaseSchema ist das DDL der Tabellen, die jede Datenbank hat.
 const BaseSchema = `
@@ -265,15 +294,19 @@ func (e *SchemaVersionError) Error() string {
 }
 
 // CheckInfo prüft Rolle und Schemafassung einer geöffneten Datenbank und
-// liefert db_info.
+// liefert db_info. Fehlt db_info oder nennt sie keine Rolle, ist der Fehler
+// ErrNoInfo.
 func CheckInfo(ctx context.Context, db Querier, role string, schemaVersion int) (map[string]string, error) {
 	info, err := ReadInfo(ctx, db)
 	if err != nil {
+		if noSuchTable(err) {
+			return nil, fmt.Errorf("%w (db_info fehlt)", ErrNoInfo)
+		}
 		return nil, fmt.Errorf("keine Kephalaion-Datenbank (db_info nicht lesbar: %w)", err)
 	}
 	gotRole, ok := info[KeyRole]
 	if !ok {
-		return nil, errors.New("keine Kephalaion-Datenbank (db_info ohne Rolle)")
+		return nil, fmt.Errorf("%w (db_info ohne Rolle)", ErrNoInfo)
 	}
 	if gotRole != role {
 		return nil, &WrongRoleError{Want: role, Got: gotRole}

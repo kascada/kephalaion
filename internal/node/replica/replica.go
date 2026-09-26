@@ -51,6 +51,14 @@ const KeyEntryID = "entry_id"
 // Replica nicht gibt.
 var ErrNotFound = errors.New("gibt es in der Replica nicht")
 
+// errNoIDs meldet eine Replica, deren db_info keine hub_id oder entry_id
+// nennt.
+var errNoIDs = errors.New("db_info ohne hub_id oder entry_id")
+
+// afterLink läuft in Create zwischen dem Linken an den Ort und dem Öffnen;
+// nur Tests setzen es, um die Datei dazwischen zu ersetzen.
+var afterLink func(path string)
+
 // ErrChanged meldet, dass sich die Replica während eines Abgleichs unter ihm
 // geändert hat: ein anderer Abgleich hat sie geleert, node hub rm oder
 // config import hat sie entfernt, oder sie gehört inzwischen zu einem neuen
@@ -172,7 +180,7 @@ func Open(ctx context.Context, path string) (*Replica, error) {
 	id, entry := info[KeyHubID], info[KeyEntryID]
 	if id == "" || entry == "" {
 		_ = db.Close()
-		return nil, fmt.Errorf("Replica %s: db_info ohne hub_id oder entry_id", path)
+		return nil, fmt.Errorf("Replica %s: %w", path, errNoIDs)
 	}
 	return &Replica{db: db, hubID: id, entryID: entry}, nil
 }
@@ -182,7 +190,10 @@ func Open(ctx context.Context, path string) (*Replica, error) {
 // daneben und wird erst fertig an ihren Ort gelinkt: Wer sie dort öffnet,
 // findet nie eine halb angelegte. Existiert die Datei schon — etwa weil ein
 // zweiter Abgleich schneller war —, bricht Create mit sqlitedb.ErrExists ab.
-// Scheitert das Anlegen, bleibt keine Datei zurück.
+// Scheitert das Anlegen, bleibt keine Datei zurück. Zwischen Linken und
+// Öffnen kann ein anderer Prozess die Datei ersetzen (node hub rm, add und
+// der Abgleich des neuen Eintrags): Trägt die geöffnete Datei nicht entryID,
+// liefert Create ErrChanged und schreibt nichts.
 func Create(ctx context.Context, path, hubID, entryID string) (*Replica, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("Verzeichnis der Replicas: %w", err)
@@ -208,7 +219,18 @@ func Create(ctx context.Context, path, hubID, entryID string) (*Replica, error) 
 	if err != nil {
 		return nil, err
 	}
-	return Open(ctx, path)
+	if afterLink != nil {
+		afterLink(path)
+	}
+	r, err := Open(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if r.EntryID() != entryID {
+		_ = r.Close()
+		return nil, ErrChanged
+	}
+	return r, nil
 }
 
 // Remove entfernt die Replica-Datei samt -wal und -shm; eine fehlende Datei

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -360,5 +362,96 @@ func TestBackgroundSyncShutdown(t *testing.T) {
 	}
 	if log := srv.log.String(); !strings.Contains(log, "beendet") || strings.Contains(log, "Abgleich fern gescheitert") {
 		t.Errorf("Log:\n%s", log)
+	}
+}
+
+// deafHub hält den ersten Abgleich an, bis release geschlossen wird, und
+// beachtet den Abbruch nicht; danach antwortet es, als wäre nichts gewesen.
+type deafHub struct {
+	contract.Hub
+	once    *sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (h deafHub) Sync(ctx context.Context, req contract.SyncRequest) (contract.SyncResponse, error) {
+	first := false
+	h.once.Do(func() { first = true })
+	if first {
+		close(h.entered)
+		<-h.release
+		return h.Hub.Sync(context.Background(), req)
+	}
+	return h.Hub.Sync(ctx, req)
+}
+
+// Ein Hub, der den Abbruch nicht beachtet, hält das Beenden von serve
+// höchstens shutdownGrace auf. Der hängende Abgleich läuft danach weiter,
+// schreibt aber nichts — weder in hub_sync noch eine Replica — und
+// panict nicht.
+func TestServeShutdownDeafHub(t *testing.T) {
+	e := newCommEnv(t)
+	ns := nodeStore(t, e.cfg)
+	deaf := deafHub{once: &sync.Once{}, entered: make(chan struct{}), release: make(chan struct{})}
+	hookHTTP(t, func(address string) (contract.Hub, error) {
+		c, err := httpapi.NewClient(address)
+		if err != nil {
+			return nil, err
+		}
+		h := deaf
+		h.Hub = c
+		return h, nil
+	})
+	oldGrace, oldBg := shutdownGrace, serveBackground
+	shutdownGrace = 300 * time.Millisecond
+	bgDone := make(chan (<-chan struct{}), 1)
+	serveBackground = func(done <-chan struct{}) { bgDone <- done }
+	t.Cleanup(func() { shutdownGrace, serveBackground = oldGrace, oldBg })
+
+	srv := startServe(t, portZero(t, e.cfg))
+	done := <-bgDone
+	select {
+	case <-deaf.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("kein Abgleich über http")
+	}
+	released := false
+	defer func() {
+		if !released {
+			close(deaf.release)
+		}
+	}()
+	start := time.Now()
+	srv.stop(t)
+	if d := time.Since(start); d > shutdownGrace+3*time.Second {
+		t.Errorf("serve endet erst nach %s", d)
+	}
+	log := srv.log.String()
+	if !contains(log, "Abgleich im Hintergrund endet nicht in der Frist 300ms; beende trotzdem", "beendet") {
+		t.Errorf("Log:\n%s", log)
+	}
+	select {
+	case <-done:
+		t.Fatal("Abgleich im Hintergrund schon zu Ende, obwohl der Hub hängt")
+	default:
+	}
+
+	// Den Hub freigeben und auf das Ende des Abgleichs warten: Er antwortet
+	// jetzt, der Abgleich ist aber abgebrochen und schreibt nichts.
+	released = true
+	close(deaf.release)
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Abgleich im Hintergrund endet nicht")
+	}
+	if st := syncStatus(t, ns, "fern"); st != (nodestore.SyncStatus{}) {
+		t.Errorf("hub_sync nach Abbruch: %+v", st)
+	}
+	if _, err := os.Stat(ns.ReplicaPath("fern")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Replica von fern nach Abbruch: %v", err)
+	}
+	if strings.Contains(srv.log.String(), "Abgleich fern gescheitert") {
+		t.Errorf("Log:\n%s", srv.log.String())
 	}
 }

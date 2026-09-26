@@ -250,10 +250,11 @@ func (s *Syncer) nowMillis() int64 {
 }
 
 // openForSync öffnet die Replica eines Eintrags. Fehlt sie, ist sie nil. Ist
-// ihre Schemafassung eine andere, wird sie verworfen — sie ist abgeleitet —,
-// und reason sagt es. Gehört sie zu einem anderen Eintrag als h, wird sie
-// ebenso verworfen, aber nur, wenn h noch der gültige Eintrag des Alias ist;
-// sonst ist h selbst veraltet: store.ErrEntryGone.
+// ihre Schemafassung eine andere oder ist sie eindeutig unlesbar
+// (unreadable), wird sie verworfen — sie ist abgeleitet —, und reason sagt
+// es. Gehört sie zu einem anderen Eintrag als h, wird sie ebenso verworfen,
+// aber nur, wenn h noch der gültige Eintrag des Alias ist; sonst ist h selbst
+// veraltet: store.ErrEntryGone. Jeder andere Fehler verwirft nichts.
 func openForSync(ctx context.Context, nodes store.Store, h store.Hub) (r *Replica, reason string, err error) {
 	path := nodes.ReplicaPath(h.Name)
 	r, err = Open(ctx, path)
@@ -283,8 +284,24 @@ func openForSync(ctx context.Context, nodes store.Store, h store.Hub) (r *Replic
 		}
 		return nil, fmt.Sprintf("Schemafassung %s der Replica passt nicht zu diesem Binary (erwartet %s); neu angelegt",
 			sv.Got, sv.Want), nil
+	case ctx.Err() == nil && unreadable(err):
+		if err := Remove(path); err != nil {
+			return nil, "", fmt.Errorf("Replica %s verwerfen: %w", path, err)
+		}
+		return nil, fmt.Sprintf("die Replica war nicht lesbar (%v); neu angelegt", err), nil
 	}
 	return nil, "", err
+}
+
+// unreadable sagt, ob ein Fehler von Open eine eindeutig unlesbare Replica
+// meldet, die der Abgleich verwerfen darf: SQLite erkennt die Datei nicht als
+// Datenbank oder findet sie beschädigt (beim Öffnen oder beim Lesen von
+// db_info), db_info fehlt oder nennt keine Rolle, oder hub_id bzw. entry_id
+// fehlen. Nicht dazu gehören eine belegte Datei (BUSY, LOCKED), ein
+// abgebrochener ctx, Fehler von stat oder der Zugriffsrechte und eine Datei
+// fremder Rolle: Sie bleiben ein Fehler des Abgleichs.
+func unreadable(err error) bool {
+	return sqlitedb.IsCorrupt(err) || errors.Is(err, sqlitedb.ErrNoInfo) || errors.Is(err, errNoIDs)
 }
 
 // createForSync legt die Replica an. War ein anderer schneller, meldet es

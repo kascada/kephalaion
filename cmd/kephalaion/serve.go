@@ -62,12 +62,17 @@ Optionen:
   --config pfad   Ort der config (siehe kephalaion hub init --help)
 `
 
-// shutdownGrace ist die Frist, in der laufende Anfragen beim Beenden noch
-// fertig werden.
-const shutdownGrace = 10 * time.Second
+// shutdownGrace ist die Frist, in der beim Beenden der Abgleich im
+// Hintergrund abbricht und danach laufende Anfragen noch fertig werden — je
+// einmal. Tests stellen sie kürzer.
+var shutdownGrace = 10 * time.Second
 
 // serveReady meldet, dass alle Listener stehen; Tests setzen es.
 var serveReady func(addrs map[config.Role]string)
+
+// serveBackground bekommt den Kanal, der schließt, wenn der Abgleich im
+// Hintergrund zu Ende ist — auch nach dem Ende von serve; Tests setzen es.
+var serveBackground func(done <-chan struct{})
 
 func runServe(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("serve", serveUsage, stderr)
@@ -205,6 +210,9 @@ func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready fun
 	} else {
 		close(bgDone)
 	}
+	if serveBackground != nil {
+		serveBackground(bgDone)
+	}
 	if ready != nil {
 		ready(addrs)
 	}
@@ -215,9 +223,19 @@ func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready fun
 	case result = <-errc:
 	}
 	// Ein laufender Abgleich bricht ab; geschrieben ist nur, was als ganze
-	// Seite ankam. Die Stores bleiben offen, bis er fertig ist.
+	// Seite ankam. Die Stores bleiben offen, bis er fertig ist — höchstens
+	// shutdownGrace: Ein Hub, der den Abbruch nicht beachtet, hält das Beenden
+	// nicht auf. Ein Abgleich, der danach noch läuft, bekommt Fehler von den
+	// geschlossenen Stores und hält wegen des abgebrochenen ctx nichts in
+	// hub_sync fest; der Prozess endet ohnehin.
 	stopBg()
-	<-bgDone
+	bgWait := time.NewTimer(shutdownGrace)
+	select {
+	case <-bgDone:
+		bgWait.Stop()
+	case <-bgWait.C:
+		log.Printf("Abgleich im Hintergrund endet nicht in der Frist %s; beende trotzdem", shutdownGrace)
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
 	for _, rl := range roles {

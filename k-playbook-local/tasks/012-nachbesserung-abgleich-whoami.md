@@ -147,7 +147,7 @@ einen fremden Hub-Eintrag und hält das Beenden von `serve` nicht auf.
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
 | 1 — whoami robust gegen eine unlesbare Replica | erledigt | 2026-09-26 | `mcpnode.UnreadableError`; `openReplica`/Lesefehler je Hub eingeordnet (ctx → Fehler der Anfrage); `Whoami` liefert die Meldungen zurück (Log per `reqlog.NoteError`, stderr in `node whoami`); `DescribeSync` ohne nil/Zeit; Tests MCP, CLI, `status` |
-| 2 — Verwerfen, Replica-Anlage und Beenden von serve | offen | | |
+| 2 — Verwerfen, Replica-Anlage und Beenden von serve | erledigt | 2026-09-26 | `openForSync` verwirft eindeutig unlesbare Replicas (`sqlitedb.IsCorrupt`, `sqlitedb.ErrNoInfo`, fehlende IDs); `Create` prüft `entry_id` nach `Open` (Test-Haken `afterLink`); `serve` wartet höchstens `shutdownGrace` (jetzt `var`) auf den Abgleich; `make check` und `make race` (cmd, internal/node) grün |
 | 3 — Doku | offen | | |
 
 ---

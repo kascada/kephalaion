@@ -646,3 +646,181 @@ func (s stuckHub) Sync(_ context.Context, req contract.SyncRequest) (contract.Sy
 	}
 	return resp, nil
 }
+
+// TestUnreadableRecreated: Eine eindeutig unlesbare Replica — Müll-Bytes,
+// eine leere Datei ohne db_info, eine ohne entry_id — verwirft der Abgleich
+// und legt sie neu an; Reset nennt den Grund.
+func TestUnreadableRecreated(t *testing.T) {
+	cases := []struct {
+		name  string
+		spoil func(t *testing.T, path string)
+	}{
+		{"Müll", func(t *testing.T, path string) {
+			if err := Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(strings.Repeat("kein SQLite ", 500)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"leer", func(t *testing.T, path string) {
+			if err := Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"ohne entry_id", func(t *testing.T, path string) {
+			db, err := sqlitedb.Open(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if _, err := db.Exec(`DELETE FROM db_info WHERE key = ?`, KeyEntryID); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t, "a")
+			e.hub.put("a", "x.md", "x")
+			e.ok()
+			path := e.nodes.ReplicaPath("privat")
+			c.spoil(t, path)
+			if _, err := Open(context.Background(), path); err == nil {
+				t.Fatal("Replica lässt sich noch öffnen")
+			}
+			res := e.ok()
+			if !strings.Contains(res.Reset, "die Replica war nicht lesbar") || !strings.HasSuffix(res.Reset, "; neu angelegt") {
+				t.Errorf("Reset = %q", res.Reset)
+			}
+			e.checkMirror("a")
+			if got := e.replica().EntryID(); got == "" {
+				t.Error("neue Replica ohne entry_id")
+			}
+		})
+	}
+}
+
+// TestUnreadableKept: Bei abgebrochenem ctx und bei einer Datei fremder Rolle
+// verwirft der Abgleich nichts; die Datei bleibt, wie sie ist.
+func TestUnreadableKept(t *testing.T) {
+	e := newEnv(t, "a")
+	ctx := context.Background()
+	h, err := e.nodes.Hub(ctx, "privat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := e.nodes.ReplicaPath("privat")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	junk := []byte(strings.Repeat("kein SQLite ", 500))
+	if err := os.WriteFile(path, junk, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if r, _, err := openForSync(canceled, e.nodes, h); err == nil || r != nil {
+		t.Errorf("abgebrochen: %v", err)
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != string(junk) {
+		t.Errorf("Datei nach Abbruch verändert: %v", err)
+	}
+
+	// Eine Datenbank fremder Rolle.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlitedb.Create(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlitedb.CreateSchema(ctx, db, "", "node", 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	res := e.run()
+	var wr *sqlitedb.WrongRoleError
+	if !errors.As(res.Err, &wr) || res.Reset != "" {
+		t.Errorf("fremde Rolle: Err = %v, Reset = %q", res.Err, res.Reset)
+	}
+	db, err = sqlitedb.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := sqlitedb.CheckInfo(ctx, db, "node", 1); err != nil {
+		t.Errorf("Datei fremder Rolle verändert: %v", err)
+	}
+}
+
+// TestCreateReplacedBeforeOpen: Ersetzt ein anderer die Datei zwischen Link
+// und Open durch die Replica eines anderen Eintrags, liefert Create
+// ErrChanged und schreibt nichts hinein.
+func TestCreateReplacedBeforeOpen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "replicas", "privat.db")
+	hubID, mine, other := ulid.Make().String(), ulid.Make().String(), ulid.Make().String()
+	afterLink = func(path string) {
+		afterLink = nil
+		if err := Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		r, err := Create(ctx, path, hubID, other)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = r.Close()
+	}
+	t.Cleanup(func() { afterLink = nil })
+	if r, err := Create(ctx, path, hubID, mine); !errors.Is(err, ErrChanged) || r != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	r, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if r.EntryID() != other || r.HubID() != hubID {
+		t.Errorf("Replica gehört zu %s/%s", r.EntryID(), r.HubID())
+	}
+	var n int
+	if err := r.db.QueryRow(`SELECT (SELECT COUNT(*) FROM documents) + (SELECT COUNT(*) FROM sync_state)`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d Zeilen geschrieben, %v", n, err)
+	}
+}
+
+// TestSyncCreateReplaced: Im Abgleich setzt ErrChanged aus Create neu auf;
+// der Eintrag gilt noch, also verwirft der nächste Versuch die fremde
+// Replica und legt die eigene an.
+func TestSyncCreateReplaced(t *testing.T) {
+	e := newEnv(t, "a")
+	e.hub.put("a", "x.md", "x")
+	afterLink = func(path string) {
+		afterLink = nil
+		if err := Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		r, err := Create(context.Background(), path, e.hub.id, ulid.Make().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = r.Close()
+	}
+	t.Cleanup(func() { afterLink = nil })
+	res := e.ok()
+	if !strings.Contains(res.Reset, "früheren Eintrag") {
+		t.Errorf("Reset = %q", res.Reset)
+	}
+	h, err := e.nodes.Hub(context.Background(), "privat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.replica().EntryID(); got != h.EntryID {
+		t.Errorf("Replica gehört zu %s, erwartet %s", got, h.EntryID)
+	}
+	e.checkMirror("a")
+}
