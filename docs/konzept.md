@@ -994,6 +994,9 @@ bleibt aus dem Vertrag heraus.
 MCP-Werkzeuge des Nodes für Clients; die Kommandozeile und der Vertrag zwischen Node und Hub
 sind eigene Listen.
 
+**Eine Oberfläche in VS Code** über dieselben Werkzeuge — Collections als Ordner im Explorer —
+ist als Idee in [`vscode.md`](vscode.md) festgehalten.
+
 **Allgemein und für k-playbook.** Kephalaion ist ein allgemeiner Store. Trotzdem braucht es
 Werkzeuge eigens für k-playbook, dem ersten und wichtigsten Nutzer. Grundsatz: Ein
 Werkzeug für k-playbook ist eine bequeme Form über den allgemeinen Vorgängen, kein Sonderweg
