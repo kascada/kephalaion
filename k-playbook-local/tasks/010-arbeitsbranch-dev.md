@@ -211,7 +211,7 @@ In einer Wegwerf-Kopie im Scratchpad, damit nichts auf GitHub landet:
 | 2 — Makefile: sichern und release | erledigt | 2026-09-26 | `GH_REPO`, `sichern` nur auf `dev` (Push nach `origin dev`, Hinweis auf `git pull --no-rebase`), `release` in 12 Schritten; ls-remote unterscheidet „kein Tag“ (Code 2) von Fehler; Hilfe um Branches ergänzt |
 | 3 — GitHub: CI-Trigger, Dependabot, Ruleset | erledigt | 2026-09-26 | `ci.yml` push nur `main`/`dev`; `dependabot.yml` `target-branch: dev` mit Hinweis zu Security-Updates; Ruleset „main und dev“ (ID 24044142, active, `deletion` + `non_fast_forward`, keine bypass_actors) angelegt, `rules/branches/main` und `…/dev` zeigen beide Regeln |
 | 4 — Doku | erledigt | 2026-09-26 | `k-playbook.md`: neuer Abschnitt „Branches“, „Release“, „Sichern“, „Bauen“ nachgezogen; README „Bauen“; `docs/fortschritt.md`: Task 010 unter „Erledigt“, dazu wackelnder `TestBackgroundSync` (Zu tun) und erster Security-PR (Zu testen) |
-| 5 — Durchlauf | offen | | |
+| 5 — Durchlauf | erledigt | 2026-09-26 | In Wegwerf-Kopie gegen lokale `remote.git`: `sichern` (main, detached, dev, origin weiter) und alle `release`-Abbrüche wie erwartet ohne Push, zusätzlich CI rot und `gh` fehlt; Erfolg `v0.0.0-test` auf 1b3892c (CI grün), Wiederholungen `test2`/`test3` laufen durch; GitHub unverändert (`main` e758ee8, keine neuen Tags); Kopie gelöscht |
 
 ---
 ## Review-Log (2026-09-26)
