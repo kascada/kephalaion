@@ -89,6 +89,7 @@ func runUpgrade(args []string, stdout, stderr io.Writer) int {
 		r := u.Report(ctx)
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
+		enc.SetEscapeHTML(false) // command und hint enthalten &&
 		if err := enc.Encode(r); err != nil {
 			fmt.Fprintf(stderr, "upgrade: %v\n", err)
 			return 1

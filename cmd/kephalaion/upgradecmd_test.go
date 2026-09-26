@@ -141,7 +141,7 @@ func TestUpgradeCheckJSON(t *testing.T) {
 		t.Cleanup(func() { _ = os.Chmod(filepath.Dir(exe), 0o755) })
 		r = runT(t, "upgrade", "--check", "--json")
 		r.want(t, 0, `"self_upgrade": false`, `"method": "admin"`,
-			`"command": "sudo kephalaion upgrade \u0026\u0026 sudo systemctl restart kephalaion"`)
+			`"command": "sudo kephalaion upgrade && sudo systemctl restart kephalaion"`)
 		runT(t, "upgrade").want(t, 1, "kein Schreibrecht in "+filepath.Dir(exe), "Weg: globale Installation",
 			"bleibt unverändert")
 	}

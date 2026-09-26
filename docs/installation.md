@@ -240,7 +240,7 @@ DIR="$(sudo -u kephalaion mktemp -d)"
 sudo -u kephalaion sh -c "umask 077; cat > $DIR/alice.token"   # Einrichtungstoken einfügen, Enter, Strg-D
 $K node account rotate team alice --token-file "$DIR/alice.token"
 # … und das neue Token dem User übergeben, am üblichen Ort.
-sudo -u alice install -d -m 0700 ~alice/.config/kephalaion/tokens/team
+sudo -u alice install -d -m 0700 ~alice/.config/kephalaion/tokens ~alice/.config/kephalaion/tokens/team
 sudo install -o alice -g alice -m 0600 "$DIR/alice.token" ~alice/.config/kephalaion/tokens/team/alice.token
 sudo rm -r "$DIR"
 ```
@@ -377,6 +377,7 @@ gleich bleiben.
   vars:
     kephalaion_version: v0.2.0
     kephalaion_hub: false          # true, wenn dieser Rechner auch den Hub trägt
+    kephalaion_manage_service: true   # false nur zum Testen ohne systemd
     kephalaion_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
     kephalaion_base: "https://github.com/kephalaion/kephalaion/releases/download/{{ kephalaion_version }}"
   tasks:
@@ -450,7 +451,7 @@ gleich bleiben.
         enabled: true
         state: started
         daemon_reload: true
-      tags: service
+      when: kephalaion_manage_service | bool
 
   handlers:
     - name: kephalaion neu starten
@@ -458,11 +459,12 @@ gleich bleiben.
         name: kephalaion
         state: restarted
         daemon_reload: true
-      tags: service
+      when: kephalaion_manage_service | bool
 ```
 
 `get_url` lädt nur, wenn sich die Prüfsumme ändert; mit einer URL als `checksum` sucht das
 Modul die Zeile zum Namen des Assets in `SHA256SUMS` selbst heraus. `become_user` braucht auf
-dem Rechner `sudo`. Die Aufgaben mit systemd tragen das Tag `service`; ohne systemd (etwa in
-einem Test-Container) lassen sie sich mit `--skip-tags service` übergehen. Ein Upgrade ist
-ein Lauf mit neuer `kephalaion_version`: neues Binary, der Handler startet den Dienst neu.
+dem Rechner `sudo`. Ohne systemd — etwa in einem Test-Container — übergeht
+`-e kephalaion_manage_service=false` die Aufgabe mit systemd und den Handler; `--skip-tags`
+reichte dafür nicht, Ansible führt benachrichtigte Handler trotzdem aus. Ein Upgrade ist ein
+Lauf mit neuer `kephalaion_version`: neues Binary, der Handler startet den Dienst neu.
