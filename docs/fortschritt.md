@@ -54,7 +54,7 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
 - **Task 004 abschließen** und nach `done/` — Vorbedingung für Task 005.
 - **Task 005 — Kommunikation** (reviewt, nicht begonnen):
   1. Accounts am Hub (`hub account …`, `SYSTEM:A:`-Zeilen, `admin` reserviert, Export);
-     **nachzutragen:** User je Account (`--user`, ohne Angabe = Account-Name; in `accounts`
+     **nach Abschluss von Task 005 nachziehen** (läuft ohne ihn): User je Account (`--user`, ohne Angabe = Account-Name; in `accounts`
      mit Index und in den `SYSTEM:A:`-Zeilen; `created_by`/`updated_by` = User; `whoami` nennt
      ihn) — entschieden 2026-09-26, `konzept.md`, „Account und User“;
   2. Vertrag um `whoami`/`rotate`, Hub über HTTP `/v1/`;
@@ -62,6 +62,13 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
   4. `kephalaion serve` (nur Loopback, Sperrdatei, Logs ohne Token);
   5. Node als MCP-Server `/mcp` mit Werkzeug `whoami`;
   6. Durchlauf mit Testaccounts und Doku.
+- **Rotation des Node-Tokens** (vorgemerkt 2026-09-26): Ein Node rotiert sein Token bei einem
+  Hub selbst, anders als ein Account — er hält es in `node.db` (`hubs.token`) und kann das neue
+  dort ablegen, ohne fremde Konfiguration. Vorbild `rotate` der Accounts: neues Token vor dem
+  Aufruf als ausstehend merken, altes zur Anmeldung, Hash des neuen, danach ersetzen. Offen, ob
+  auch beim Node der erste Vorgang ein `rotate` ist (Token aus `hub node add` nur zur
+  Einrichtung). Grundsatz: Nodes werden wie Accounts behandelt, außer wo es anders sinnvoll
+  ist (`konzept.md`, „Offene Punkte“, Token-Rotation).
 - **Danach (Konzept, „Stufen“):**
   - Stufe 1: Zerlegung in Abschnitte, FTS5-Index, MCP-Werkzeuge `search`, `read`, `list`;
     Abgleich im Hintergrund, Ereignisstrom (SSE/Long-Polling);
@@ -108,8 +115,7 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
   `publish`, Status) Kephalaion trägt; welche die KI nicht sehen soll; wie Werkzeuge
   zuschaltbar werden. Tasks bleiben vorerst als Dateien im Projekt (`konzept.md`, „Für
   k-playbook — Kandidaten“).
-- **Token-Rotation mit Frist** für Menschen/KIs; Node rotiert sein eigenes Token; wie ein neues
-  Token zu k-playbook gelangt.
+- **Token-Rotation mit Frist** für Menschen/KIs; wie ein neues Token zu k-playbook gelangt.
 - **Persönliche Verzeichnisse** (`personal`, `numbered` als Eigenschaften eines Verzeichnisses)
   — vorgemerkt; ob es sie braucht, wer sie setzt, Übergabe an einen anderen User
   (`konzept.md`, „Persönliche Verzeichnisse“).
