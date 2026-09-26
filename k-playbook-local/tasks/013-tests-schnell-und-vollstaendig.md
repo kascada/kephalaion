@@ -145,7 +145,7 @@ was veröffentlicht wird, ist trotzdem vollständig geprüft, bevor `main` sich 
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
 | 1 — Race-Condition in TestBackgroundSync | erledigt | 2026-09-26 | Wartet vor `hub doc put` auf `OKAt` von eigen und fern; `eventuallyLog` gibt den Log von serve aus (bgsync, nodewhoami, updatecheck). Übrige `TestBackgroundSync*` ohne diese Race. Nachweis in Wegwerf-Kopie mit 500 ms in `syncOne`: vorher rot („4 Zeilen, Revision 5“), danach 3× grün, `cmd/kephalaion` ganz grün |
-| 2 — Aufteilung über -short | offen | | |
+| 2 — Aufteilung über -short | erledigt | 2026-09-26 | Helfer `slow` (`main_test.go`), je Test aufgerufen. Langsam (lokal, `-v`): `TestBackgroundSyncErrors` 9,2 s, `TestBackgroundSync` 6,3–6,6 s, `TestServe` 0,05 oder 5,8–6,3 s (Shutdown wartet auf eine ungenutzte Verbindung), `TestMCPReadThroughServe` 1,2 s, `TestBackgroundSyncRemoveAddDuringSync` 1,2 s, `TestBackgroundSyncOff` 0,8 s, `TestServeShutdownDeafHub` 0,45 s (Frist). `TestHTTPStatus` 0,55 s bleibt schnell (fester Verzug von net/http, Paket läuft parallel). `make check-quick` neu. Lokal, Median aus 3: `make check` vorher 26,8 s, nachher 26,1 s; `make check-quick` 9,0 s (vorher gab es nur den vollen Lauf) |
 | 3 — CI je Branch | offen | | |
 | 4 — release verlangt den vollständigen Lauf | offen | | |
 | 5 — Doku | offen | | |

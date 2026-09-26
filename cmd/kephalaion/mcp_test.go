@@ -203,6 +203,7 @@ func mcpCall(t *testing.T, endpoint, alias, account, tok, tool string, args, out
 // dem Abgleich im Hintergrund in die Replica, changes meldet es, read liefert
 // es, list zeigt es.
 func TestMCPReadThroughServe(t *testing.T) {
+	slow(t, "wartet auf die nächste Runde (sync_interval 1s)")
 	e := newCommEnv(t)
 	file := e.tokenFile(t, "bob", e.tokens["bob"])
 	e.run(t, "node", "account", "rotate", "eigen", "bob", "--token-file", file).want(t, 0)

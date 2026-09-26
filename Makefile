@@ -35,7 +35,7 @@ HOST_TARGET = $(shell go env GOOS)-$(shell go env GOARCH)
 # -buildvcs=false, weil der Commit ausdrücklich per -ldflags kommt.
 LDFLAGS = -s -w -X $(BUILDINFO).Version=$(VERSION) -X $(BUILDINFO).Commit=$(COMMIT)
 
-.PHONY: help build test check check-toolchain race cover mutate dist dist-host dev-install clean
+.PHONY: help build test check check-quick check-toolchain race cover mutate dist dist-host dev-install clean
 
 help: ## Zeigt diese Hilfe an
 	@echo "Targets:"
@@ -86,8 +86,9 @@ dist: ## Baut alle vier Plattformen nach ./dist/ und schreibt SHA256SUMS
 test: ## Führt die Tests aus
 	go test ./...
 
+# check und check-quick unterscheiden sich nur in den Flags für go test.
 # install.sh bekommt hier nur die Syntaxprüfung; shellcheck läuft in CI.
-check: ## gofmt-Prüfung, go vet, Tests und Syntax von install.sh
+define check_steps
 	sh -n install.sh
 	@set -eu; \
 	  unformatted="$$(gofmt -l $(GO_DIRS))"; \
@@ -96,7 +97,19 @@ check: ## gofmt-Prüfung, go vet, Tests und Syntax von install.sh
 	    exit 1; \
 	  fi
 	go vet ./...
-	go test ./...
+	go test $(1) ./...
+endef
+
+check: ## gofmt-Prüfung, go vet, alle Tests und Syntax von install.sh
+	$(call check_steps,)
+
+# -short überspringt die langsamen Tests (slow in cmd/kephalaion: sie warten
+# auf Runden, Timer oder Fristen); kompiliert und von go vet geprüft werden
+# sie trotzdem. Für Zwischenstände und CI auf dev; vor dem Abschluss einer
+# Task, bei Änderungen an serve oder dem Abgleich und für ein Release gilt
+# check.
+check-quick: ## Wie check, aber ohne die langsamen Tests (go test -short)
+	$(call check_steps,-short)
 
 # CI ruft das vor dem Bauen: mit GOTOOLCHAIN=local soll eine abweichende
 # Toolchain den Lauf scheitern lassen, statt still anders zu bauen.

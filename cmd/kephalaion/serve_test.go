@@ -100,6 +100,7 @@ func portZero(t *testing.T, cfgPath string) config.Config {
 }
 
 func TestServe(t *testing.T) {
+	slow(t, "das Beenden wartet oft 5 s auf eine ungenutzte Verbindung (net/http)")
 	dir := isolate(t)
 	cfgPath := setup(t, dir)
 	c := "--config=" + cfgPath

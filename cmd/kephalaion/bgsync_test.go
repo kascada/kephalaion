@@ -115,6 +115,7 @@ func countLines(log, part string) int {
 // ist nach dem Abstand in beiden Replicas. Runden ohne Änderung loggen
 // nichts.
 func TestBackgroundSync(t *testing.T) {
+	slow(t, "wartet auf Runden des Abgleichs (sync_interval 1s)")
 	e := newCommEnv(t)
 	ns := nodeStore(t, e.cfg)
 	e.run(t, "config", "set", "node", "sync_interval", "1s").want(t, 0)
@@ -209,6 +210,7 @@ func TestBackgroundSync(t *testing.T) {
 // erste nach dem Start —, danach still, bis es wieder geht oder sich die Art
 // des Fehlers ändert. Der andere Eintrag gleicht derweil weiter ab.
 func TestBackgroundSyncErrors(t *testing.T) {
+	slow(t, "wartet auf Runden des Abgleichs (sync_interval 1s)")
 	e := newCommEnv(t)
 	noRetry(t)
 	ns := nodeStore(t, e.cfg)
@@ -259,6 +261,7 @@ func TestBackgroundSyncErrors(t *testing.T) {
 // sync_interval 0 schaltet den Abgleich im Hintergrund ab, auch beim Start;
 // wieder an, gleicht serve ohne Neustart ab.
 func TestBackgroundSyncOff(t *testing.T) {
+	slow(t, "wartet 500 ms und auf die Runde nach dem Einschalten")
 	e := newCommEnv(t)
 	old := syncIdle
 	syncIdle = 100 * time.Millisecond
@@ -321,6 +324,7 @@ func holdHTTP(t *testing.T) heldHub {
 // Eintrag abgleicht: Der alte schreibt nichts in den neuen, kein Fehler im
 // Log; die nächste Runde gleicht den neuen ab.
 func TestBackgroundSyncRemoveAddDuringSync(t *testing.T) {
+	slow(t, "wartet auf die nächste Runde (sync_interval 1s)")
 	e := newCommEnv(t)
 	e.runIn(t, "x", "hub", "doc", "put", "team-x", "a.md").want(t, 0)
 	ns := nodeStore(t, e.cfg)
@@ -414,6 +418,7 @@ func (h deafHub) Sync(ctx context.Context, req contract.SyncRequest) (contract.S
 // schreibt aber nichts — weder in hub_sync noch eine Replica — und
 // panict nicht.
 func TestServeShutdownDeafHub(t *testing.T) {
+	slow(t, "wartet die Frist shutdownGrace ab")
 	e := newCommEnv(t)
 	ns := nodeStore(t, e.cfg)
 	deaf := deafHub{once: &sync.Once{}, entered: make(chan struct{}), release: make(chan struct{})}

@@ -53,6 +53,19 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// slow überspringt einen langsamen Test unter go test -short (make
+// check-quick, CI auf dev); der vollständige Lauf (make check) nimmt ihn mit.
+// Langsam ist, was die Messung so ausweist: mehr als etwa 0,5 s, oder der
+// Test wartet auf sync_interval, Timer oder Runden. Dass er serve startet,
+// reicht nicht. Kompiliert und von go vet gesehen wird er immer. why sagt,
+// worauf er wartet.
+func slow(t *testing.T, why string) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("langsam: " + why)
+	}
+}
+
 func TestRunHelpAndVersion(t *testing.T) {
 	cases := []struct {
 		args []string
