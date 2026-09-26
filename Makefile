@@ -5,7 +5,7 @@
 
 BINARY := kephalaion
 PKG := ./cmd/kephalaion
-BUILDINFO := github.com/kascada/kephalaion/internal/buildinfo
+BUILDINFO := github.com/kephalaion/kephalaion/internal/buildinfo
 DIST_DIR := dist
 SUMS_FILE := SHA256SUMS
 RELEASE_TARGETS := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64

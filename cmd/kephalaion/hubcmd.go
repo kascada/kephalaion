@@ -7,7 +7,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
 )
 
 const hubCollectionUsage = `Aufruf:

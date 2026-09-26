@@ -46,11 +46,25 @@ Schreibweise, anderer Markt, aber wer Griechisch spricht, hört zuerst „Kapita
 Konfiguration. Im Gespräch: Keph. Im Code und in der Konfiguration steht der volle Name —
 er wird gelesen, nicht getippt.
 
-**Repository:** `kascada/kephalaion` auf GitHub, öffentlich — entschieden am 2026-09-25.
+**Repository:** `kephalaion/kephalaion` auf GitHub, öffentlich, in einer eigenen
+Organisation; Modulpfad `github.com/kephalaion/kephalaion` — entschieden am 2026-09-26
+(vorher `kascada/kephalaion`).
 
-**Vor der Veröffentlichung zu prüfen:** GitHub-Organisation, Domains in den Schreibweisen
-Kephalaion, Kefalaion und Cephalaion, sowie DPMA und EUIPO. Als Veröffentlichung gilt erst
-das erste Release ab v1.0; ein v0.x-Release gilt nicht als solche (entschieden am 2026-09-25).
+**Markenrecherche am 2026-09-26** (DPMAregister, nationale, Unions- und internationale
+Marken): keine Marke Kephalaion, auch nicht als Kefalaion, Cephalaion oder griechisch; auch
+Kefalaio ist dort nicht eingetragen. Am nächsten liegt die Unionsmarke **KEPHALIOS**
+(017564981, Kephalios SAS, Paris) für Medizinprodukte (Klasse 10) und deren Forschung
+(Klasse 42) — kein Software- oder IT-Bereich. Die übrigen Kephal-Marken sind Arzneimittel.
+Offen: TMview, weil nur dort griechische nationale Marken stehen.
+
+**Verworfene Alternative: K-Wissen.** Passt zur `k-`-Familie, taugt aber nicht als Marke —
+das DPMA hat „KI Wissen“ 2023 mangels Unterscheidungskraft und als beschreibende Angabe
+zurückgewiesen (3020232353446), und der Name geht in der Suche unter.
+
+**Marke und Domains:** Kephalaion ist vorerst für den eigenen Gebrauch. Eine Anmeldung bei
+DPMA oder EUIPO folgt erst, wenn es vermarktet werden soll — unabhängig von v1.0. Eine
+Domain wird reserviert. Als Veröffentlichung gilt erst das erste Release ab v1.0; ein
+v0.x-Release gilt nicht als solche (entschieden am 2026-09-25).
 
 ## Wozu
 

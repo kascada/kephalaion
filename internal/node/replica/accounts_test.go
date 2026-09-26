@@ -8,9 +8,9 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/ident"
-	"github.com/kascada/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/node/store"
 )
 
 func accountRow(t *testing.T, collection, account, token string, rev int64, r contract.Rights) contract.Row {

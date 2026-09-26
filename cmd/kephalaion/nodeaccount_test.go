@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/contract/httpapi"
-	"github.com/kascada/kephalaion/internal/hub/replication"
-	"github.com/kascada/kephalaion/internal/node/replica"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/contract/httpapi"
+	"github.com/kephalaion/kephalaion/internal/hub/replication"
+	"github.com/kephalaion/kephalaion/internal/node/replica"
 )
 
 // commEnv ist Hub und Node in einer config mit den Testaccounts: Collections

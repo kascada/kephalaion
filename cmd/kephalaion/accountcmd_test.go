@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/ident"
 )
 
 func TestHubAccountFlow(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/sqlq"
+	"github.com/kephalaion/kephalaion/internal/sqlq"
 )
 
 func TestQueriesPortable(t *testing.T) {

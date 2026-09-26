@@ -44,7 +44,7 @@ im Konzept.
 Linux und macOS, jeweils amd64 und arm64:
 
 ```sh
-curl -fsSL https://github.com/kascada/kephalaion/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/kephalaion/kephalaion/releases/latest/download/install.sh | sh
 ```
 
 Das Skript lädt das Binary der Plattform und `SHA256SUMS` aus dem neuesten Release, prüft die
@@ -52,7 +52,7 @@ Prüfsumme und legt das Binary nach `~/.local/bin/kephalaion`. Liegt `~/.local/b
 `PATH`, nennt es die Zeile fürs Shell-Profil. Eine bestimmte Version:
 
 ```sh
-curl -fsSL https://github.com/kascada/kephalaion/releases/latest/download/install.sh | KEPHALAION_VERSION=v0.1.0 sh
+curl -fsSL https://github.com/kephalaion/kephalaion/releases/latest/download/install.sh | KEPHALAION_VERSION=v0.1.0 sh
 ```
 
 ## Upgrade

@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kascada/kephalaion/internal/config"
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
-	nodestore "github.com/kascada/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/config"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
 )
 
 const configUsage = `Aufruf:

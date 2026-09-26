@@ -8,9 +8,9 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/node/store"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 // Connect liefert zu einem Hub-Eintrag die Umsetzung des Vertrags, über die

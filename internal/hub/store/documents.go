@@ -10,8 +10,8 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/kascada/kephalaion/internal/ident"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 // MaxDocumentBytes ist die Obergrenze für den Inhalt eines Dokuments: 1 MiB.

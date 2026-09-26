@@ -9,10 +9,10 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/contract/httpapi"
-	"github.com/kascada/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/contract/httpapi"
+	"github.com/kephalaion/kephalaion/internal/hub/store"
 )
 
 // fixture ist ein Hub mit den Collections a, b und c und dem Node laptop,

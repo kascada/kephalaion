@@ -13,13 +13,13 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/hub/replication"
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
-	"github.com/kascada/kephalaion/internal/node/replica"
-	nodestore "github.com/kascada/kephalaion/internal/node/store"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/hub/replication"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/node/replica"
+	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 func TestReplicaSyncWithLocalHub(t *testing.T) {

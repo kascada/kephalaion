@@ -14,10 +14,10 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
-	"github.com/kascada/kephalaion/internal/sqlq"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/sqlq"
 )
 
 // Role ist die Rolle, die in db_info steht.

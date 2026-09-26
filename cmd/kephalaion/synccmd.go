@@ -10,15 +10,15 @@ import (
 	"slices"
 	"syscall"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/contract/httpapi"
-	"github.com/kascada/kephalaion/internal/hub/replication"
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
-	"github.com/kascada/kephalaion/internal/ident"
-	"github.com/kascada/kephalaion/internal/node/replica"
-	nodestore "github.com/kascada/kephalaion/internal/node/store"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/contract/httpapi"
+	"github.com/kephalaion/kephalaion/internal/hub/replication"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/node/replica"
+	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 const nodeSyncUsage = `Aufruf:

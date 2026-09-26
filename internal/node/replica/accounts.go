@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/node/store"
 )
 
 // qAccountRows liest die lebenden Zeilen eines Accounts, nach Collection. Die

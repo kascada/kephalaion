@@ -9,11 +9,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kascada/kephalaion/internal/config"
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
-	"github.com/kascada/kephalaion/internal/node/replica"
-	nodestore "github.com/kascada/kephalaion/internal/node/store"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/config"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/node/replica"
+	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 // roleTitle ist der Name einer Rolle am Satzanfang.

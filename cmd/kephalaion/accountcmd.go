@@ -7,8 +7,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
 )
 
 const hubAccountUsage = `Aufruf:

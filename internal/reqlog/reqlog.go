@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/ident"
 )
 
 type ctxKey struct{}

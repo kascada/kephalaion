@@ -24,12 +24,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/ident"
-	"github.com/kascada/kephalaion/internal/node/replica"
-	"github.com/kascada/kephalaion/internal/node/store"
-	"github.com/kascada/kephalaion/internal/reqlog"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/node/replica"
+	"github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/reqlog"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 // Path ist der Pfad des MCP-Eingangs.

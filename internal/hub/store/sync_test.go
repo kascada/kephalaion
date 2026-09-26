@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/sqlq"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/sqlq"
 )
 
 func TestSyncRowsQueryPortable(t *testing.T) {

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installiert kephalaion nach ~/.local/bin/kephalaion.
 #
-#   curl -fsSL https://github.com/kascada/kephalaion/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/kephalaion/kephalaion/releases/latest/download/install.sh | sh
 #
 # Ohne Angabe das neueste Release; eine bestimmte Version über
 # KEPHALAION_VERSION=vX.Y.Z. Geladen werden das Binary der Plattform und
@@ -14,7 +14,7 @@
 
 set -eu
 
-REPO="kascada/kephalaion"
+REPO="kephalaion/kephalaion"
 BINARY="kephalaion"
 
 say() {

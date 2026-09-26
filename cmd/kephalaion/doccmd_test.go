@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
 )
 
 func writeFile(t *testing.T, path, content string) {

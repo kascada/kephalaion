@@ -9,7 +9,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/kascada/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/contract"
 )
 
 // fakeHub ist eine Attrappe von contract.Hub: Dokumente im Speicher, eine

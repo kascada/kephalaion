@@ -11,7 +11,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/kascada/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/ident"
 )
 
 func newStore(t *testing.T) Store {

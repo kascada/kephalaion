@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/contract"
 )
 
 // Client setzt contract.Hub über HTTP um. whoami und sync wiederholt er bei

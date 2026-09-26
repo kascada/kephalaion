@@ -13,11 +13,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/oklog/ulid/v2"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/ident"
-	"github.com/kascada/kephalaion/internal/node/replica"
-	"github.com/kascada/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/node/replica"
+	"github.com/kephalaion/kephalaion/internal/node/store"
 )
 
 // env ist ein Node mit zwei Hub-Einträgen und ihren Replicas: keph mit

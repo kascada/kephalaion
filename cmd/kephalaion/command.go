@@ -9,10 +9,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/kascada/kephalaion/internal/config"
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
-	"github.com/kascada/kephalaion/internal/ident"
-	nodestore "github.com/kascada/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/config"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/ident"
+	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
 )
 
 // dispatch verteilt die Kommandos einer Gruppe wie `hub node` auf ihre

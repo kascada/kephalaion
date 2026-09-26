@@ -13,14 +13,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/buildinfo"
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/contract/httpapi"
-	"github.com/kascada/kephalaion/internal/hub/replication"
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
-	"github.com/kascada/kephalaion/internal/node/mcpnode"
-	nodestore "github.com/kascada/kephalaion/internal/node/store"
-	"github.com/kascada/kephalaion/internal/reqlog"
+	"github.com/kephalaion/kephalaion/internal/buildinfo"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/contract/httpapi"
+	"github.com/kephalaion/kephalaion/internal/hub/replication"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/node/mcpnode"
+	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/reqlog"
 )
 
 const serveUsage = `Aufruf:

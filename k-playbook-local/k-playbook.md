@@ -11,7 +11,7 @@ Ebene und werden bei jedem Update aktualisiert.
 
 ## Aufbau
 
-Ein Go-Modul `github.com/kascada/kephalaion`, ein Binary `kephalaion`
+Ein Go-Modul `github.com/kephalaion/kephalaion`, ein Binary `kephalaion`
 (`cmd/kephalaion`). Unterkommandos per erstem Argument, Standardbibliothek `flag`,
 keine CLI-Bibliothek. Meldungen des Binarys deutsch, Bezeichner englisch. Begriffe stehen
 in `docs/begriffe.md` und werden dort eingetragen, bevor sie benutzt werden.

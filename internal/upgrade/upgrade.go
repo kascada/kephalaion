@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/buildinfo"
+	"github.com/kephalaion/kephalaion/internal/buildinfo"
 )
 
 // TempPattern ist das Namensmuster der temporären Datei neben dem Binary, an
@@ -49,11 +49,11 @@ type Upgrader struct {
 	Out        io.Writer
 }
 
-// New liefert einen Upgrader für dieses Binary und github.com/kascada/kephalaion.
+// New liefert einen Upgrader für dieses Binary und github.com/kephalaion/kephalaion.
 func New(out io.Writer) *Upgrader {
 	return &Upgrader{
 		APIBase:    "https://api.github.com",
-		Repo:       "kascada/kephalaion",
+		Repo:       "kephalaion/kephalaion",
 		Client:     &http.Client{Timeout: 10 * time.Minute},
 		Current:    buildinfo.Get(),
 		Executable: os.Executable,

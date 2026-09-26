@@ -1,4 +1,4 @@
-module github.com/kascada/kephalaion
+module github.com/kephalaion/kephalaion
 
 go 1.26
 

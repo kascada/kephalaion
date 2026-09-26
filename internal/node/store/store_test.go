@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 func newDB(t *testing.T) config.DB {

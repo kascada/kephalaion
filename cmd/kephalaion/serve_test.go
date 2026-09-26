@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/contract/httpapi"
-	"github.com/kascada/kephalaion/internal/reqlog"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/contract/httpapi"
+	"github.com/kephalaion/kephalaion/internal/reqlog"
 )
 
 // syncBuffer ist ein Puffer, in den serve nebenläufig schreibt.

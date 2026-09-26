@@ -9,8 +9,8 @@ const DevVersion = "dev"
 
 // Version und Commit werden beim Bauen über -ldflags gesetzt:
 //
-//	-X github.com/kascada/kephalaion/internal/buildinfo.Version=v0.1.0
-//	-X github.com/kascada/kephalaion/internal/buildinfo.Commit=…
+//	-X github.com/kephalaion/kephalaion/internal/buildinfo.Version=v0.1.0
+//	-X github.com/kephalaion/kephalaion/internal/buildinfo.Commit=…
 //
 // Ein Ad-hoc-`go build` ohne diese Flags ergibt einen dev build.
 var (

@@ -105,8 +105,8 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
 
 ## Zu besprechen
 
-- **Name vor v1.0:** GitHub-Organisation, Domains (Kephalaion, Kefalaion, Cephalaion), DPMA,
-  EUIPO.
+- **Name:** TMview-Recherche (griechische nationale Marken, wegen Kefalaio) und Domain
+  reservieren. Marke erst bei Entscheidung zur Vermarktung (siehe Konzept, „Der Name“).
 - **Release-Signatur** statt nur `SHA256SUMS` (cosign/minisign/Attestations) — wann?
 - **Welcher entfernte Transport zuerst:** `https` oder `ssh`?
 - **Obergrenze je Schreibvorgang** oder Datenstrom für große `sync`-Seiten über HTTP.

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
-	"github.com/kascada/kephalaion/internal/ident"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/ident"
 )
 
 const hubDocUsage = `Aufruf:

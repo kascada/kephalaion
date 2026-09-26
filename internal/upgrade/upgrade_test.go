@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/buildinfo"
+	"github.com/kephalaion/kephalaion/internal/buildinfo"
 )
 
 const testOS, testArch = "linux", "amd64"
@@ -56,7 +56,7 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	if f.override != nil && f.override(w, r) {
 		return
 	}
-	const prefix = "/repos/kascada/kephalaion/releases/"
+	const prefix = "/repos/kephalaion/kephalaion/releases/"
 	switch {
 	case r.URL.Path == prefix+"latest":
 		f.writeRelease(w, f.latest)
@@ -102,7 +102,7 @@ func (f *fakeGitHub) upgrader(version, exe string) (*Upgrader, *bytes.Buffer) {
 	var out bytes.Buffer
 	return &Upgrader{
 		APIBase:    f.srv.URL,
-		Repo:       "kascada/kephalaion",
+		Repo:       "kephalaion/kephalaion",
 		Client:     f.srv.Client(),
 		Current:    buildinfo.Info{Version: version, OS: testOS, Arch: testArch},
 		Executable: func() (string, error) { return exe, nil },

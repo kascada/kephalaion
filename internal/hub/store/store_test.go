@@ -12,9 +12,9 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
-	"github.com/kascada/kephalaion/internal/sqlq"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/sqlq"
 )
 
 func TestQueriesPortable(t *testing.T) {

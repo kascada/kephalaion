@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/hub/store"
-	"github.com/kascada/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/ident"
 )
 
 // MaxPageSize ist die Obergrenze des Hubs für die Seitengröße; eine größere

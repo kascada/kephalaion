@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/contract"
 )
 
 // HeaderNode trägt den Namen des Nodes; sein Token steht in Authorization:

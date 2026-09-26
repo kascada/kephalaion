@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kascada/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/contract"
 )
 
 // syncRowsQuery setzt die Abfrage des Abgleichs für n Collections zusammen,

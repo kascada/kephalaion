@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/config"
 )
 
 // setup richtet Hub und Node unter dir ein und liefert den Pfad der config.

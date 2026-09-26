@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/ident"
 )
 
 // syncSetup richtet Hub und Node in einer config ein: Collections wissen und

@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 // Role ist die Rolle, die in db_info steht.

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/config"
-	hubstore "github.com/kascada/kephalaion/internal/hub/store"
-	"github.com/kascada/kephalaion/internal/ident"
-	nodestore "github.com/kascada/kephalaion/internal/node/store"
-	"github.com/kascada/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/config"
+	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
+	"github.com/kephalaion/kephalaion/internal/ident"
+	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 // fill richtet unter cfg Collections, Nodes, Rechte, Accounts (einer

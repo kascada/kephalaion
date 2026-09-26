@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/ident"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/ident"
 )
 
 // sysRow ist eine Zeile SYSTEM:A:<account> samt Löschmarken, wie sie in

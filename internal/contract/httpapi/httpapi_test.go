@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/reqlog"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/reqlog"
 )
 
 // echoHub ist eine Attrappe von contract.Hub: Sie merkt sich die Anmeldung

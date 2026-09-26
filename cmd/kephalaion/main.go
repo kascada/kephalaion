@@ -12,9 +12,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/kascada/kephalaion/internal/buildinfo"
-	"github.com/kascada/kephalaion/internal/config"
-	"github.com/kascada/kephalaion/internal/upgrade"
+	"github.com/kephalaion/kephalaion/internal/buildinfo"
+	"github.com/kephalaion/kephalaion/internal/config"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 func main() {
@@ -44,7 +44,7 @@ Kommandos:
 
 Hilfe zu einem Kommando: kephalaion <kommando> --help
 
-Siehe https://github.com/kascada/kephalaion
+Siehe https://github.com/kephalaion/kephalaion
 `
 
 // run verteilt auf die Unterkommandos und liefert den Exit-Code. stdin

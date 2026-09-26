@@ -108,7 +108,7 @@ jobs:
           ## Installieren
 
           ```sh
-          curl -fsSL https://github.com/kascada/kephalaion/releases/latest/download/install.sh | sh
+          curl -fsSL https://github.com/kephalaion/kephalaion/releases/latest/download/install.sh | sh
           ```
 
           Ein installiertes Binary aktualisiert sich mit `kephalaion upgrade`.

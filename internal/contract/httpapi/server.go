@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kascada/kephalaion/internal/contract"
-	"github.com/kascada/kephalaion/internal/reqlog"
+	"github.com/kephalaion/kephalaion/internal/contract"
+	"github.com/kephalaion/kephalaion/internal/reqlog"
 )
 
 // NewHandler liefert den Handler, der hub über HTTP bedient. Er prüft nichts,

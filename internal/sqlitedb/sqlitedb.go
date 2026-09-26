@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kascada/kephalaion/internal/sqlq"
+	"github.com/kephalaion/kephalaion/internal/sqlq"
 
 	_ "modernc.org/sqlite" // Treiber "sqlite", reines Go
 )
