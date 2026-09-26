@@ -19,10 +19,10 @@ Nodes und Accounts mit Rechten je Collection, am Node seine Hubs und die gewüns
 Collections. Der Hub nimmt Dokumente auf (`hub doc`, `hub import`), der Node gleicht sie in
 seine Replica ab (`node sync`) und zeigt sie an (`node doc`), über `transport local` oder
 `http` auf diesem Rechner. `kephalaion serve` lauscht je Rolle: der Hub für Nodes, der Node als
-MCP-Server für Clients mit dem Werkzeug `whoami`, und gleicht als Node im Hintergrund ab.
-Accounts tauschen ihr Token am Node (`node account rotate`); `node whoami` zeigt, wen der Node
-kennt. Noch nicht gebaut: `https` und `ssh`, Suche, Lesen und Schreiben über MCP, weitere
-Werkzeuge.
+MCP-Server für Clients mit den Werkzeugen `whoami`, `list`, `read` und `changes` — gelesen
+wird aus der Replica, ohne Netz —, und gleicht als Node im Hintergrund ab. Accounts tauschen
+ihr Token am Node (`node account rotate`); `node whoami` zeigt, wen der Node kennt. Noch nicht
+gebaut: `https` und `ssh`, Suche, Schreiben über MCP, weitere Werkzeuge.
 
 ## Was gebraucht wird (grob)
 
@@ -40,7 +40,7 @@ im Konzept.
 - **Dokumente** — Name ist ein Pfad, stabile `id`, Revision. Löschen als Löschmarke.
 - **Abgleich** — der Node fragt „alles seit Revision X“, in Seiten; `hub_id` erkennt einen neu
   angelegten Hub.
-- **Werkzeuge** — lesen (`search`, `read`, `list`), schreiben (`create`, `create_numbered`,
+- **Werkzeuge** — lesen (`search`, `read`, `list`, `changes`), schreiben (`create`, `create_numbered`,
   `write`, `append`, `replace_section`, `rename`, `supersede`, `delete`,
   `replace_directory`), dazu eigene für k-playbook (Eingang, Warteschlange, Todos, Tasks).
 - **Kommandozeile** — `init`, `status`, `config`, Verwaltung von Collections, Nodes, Accounts
@@ -291,6 +291,29 @@ kephalaion node whoami                  # Version, Hubs mit Stand, bekannte Acco
 kephalaion node whoami bob              # was whoami einem Client mit bobs Zugangsdaten antwortet
 kephalaion node whoami bob --hub privat --json   # nur ein Hub, als JSON wie das Werkzeug
 ```
+
+Gelesen wird über drei Werkzeuge, alle aus der Replica und nur in Collections, in denen der
+gültig angemeldete Account `read` hat. Eine Collection heißt `<hub>:<collection>`; der Hub-Teil
+darf fehlen, wenn der Client nur an einem Hub angemeldet ist. Was er nicht lesen darf, gibt es
+für ihn nicht — dieselbe Meldung „nicht lesbar“ wie für eine unbekannte Collection. Hat der
+Node einen Hub noch nie abgeglichen, sagt die Meldung das.
+
+- **`list`** — ohne `collection` die lesbaren Collections aller Hubs, mit `<hub>:` die eines
+  Hubs; sonst ein Verzeichnis (`path`): zuerst die Unterverzeichnisse, dann die Dokumente mit
+  Name, `id`, Revision, angelegt und geändert (wann, von wem) und Größe. `recursive`, `sort`
+  (`name`, `created`, `updated`), `order`, `mask` (Glob auf das letzte Segment, etwa `*.md`),
+  `limit` (Standard 100, höchstens 1000) und `cursor` zum Weiterblättern.
+- **`read`** — ein Dokument per `collection` und `name` oder per `id`; der Inhalt ist der Text
+  des Ergebnisses. `kind` ist `document`, `directory` oder `none`; mit `content: false` nur
+  die Angaben samt `writable`.
+- **`changes`** — was sich geändert hat: ohne Argumente nur ein `cursor` für „ab jetzt“, mit
+  dem `cursor` der letzten Antwort lückenlos alles danach — je Dokument einmal, Löschmarken
+  eingeschlossen. `reset` nennt Hubs, deren Replica neu angelegt wurde (neu mit `list` lesen),
+  `dropped` Collections, die nicht mehr lesbar sind. `since` (RFC 3339) statt `cursor` fragt
+  nach der Zeit des Hubs, nicht lückenlos.
+
+Löschmarken erscheinen nur in `changes`, `SYSTEM:`-Namen nie. Eine Replica, die sich nicht
+lesen lässt, betrifft nur ihren Hub (`unreadable_hubs`).
 Der Node lehnt Anfragen mit fremdem `Host` oder fremder `Origin` mit 403 ab (Schutz gegen
 DNS-Rebinding aus dem Browser).
 

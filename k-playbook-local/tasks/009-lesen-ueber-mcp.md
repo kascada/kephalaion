@@ -114,7 +114,7 @@ so, dass die Erweiterung für VS Code darauf ihren `FileSystemProvider` bauen ka
 | 2 — `list` | erledigt | 2026-09-26 | `mcpnode/list.go`: Collections (alle Hubs, `<hub>:`), Verzeichnisse zuerst, Dokumente nach `name`/`created`/`updated`, Keyset-Cursor mit Fingerabdruck der Anfrage, `limit` Standard 100, höchstens 1000; `mask` per `path.Match` auf das letzte Segment; `unreadable_hubs` |
 | 3 — `read` | erledigt | 2026-09-26 | `mcpnode/read.go`: per Name oder `id` (Hub-Teil entbehrlich bei einem Hub), Inhalt als Text des Ergebnisses, `content: false` nur Angaben; Verzeichnis = lebendes Dokument darunter, Wurzel von Hub und Collection `directory`; Löschmarke, fremde und unbekannte id `none`; `writable` = `write` |
 | 4 — `changes` | erledigt | 2026-09-26 | `mcpnode/changes.go`: cursor je Hub (`generation`) und je Collection (Revision, bei halber Revision die letzte id), bis zum Stand in `sync_state`; ab jetzt, `since` (erste Zeile ab dem Zeitpunkt), neu lesbar = alles, `reset` je Hub, `dropped`, `unreadable_hubs` behält den Stand; cursor an `collection`/`path` gebunden |
-| 5 — Durchlauf und Doku | offen | | |
+| 5 — Durchlauf und Doku | erledigt | 2026-09-26 | `TestMCPReadThroughServe` (`cmd/kephalaion/mcp_test.go`): `serve` mit Hub und Node, `hub doc put` → Abgleich im Hintergrund → `changes` → `read`/`list` über den MCP-Client des go-sdk; Doku in README, `begriffe.md`, `konzept.md` („Allgemein — lesen“: Festlegungen), `vscode.md`, `fortschritt.md`, `k-playbook.md` |
 
 ---
 ## Review-Log (2026-09-26)

@@ -448,9 +448,9 @@ Fehler mit Zeit und Art), geschrieben auch von `node sync`; abgeleitet, nicht im
 Ergänzt in Task 012: Vor dem Verbinden mit dem Hub verwirft der Abgleich eine Replica alter
 Schemafassung, fremder `entry_id` oder eindeutig beschädigt und legt sie neu an; das Ergebnis
 nennt den Grund. Eindeutig beschädigt heißt: SQLite meldet `NOTADB` oder `CORRUPT` (beim
-Öffnen oder beim Lesen von `db_info`), `db_info` fehlt oder hat keine Rolle, oder `hub_id`
-bzw. `entry_id` fehlen. Vorübergehende Fehler verwerfen nichts — eine belegte Datei (`BUSY`,
-`LOCKED`), ein abgebrochener Abgleich, ein Fehler von `stat` oder der Zugriffsrechte —, ebenso
+Öffnen oder beim Lesen von `db_info`), `db_info` fehlt oder hat keine Rolle, oder `hub_id`,
+`entry_id` bzw. (seit Task 009) `generation` fehlen. Vorübergehende Fehler verwerfen
+nichts — eine belegte Datei (`BUSY`, `LOCKED`), ein abgebrochener Abgleich, ein Fehler von `stat` oder der Zugriffsrechte —, ebenso
 wenig eine Datei fremder Rolle; sie bleiben ein Fehler des Abgleichs. Beim Beenden wartet
 `serve` höchstens die Frist (10 s) auf den Abgleich; ein Hub, der den Abbruch nicht beachtet,
 hält es nicht auf. Ein danach noch laufender Abgleich hält nichts mehr in `hub_sync` fest.
@@ -1314,9 +1314,9 @@ darauf ab.
 | Werkzeug | Zweck | Anmerkungen |
 |---|---|---|
 | `search` | Volltextsuche | Collections wählbar; getrennte Trefferlisten je Collection, Rang ab 1, kein Punktwert |
-| `read` | ein Dokument lesen | per Name oder `id`; wahlweise ein Abschnitt; mit `content: false` nur die Angaben dazu, siehe unten |
-| `list` | Inhalt eines Verzeichnisses | siehe unten |
-| `changes` | was sich seit einer Revision oder einem Zeitpunkt geändert hat | siehe unten; neu am 2026-09-26 |
+| `read` | ein Dokument lesen | per Name oder `id`; wahlweise ein Abschnitt; mit `content: false` nur die Angaben dazu, siehe unten. Gebaut in Task 009, ohne Abschnitte |
+| `list` | Inhalt eines Verzeichnisses | siehe unten. Gebaut in Task 009 |
+| `changes` | was sich seit einer Revision oder einem Zeitpunkt geändert hat | siehe unten; neu am 2026-09-26. Gebaut in Task 009 |
 | `whoami` | Version, Hubs, Anmeldung, eigener Account, lesbare Collections, Stand des Abgleichs | siehe unten; kein eigenes `status`. Gebaut wie unten (Task 008) |
 
 **`list` — neu aufgenommen am 2026-09-25**, um etwa das Neueste zu finden:
@@ -1339,8 +1339,9 @@ Dokument, Verzeichnis oder nichts; dazu `id`, Revision, angelegt und geändert, 
 schreibbar ja/nein. Billig, weil ohne Inhalt; die KI fragt so „gibt es das, wie alt ist
 es“, die Erweiterung für VS Code beantwortet damit `stat`, das VS Code sehr oft aufruft.
 
-**`changes` — neu am 2026-09-26:** was sich in den lesbaren Collections eines Hubs geändert
-hat, seit der letzten Abfrage oder seit einem Zeitpunkt.
+**`changes` — neu am 2026-09-26:** was sich in den lesbaren Collections geändert hat — einer
+Collection, eines Hubs (`<hub>:`) oder ohne `collection` aller angemeldeten Hubs —, seit der
+letzten Abfrage oder seit einem Zeitpunkt.
 
 - `cursor` aus der letzten Antwort oder `since` (Zeitpunkt); ohne beides nur der Cursor für
   „ab jetzt“. Wahlweise `collection` und `path` als Präfix, `limit`;
@@ -1360,6 +1361,55 @@ hat, seit der letzten Abfrage oder seit einem Zeitpunkt.
   Antwort; ein Zeitpunkt ist der des Hubs beim Schreiben, nicht der des Abgleichs.
   Benachrichtigungen von MCP (`resources/subscribe`) brauchten eine Sitzung, die der Node
   bewusst nicht führt (siehe „Kommunikation“).
+
+**Gebaut in Task 009 (2026-09-26): `list`, `read`, `changes`.** Alle drei lesen nur aus der
+Replica, ohne Netz, und setzen auf dieselbe Anmeldung wie `whoami` auf (`mcpnode.Authenticate`,
+je Aufruf, ohne Cache). Lesbar ist eine Collection, wenn der Client an ihrem Hub gültig
+angemeldet ist und die Replica für seinen Account dort eine lebende `SYSTEM:A:`-Zeile hat — es
+zählen also nur Collections, die der Node führt. Alles andere ergibt dieselbe Meldung
+„`<hub>:<collection>` nicht lesbar“, gleich ob die Collection existiert. Fehlt die Replica eines
+Hubs, meldet ein Aufruf mit Adresse „noch nie abgeglichen“, auch ohne gültige Anmeldung — wie
+`never_synced` in `whoami`. Eine Replica, die sich nicht lesen lässt, betrifft nur ihren Hub:
+Mit Adresse die Meldung „Hub `<hub>`: Replica nicht lesbar“, ohne Pfad; über alle Hubs steht
+er in `unreadable_hubs`, und `changes` behält seinen Stand im Cursor. Ein abgebrochener
+Aufruf ist ein Fehler der Anfrage. Festlegungen:
+
+- **Adresse ohne Hub-Teil:** der eine Hub mit gültiger Anmeldung; ohne gültige Anmeldung und
+  mit genau einem Hub-Eintrag dieser. Sonst nennt der Fehler die Hubs mit gültiger Anmeldung.
+  `read` per `id` braucht `collection` nur bei mehreren Hubs, dann `<hub>:` oder die
+  Collection.
+- **`limit`:** Standard 100, höchstens 1000; mehr wird gekürzt, nicht abgelehnt. Gilt für
+  `list` und `changes`.
+- **Cursor:** JSON in base64url, für den Client undurchsichtig, ohne Geheimnisse; der Node
+  prüft bei jedem Aufruf Anmeldung und Recht neu, ein veränderter Cursor öffnet also nichts.
+  Er ist an die Anfrage gebunden (bei `list` alle Angaben außer `limit`, bei `changes`
+  `collection` und `path`); passt er nicht, ist das ein Fehler.
+- **`list`:** Namen sind voll, auch die der Verzeichnisse (`2026/09`, nicht `09`). Ohne
+  `recursive` kommen zuerst die Verzeichnisse der nächsten Ebene nach Name, dann die
+  Dokumente in der verlangten Ordnung; `sort` und `mask` gelten nur für Dokumente. Geblättert
+  wird über die Stelle nach dem letzten Eintrag (Wert der Sortierung und Name) — ohne Lücke und
+  Doppel bei unveränderter Replica; ändert sie sich dazwischen, deckt das `changes`. Die Liste
+  der Collections blättert ebenso, nach Adresse. Tragen zwei lebende Zeilen denselben Namen
+  (Umbenennungen, die in beliebiger Reihenfolge ankommen), gilt die jüngste.
+- **`read`:** Der Inhalt ist der Text des Ergebnisses, die Angaben die Struktur daneben; mit
+  `content: false` steht die Struktur auch im Text. Größe in Bytes. `writable` heißt `write`
+  auf der Collection, bei Dokumenten und Verzeichnissen. Per `id` sind eine Löschmarke, eine
+  unbekannte `id` und ein Dokument einer nicht lesbaren Collection gleichermaßen `none`.
+- **Zeiten** in RFC 3339, UTC, auf Millisekunden (`2026-09-26T10:00:00.000Z`), so genau, wie
+  der Hub sie führt; `whoami` bleibt bei Sekunden.
+- **`changes`:** Der Cursor trägt je Hub die **`generation`** der Replica — eine ULID in ihrem
+  `db_info`, die `Create` vergibt und jedes Leeren in derselben Transaktion ersetzt
+  (Schemafassung der Replica 4) — und je Collection die Revision, bis zu der der Aufrufer alles
+  hat; endet eine Seite mitten in einer Revision, dazu die letzte `id`. Gelesen wird je
+  Collection bis zu ihrem Stand in `sync_state`, nach Revision und `id`. Passt die `generation`
+  nicht mehr, meldet `changes` für diesen Hub `reset` und setzt seinen Stand auf jetzt. Eine
+  Collection, die neu lesbar ist, liefert alles; eine, die weggefallen ist, steht einmal in
+  `dropped`. Der Stand einer Collection geht nie zurück. Mit `since` beginnt jede Collection
+  bei der ersten Zeile, die der Hub zu oder nach dem Zeitpunkt geschrieben hat; die Antwort
+  trägt danach einen gewöhnlichen Cursor.
+- **Grenze von `path` in `changes`:** Wer ein Dokument aus dem Verzeichnis heraus umbenennt,
+  erscheint dort nicht mehr — `changes` kennt keinen alten Namen. Lückenlos über Umbenennungen
+  hinweg ist nur `changes` ohne `path`.
 
 **`whoami` — festgelegt am 2026-09-26.** Ein Werkzeug für „wer bin ich“ und „wie steht der
 Node“; ein eigenes `status` brächte kaum mehr. Die Antwort:

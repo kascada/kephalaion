@@ -6,10 +6,10 @@ description: Erweiterung, die Collections über einen FileSystemProvider als Ord
 # Kephalaion in VS Code
 
 **Stand: Versuch mit Dummy gelungen** (2026-09-26, siehe „Versuch“ unten); die Anbindung an
-den Node ist nicht gebaut. Sie setzt die Werkzeuge `list`, `read` und `changes` des Nodes
-voraus; gebaut ist bisher `whoami` in der Form, die die Statusleiste braucht — Version, alle
-Hubs mit `login`, Node-Name und Stand des Abgleichs (Task 008) —, und `serve` gleicht im
-Hintergrund ab. Begriffe nach [`begriffe.md`](begriffe.md), Hintergrund in
+den Node ist nicht gebaut. Was sie zum Lesen braucht, gibt es am Node: `whoami` in der Form,
+die die Statusleiste braucht — Version, alle Hubs mit `login`, Node-Name und Stand des
+Abgleichs (Task 008) —, dazu `list`, `read` und `changes` (Task 009, Festlegungen in
+[`konzept.md`](konzept.md), „Allgemein — lesen“), und `serve` gleicht im Hintergrund ab. Begriffe nach [`begriffe.md`](begriffe.md), Hintergrund in
 [`konzept.md`](konzept.md).
 
 ## Wozu
@@ -71,7 +71,7 @@ Welche Collections es gibt, fragt die Erweiterung ab; sie stehen nirgends in VS 
 | `rename(alt, neu)` | `rename`, `id` bleibt |
 | `delete(uri)` | `delete` (Löschmarke) bzw. `supersede`, je nach Recht |
 | `createDirectory(uri)` | nichts am Hub — Verzeichnisse sind nur Präfixe von Namen; die Erweiterung merkt sich das leere Verzeichnis, bis darin etwas angelegt wird |
-| `watch` / Event `onDidChangeFile` | `changes` mit dem Cursor der letzten Antwort, abgefragt alle paar Sekunden — aus der Replica, ohne Netz. Ein Umbenennen erkennt die Erweiterung an der `id` (alter Name gelöscht, neuer angelegt); `changes` nennt keinen alten Namen |
+| `watch` / Event `onDidChangeFile` | `changes` mit dem Cursor der letzten Antwort, abgefragt alle paar Sekunden — aus der Replica, ohne Netz. Ein Umbenennen erkennt die Erweiterung an der `id` (alter Name gelöscht, neuer angelegt); `changes` nennt keinen alten Namen. Bei `reset` liest sie den Hub neu mit `list`, bei `dropped` entfernt sie die Collection |
 
 - **Konflikte:** VS Code vergleicht `mtime` beim Speichern selbst und fragt nach, wenn die
   Datei inzwischen neuer ist. Zusätzlich lehnt der Hub ab, wenn die mitgeschickte Revision

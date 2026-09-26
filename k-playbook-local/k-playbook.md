@@ -55,7 +55,9 @@ Pakete unter `internal/`:
   den Teilindex `documents_system`, `WriteAccountRows` nach `rotate`).
 - `node/mcpnode` — der MCP-Eingang des Nodes (`/mcp`, go-sdk, zustandslos): Host/Origin,
   Header-Paare je Hub, Anmeldung über alle Hubs (`Authenticate`), Werkzeug `whoami`
-  (`Whoami`, auch für `node whoami`).
+  (`Whoami`, auch für `node whoami`); Werkzeuge `list`, `read`, `changes` (`list.go`,
+  `read.go`, `changes.go`) über dem gemeinsamen Schritt in `access.go` (Adresse, Anmeldung,
+  Recht, Replica je Hub) und den Abfragen in `node/replica/read.go`.
 
 Regeln dazu:
 
@@ -77,9 +79,9 @@ Regeln dazu:
   der Node-Store SQLite-Eigenes benutzen. Angelegt wird sie nur vom Abgleich, nie von `init`;
   `node hub rm` und `config import` (für weggefallene Aliase) entfernen sie mit, innerhalb der
   Transaktion, die den Eintrag entfernt. Passt ihre Schemafassung nicht, gehört sie zu einem
-  anderen Eintrag oder ist sie eindeutig beschädigt (`NOTADB`/`CORRUPT`, `db_info` oder die IDs
-  fehlen), verwirft der Abgleich sie; vorübergehende Fehler verwerfen nichts. Eine unlesbare
-  Replica betrifft in `whoami` nur ihren Hub.
+  anderen Eintrag oder ist sie eindeutig beschädigt (`NOTADB`/`CORRUPT`, `db_info`, die IDs oder
+  die `generation` fehlen), verwirft der Abgleich sie; vorübergehende Fehler verwerfen nichts.
+  Eine unlesbare Replica betrifft in `whoami`, `list`, `read` und `changes` nur ihren Hub.
 - **Hub-SQL bleibt PostgreSQL-tauglich.** Die Abfragen (DML) des Hubs und des Unterbaus
   stehen zentral in einer Struktur (`queries` bzw. `sqlitedb.Queries`), mit Platzhaltern
   `$n` über `sqlq.Bind` — kein `INSERT OR`, kein `PRAGMA`, kein `AUTOINCREMENT`, kein rohes
@@ -160,6 +162,13 @@ Regeln dazu:
   einem Schritt (`Authenticate`, `ok`/`invalid`/`missing`, dazu unbekannte Aliase), auf dem
   jedes Werkzeug aufsetzt. Die Antwort von `whoami` baut `mcpnode.Whoami`, dieselbe Funktion
   für das Werkzeug und für `kephalaion node whoami` (dort `AccountLogins` ohne Token).
+  `list`, `read` und `changes` lesen nur aus der Replica: lesbar ist eine Collection mit
+  gültiger Anmeldung und lebender `SYSTEM:A:`-Zeile des Accounts; alles andere ist dieselbe
+  Meldung „nicht lesbar“, eine fehlende Replica „noch nie abgeglichen“. Eine unlesbare Replica
+  betrifft nur ihren Hub (feste Meldung ohne Pfad, `unreadable_hubs`; die volle Meldung ins
+  Log), ein abgebrochener ctx ist ein Fehler der Anfrage. Nie `SYSTEM:`-Namen, Löschmarken nur
+  in `changes`. Gelesen wird ohne Transaktion; `changes` erkennt eine neu angelegte oder
+  geleerte Replica an der `generation` in ihrem `db_info`, die es vor allem anderen liest.
 - **Keine Migrationen, Schema neu anlegen** — befristet, solange es keine Daten gibt, die
   bleiben müssen. Ändert sich das Schema, wird `SchemaVersion` im Store-Paket erhöht;
   vorhandene Datenbanken werden dann abgelehnt und neu angelegt. Dokumente am Hub gelten

@@ -152,3 +152,84 @@ func TestMCPWhoamiWithBackgroundSync(t *testing.T) {
 		t.Errorf("extern: %+v", h)
 	}
 }
+
+// mcpCall ruft ein Werkzeug am MCP-Eingang unter endpoint mit einem
+// Header-Paar und liest die strukturierte Antwort nach out; es liefert den
+// Text des Ergebnisses.
+func mcpCall(t *testing.T, endpoint, alias, account, tok, tool string, args, out any) string {
+	t.Helper()
+	h := http.Header{}
+	h.Set("X-Keph-Account-"+alias, account)
+	h.Set("X-Keph-Token-"+alias, tok)
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: endpoint,
+		HTTPClient: &http.Client{Transport: headerRT{h}}, DisableStandaloneSSE: true, MaxRetries: -1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args})
+	if err != nil || res.IsError {
+		t.Fatalf("%s: %+v, %v", tool, res, err)
+	}
+	b, _ := json.Marshal(res.StructuredContent)
+	if err := json.Unmarshal(b, out); err != nil {
+		t.Fatal(err)
+	}
+	text := ""
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			text += tc.Text
+		}
+	}
+	return text
+}
+
+// Der Durchlauf über serve mit Hub und Node: Ein Dokument am Hub kommt mit
+// dem Abgleich im Hintergrund in die Replica, changes meldet es, read liefert
+// es, list zeigt es.
+func TestMCPReadThroughServe(t *testing.T) {
+	e := newCommEnv(t)
+	file := e.tokenFile(t, "bob", e.tokens["bob"])
+	e.run(t, "node", "account", "rotate", "eigen", "bob", "--token-file", file).want(t, 0)
+	bob := readFileToken(t, file)
+	e.run(t, "config", "set", "node", "sync_interval", "1s").want(t, 0)
+	srv := startServe(t, portZero(t, e.cfg))
+	ns := nodeStore(t, e.cfg)
+	eventually(t, "Abgleich von eigen", func() bool { return syncStatus(t, ns, "eigen").OKAt != 0 })
+	endpoint := "http://" + srv.addrs[config.Node] + mcpnode.Path
+
+	var now mcpnode.ChangesOutput
+	mcpCall(t, endpoint, "eigen", "bob", bob, "changes", mcpnode.ChangesInput{Collection: "team-x"}, &now)
+	if len(now.Changes) != 0 || now.Cursor == "" {
+		t.Fatalf("ab jetzt: %+v", now)
+	}
+	e.runIn(t, "# Notiz\n", "hub", "doc", "put", "team-x", "2026/notiz.md").want(t, 0)
+
+	var got mcpnode.ChangesOutput
+	eventually(t, "changes meldet 2026/notiz.md", func() bool {
+		mcpCall(t, endpoint, "eigen", "bob", bob, "changes", mcpnode.ChangesInput{Collection: "team-x", Cursor: now.Cursor}, &got)
+		return len(got.Changes) > 0
+	})
+	c := got.Changes[0]
+	if len(got.Changes) != 1 || c.Address != "eigen:team-x" || c.Name != "2026/notiz.md" || c.Deleted || c.ID == "" ||
+		c.Updated.By != "admin" {
+		t.Fatalf("changes: %+v", got)
+	}
+	var doc mcpnode.ReadOutput
+	text := mcpCall(t, endpoint, "eigen", "bob", bob, "read", mcpnode.ReadInput{ID: c.ID}, &doc)
+	if text != "# Notiz\n" || doc.Kind != mcpnode.KindDocument || doc.Name != "2026/notiz.md" || doc.Revision != c.Revision ||
+		doc.Writable == nil || !*doc.Writable || doc.Size == nil || *doc.Size != int64(len("# Notiz\n")) {
+		t.Errorf("read: %+v, %q", doc, text)
+	}
+	var list mcpnode.ListOutput
+	mcpCall(t, endpoint, "eigen", "bob", bob, "list", mcpnode.ListInput{Collection: "eigen:team-x"}, &list)
+	if len(list.Entries) != 1 || list.Entries[0].Kind != mcpnode.KindDirectory || list.Entries[0].Name != "2026" {
+		t.Errorf("list: %+v", list)
+	}
+	srv.stop(t)
+	if log := srv.log.String(); strings.Contains(log, bob) || strings.Contains(log, e.tokens["bob"]) {
+		t.Errorf("Token im Log:\n%s", log)
+	}
+}

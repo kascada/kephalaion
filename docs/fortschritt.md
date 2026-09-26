@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt)
+Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt; Task 009 Etappen 1–5 erledigt)
 
 ## So wird diese Datei aktualisiert
 
@@ -69,6 +69,15 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   - `replica.Create` prüft nach `Open` die `entry_id`, sonst `ErrChanged` (Vorschlag 1);
   - `serve` wartet beim Beenden höchstens `shutdownGrace` auf den Abgleich (Vorschlag 2)
     (`konzept.md`, „`whoami`“, „Im Hintergrund“).
+- **Task 009 — Lesen über MCP** (2026-09-26, Etappen 1–5):
+  - MCP-Werkzeuge `list`, `read`, `changes` am Node, aus der Replica, auf `Authenticate`
+    aufgesetzt; eine Meldung „nicht lesbar“, „noch nie abgeglichen“, unlesbare Replica nur für
+    ihren Hub;
+  - `list` mit Verzeichnissen, `sort`/`order`, `mask`, `limit` (100, höchstens 1000), Cursor;
+    `read` per Name oder `id`, `content: false`, `writable`; `changes` mit Cursor je Hub
+    (`generation`) und Collection, `reset`, `dropped`, `since`;
+  - `generation` in `db_info` der Replica (Replica-Schema 4); Durchlauf über `serve`
+    (`konzept.md`, „Allgemein — lesen“).
 
 ## In Arbeit
 
@@ -102,8 +111,8 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   Zusammenspiel gleich bei der Einrichtung. Kommt erst, wenn `rotate` gebaut ist. Grundsatz: Nodes werden wie Accounts behandelt, außer wo es anders sinnvoll
   ist (`konzept.md`, „Offene Punkte“, Token-Rotation).
 - **Danach (Konzept, „Stufen“):**
-  - Stufe 1: Zerlegung in Abschnitte, FTS5-Index, MCP-Werkzeuge `search`, `read`, `list`
-    (Task 009); Ereignisstrom (SSE/Long-Polling, Todo #10); Abgleich unmittelbar nach eigenem
+  - Stufe 1: Zerlegung in Abschnitte, FTS5-Index, MCP-Werkzeug `search`, Abschnitte in
+    `read`; Ereignisstrom (SSE/Long-Polling, Todo #10); Abgleich unmittelbar nach eigenem
     Schreiben;
   - Stufe 2: Schreiben über den Node mit Rechten (`create`, `write`, `delete`,
     `create_numbered`), Fehlercodes „Name vergeben“, Revision als Vorbedingung;
