@@ -32,7 +32,7 @@ const Role = "replica"
 
 // SchemaVersion ist die Schemafassung der Replica. Passt sie nicht, verwirft
 // der Abgleich die Replica und legt sie neu an; sie ist abgeleitet.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // KeyHubID ist der Schlüssel der hub_id in db_info. Sie ist maßgeblich; die
 // Spalte hubs.hub_id in node.db ist nur Kopie.
@@ -44,7 +44,9 @@ var ErrNotFound = errors.New("gibt es in der Replica nicht")
 
 // schema ist das DDL der Replica über den Unterbau hinaus: documents wie am
 // Hub, aber ohne eindeutigen Index auf den Namen — auf dem Node zählt die
-// id —, und der Stand des Abgleichs je Collection.
+// id —, und der Stand des Abgleichs je Collection. documents_system findet
+// die Zeilen eines Accounts quer über die Collections; der Node fragt ihn
+// bei jeder Anfrage eines Clients (siehe AccountRows).
 const schema = `
 CREATE TABLE documents (
   id          TEXT PRIMARY KEY,
@@ -61,6 +63,7 @@ CREATE TABLE documents (
 );
 CREATE INDEX documents_name ON documents(collection, name);
 CREATE INDEX documents_revision ON documents(collection, revision);
+CREATE INDEX documents_system ON documents(name) WHERE name LIKE 'SYSTEM:%';
 
 CREATE TABLE sync_state (
   collection  TEXT PRIMARY KEY,

@@ -105,8 +105,12 @@ func (c *command) isSet(name string) bool {
 	return set
 }
 
+// fail meldet einen Fehler und liefert Exit-Code 1. errReported hat seine
+// Meldung schon selbst geschrieben.
 func (c *command) fail(err error) int {
-	fmt.Fprintf(c.stderr, "%s: %v\n", c.name, err)
+	if !errors.Is(err, errReported) {
+		fmt.Fprintf(c.stderr, "%s: %v\n", c.name, err)
+	}
 	return 1
 }
 

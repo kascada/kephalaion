@@ -12,6 +12,7 @@ import (
 
 	"github.com/kascada/kephalaion/internal/config"
 	"github.com/kascada/kephalaion/internal/contract"
+	"github.com/kascada/kephalaion/internal/contract/httpapi"
 	"github.com/kascada/kephalaion/internal/hub/replication"
 	hubstore "github.com/kascada/kephalaion/internal/hub/store"
 	"github.com/kascada/kephalaion/internal/ident"
@@ -34,9 +35,11 @@ will, verschwinden aus der Replica. Nennt der Hub eine andere hub_id als
 bisher, oder steht die Replica weiter als der Hub (aus einer Sicherung
 zurückgespielt?), wird sie geleert und von vorn abgeglichen.
 
-Bisher geht nur Transport local: der Hub derselben config, im selben Prozess.
-Für die übrigen Transporte meldet sync „noch nicht unterstützt“. Scheitert
-ein Eintrag, laufen die übrigen weiter; der Exit-Code ist dann 1.
+Transporte: local (der Hub derselben config, im selben Prozess) und http (ein
+Hub auf diesem Rechner, der mit kephalaion serve lauscht). Bei Fehlern des
+Netzes wiederholt http jede Seite bis zu dreimal. Für https und ssh meldet
+sync „noch nicht unterstützt“. Scheitert ein Eintrag, laufen die übrigen
+weiter; der Exit-Code ist dann 1.
 
 Optionen:
   --config pfad   Ort der config (siehe kephalaion node init --help)
@@ -59,10 +62,12 @@ Optionen:
   --config pfad   Ort der config (siehe kephalaion node init --help)
 `
 
-// localConnector wählt je Hub-Eintrag die Umsetzung des Vertrags. Für
-// local öffnet er den Hub der eigenen config beim ersten Bedarf, einmal für
-// alle Einträge; close schließt ihn am Ende.
-type localConnector struct {
+// connector wählt je Hub-Eintrag die Umsetzung des Vertrags — nur hier, in
+// cmd/kephalaion; internal/node kennt nur contract.Hub. Für local öffnet er
+// den Hub der eigenen config beim ersten Bedarf, einmal für alle Einträge;
+// close schließt ihn am Ende. Für http nimmt er den Client aus
+// internal/contract/httpapi. https und ssh gibt es noch nicht.
+type connector struct {
 	ctx context.Context
 	cfg config.Config
 	hub hubstore.Store
@@ -71,9 +76,23 @@ type localConnector struct {
 	err error
 }
 
-func (l *localConnector) connect(h nodestore.Hub) (contract.Hub, error) {
-	if h.Transport != nodestore.TransportLocal {
-		return nil, fmt.Errorf("Transport %s wird noch nicht unterstützt; bisher geht nur local", h.Transport)
+// connectHTTP liefert die Umsetzung über HTTP; Tests ersetzen sie, etwa um
+// einen unklaren Ausgang herbeizuführen.
+var connectHTTP = func(address string) (contract.Hub, error) {
+	return httpapi.NewClient(address)
+}
+
+func (l *connector) connect(h nodestore.Hub) (contract.Hub, error) {
+	switch h.Transport {
+	case nodestore.TransportLocal:
+	case nodestore.TransportHTTP:
+		// Die Adresse hat der Node-Store geprüft: http nur auf diesem Rechner.
+		if err := nodestore.CheckHub(h, true); err != nil {
+			return nil, err
+		}
+		return connectHTTP(h.Address)
+	default:
+		return nil, fmt.Errorf("Transport %s wird noch nicht unterstützt; bisher gehen local und http", h.Transport)
 	}
 	if l.cfg.Section(config.Hub) == nil {
 		return nil, errors.New("Transport local verlangt einen Hub in derselben config, dort ist keiner " +
@@ -91,7 +110,7 @@ func (l *localConnector) connect(h nodestore.Hub) (contract.Hub, error) {
 	return replication.New(l.hub), nil
 }
 
-func (l *localConnector) close() {
+func (l *connector) close() {
 	if l.hub != nil {
 		_ = l.hub.Close()
 	}
@@ -122,7 +141,7 @@ func runNodeSync(args []string, stdout, stderr io.Writer) int {
 		return c.fail(err)
 	}
 	defer nodes.Close()
-	conn := &localConnector{ctx: ctx, cfg: cfg}
+	conn := &connector{ctx: ctx, cfg: cfg}
 	defer conn.close()
 
 	s := &replica.Syncer{Nodes: nodes}

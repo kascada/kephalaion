@@ -34,8 +34,8 @@ Kommandos:
               Accounts und spielt Dokumente ein (init, collection, node,
               account, doc, import)
   node        richtet den Node ein, pflegt seine Hubs und gewünschten
-              Collections, gleicht ab und zeigt Dokumente der Replica
-              (init, hub, collection, sync, doc)
+              Collections, tauscht Tokens von Accounts, gleicht ab und zeigt
+              Dokumente der Replica (init, hub, collection, account, sync, doc)
   status      zeigt, welche Rollen eingerichtet sind und wo ihre Datenbank liegt
   config      zeigt, sichert und stellt die Einstellungen wieder her
               (show, export, import)

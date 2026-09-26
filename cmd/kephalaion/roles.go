@@ -156,20 +156,25 @@ kephalaion hub import --help
 
 const nodeUsage = `Aufruf:
   kephalaion node init [--db sqlite:///pfad/node.db] [--config pfad]
-  kephalaion node hub add|list|show|set|rm|token …
+  kephalaion node hub add|check|list|show|set|rm|token …
   kephalaion node collection add|list|rm …
+  kephalaion node account rotate|check …
   kephalaion node sync [<alias>]
   kephalaion node doc list|get …
 
 Kommandos:
   init         richtet den Node ein: Datenbank, Schema, Abschnitt node: in der config
-  hub          trägt die Hubs dieses Nodes ein: Transport, Adresse, Token
+  hub          trägt die Hubs dieses Nodes ein: Transport, Adresse, Token;
+               check fragt einen Hub, wer der Node für ihn ist
   collection   die Collections, die der Node von seinen Hubs haben will
-  sync         gleicht die Replicas mit den Hubs ab (bisher nur Transport local)
+  account      ersetzt das Token eines Accounts am Hub (rotate) und prüft es
+               (check)
+  sync         gleicht die Replicas mit den Hubs ab (Transport local und http)
   doc          listet und liest Dokumente aus der Replica
 
 Hilfe: kephalaion node hub --help, kephalaion node collection --help,
-kephalaion node sync --help, kephalaion node doc --help
+kephalaion node account --help, kephalaion node sync --help,
+kephalaion node doc --help
 `
 
 // runRole verteilt die Kommandos unter hub bzw. node.
@@ -202,6 +207,8 @@ func runRole(r config.Role, args []string, stdin io.Reader, stdout, stderr io.Wr
 		return runNodeHub(args[1:], stdin, stdout, stderr)
 	case r == config.Node && args[0] == "collection":
 		return runNodeCollection(args[1:], stdout, stderr)
+	case r == config.Node && args[0] == "account":
+		return runNodeAccount(args[1:], stdin, stdout, stderr)
 	case r == config.Node && args[0] == "sync":
 		return runNodeSync(args[1:], stdout, stderr)
 	case r == config.Node && args[0] == "doc":

@@ -107,7 +107,7 @@ Ausführlich: [`konzept.md`](konzept.md).
   einer Revision holt, in Seiten; jede Seite ist eine Transaktion in der Replica. Collections,
   die der Hub nicht erlaubt oder der Node nicht mehr will, entfernt er aus der Replica; bei
   anderer `hub_id` oder einem Stand über der Revision des Hubs gleicht er von vorn ab.
-  Kommando: `kephalaion node sync [<alias>]`, bisher nur über `transport local`; scheitert ein
+  Kommando: `kephalaion node sync [<alias>]`, über `transport local` oder `http`; scheitert ein
   Hub-Eintrag, laufen die übrigen weiter, der Exit-Code ist 1.
 - **page** (Seite) — eine Antwort des Abgleichs: ganze Revisionen, bis die **page size**
   (Seitengröße, Zeilen je Seite, Standard 500, am Hub höchstens 5000) erreicht ist; eine
@@ -167,6 +167,16 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **--token-stdin** — liest ein Token als eine Zeile von der Standardeingabe. Ein Token wird
   nie als Argument übergeben und nur gekürzt angezeigt (`keph_…` und die letzten vier
   Zeichen).
+- **--token-file** — eine Datei, die das Token eines Accounts als eine Zeile hält (`0600`), bei
+  `node account rotate|check`. Daneben **pending** (`<datei>.pending`): das neue Token eines
+  laufenden `rotate`, geschrieben vor dem Aufruf; nach Erfolg ersetzt es die Datei, bei
+  unklarem Ausgang bleibt es, bis `check` es klärt.
+- **check** — `kephalaion node hub check <alias>`: `whoami` am Hub, zeigt Erreichbarkeit,
+  Node-Namen und erlaubte Collections und merkt beim ersten Kontakt die `hub_id`.
+  `kephalaion node account check <hub> <account>`: `whoami` mit Account-Teil, ob ein Token
+  gilt; löst ein liegengebliebenes `pending` auf.
+- **--create** — `kephalaion node hub add <alias> --transport local --create`: legt den Node
+  am Hub derselben config an und trägt sein Token direkt in `node.db` ein, ohne es anzuzeigen.
 - **name rule** (Namensregel) — Namen von Collections, Nodes, Accounts und Hub-Aliasen:
   `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`, kein Präfix `system` in beliebiger Schreibweise;
   Accounts und Nodes dürfen nicht `admin` heißen.
@@ -176,7 +186,9 @@ Ausführlich: [`konzept.md`](konzept.md).
   eigenen Token an. Das Token des Accounts steht in der Anfrage.
 - **rotate** — ersetzt das Token eines Accounts: altes Token zur Anmeldung, Hash des neuen.
   Erster Vorgang jedes Accounts; eine eigene Begrüßung gibt es nicht. Vorgang des Vertrags,
-  nie wiederholt; ein Schreibvorgang mit einer Zeile `rotate` in `actions`.
+  nie wiederholt; ein Schreibvorgang mit einer Zeile `rotate` in `actions`. Am Node das
+  Kommando `kephalaion node account rotate <hub> <account> (--token-file pfad |
+  --token-stdin)` — ein CLI-Kommando, kein MCP-Werkzeug.
 - **whoami** — Vorgang des Vertrags: bestätigt den Node, nennt die `hub_id` und seine
   erlaubten Collections und prüft wahlweise einen Account (`valid`). Am Node auch ein
   MCP-Werkzeug für Clients.

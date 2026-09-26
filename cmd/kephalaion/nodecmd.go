@@ -5,15 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"text/tabwriter"
 
+	"github.com/oklog/ulid/v2"
+
+	"github.com/kascada/kephalaion/internal/contract"
 	"github.com/kascada/kephalaion/internal/ident"
+	"github.com/kascada/kephalaion/internal/node/replica"
 	nodestore "github.com/kascada/kephalaion/internal/node/store"
 )
 
 const nodeHubUsage = `Aufruf:
   kephalaion node hub add   <alias> --node <name am hub> --transport local|http|https|ssh
                             [--address adresse] [--ssh-key pfad] --token-stdin
+  kephalaion node hub add   <alias> --node <name am hub> --transport local --create
+  kephalaion node hub check <alias>
   kephalaion node hub list
   kephalaion node hub show  <alias>
   kephalaion node hub set   <alias> [--node …] [--transport …] [--address …] [--ssh-key …]
@@ -22,7 +29,12 @@ const nodeHubUsage = `Aufruf:
 
 Kommandos:
   add     trägt einen Hub ein; den Alias vergibt der Node, den Node-Namen der
-          Hub (kephalaion hub node add)
+          Hub (kephalaion hub node add). Mit --create (nur bei local) legt add
+          den Node am Hub derselben config selbst an und trägt sein Token
+          direkt ein, ohne es anzuzeigen
+  check   fragt den Hub, wer dieser Node für ihn ist (whoami): erreichbar,
+          Node-Name, erlaubte Collections; merkt beim ersten Kontakt die
+          hub_id — nennt der Hub eine andere als die Replica, wird sie geleert
   list    zeigt alle Hubs
   show    zeigt einen Hub samt gewünschten Collections
   set     ändert Node-Namen, Transport, Adresse oder Schlüssel; der Rest bleibt
@@ -34,7 +46,8 @@ Transporte:
   local   Hub im selben Prozess; verlangt einen Hub in derselben config, keine
           Adresse; höchstens ein Eintrag je Node
   http    nur auf diesem Rechner: http://localhost:<port> (auch 127.0.0.1,
-          [::1]) — zum Testen des HTTP-Wegs
+          [::1]), ein Hub, der mit kephalaion serve lauscht — Klartext, deshalb
+          nur Loopback
   https   https://<host>[:<port>]
   ssh     [user@]host[:port], dazu optional --ssh-key
 
@@ -51,6 +64,8 @@ Optionen:
   --address adresse  Adresse des Hubs, je nach Transport
   --ssh-key pfad     SSH-Schlüssel, nur bei ssh
   --token-stdin      Token von der Standardeingabe lesen
+  --create           den Node am Hub derselben config anlegen (nur local); das
+                     Token erzeugt der Hub, es wird nicht angezeigt
   --config pfad      Ort der config (siehe kephalaion node init --help)
 `
 
@@ -79,6 +94,7 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			address := c.fs.String("address", "", "")
 			sshKey := c.fs.String("ssh-key", "", "")
 			tokenStdin := c.fs.Bool("token-stdin", false, "")
+			create := c.fs.Bool("create", false, "")
 			return c.nodeDo(a, func(ctx context.Context, s nodestore.Store, hubInConfig bool, pos []string) error {
 				if *nodeName == "" {
 					return errors.New("es fehlt --node: der Name, unter dem der Hub diesen Node kennt")
@@ -86,13 +102,21 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				if *transport == "" {
 					return errors.New("es fehlt --transport (local, http, https oder ssh)")
 				}
-				if !*tokenStdin {
+				switch {
+				case *create && *tokenStdin:
+					return errors.New("--create erzeugt das Token selbst; --token-stdin passt nicht dazu")
+				case *create && *transport != nodestore.TransportLocal:
+					return errors.New("--create gibt es nur mit --transport local: nur den Hub derselben config kann der Node selbst anlegen")
+				case !*create && !*tokenStdin:
 					return errors.New("es fehlt --token-stdin; das Token wird nie als Argument übergeben")
 				}
 				h := nodestore.Hub{Name: pos[0], NodeName: *nodeName, Transport: *transport, Address: *address, SSHKey: *sshKey}
 				// Erst alles andere prüfen, dann stdin lesen.
 				if err := ident.CheckName("Hub", h.Name); err != nil {
 					return err
+				}
+				if *create {
+					return c.addHubCreate(ctx, s, h, hubInConfig)
 				}
 				token, err := readToken(stdin)
 				if err != nil {
@@ -104,6 +128,12 @@ func runNodeHub(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				}
 				fmt.Fprintf(stdout, "Hub %s eingetragen (%s, als Node %s).\n", h.Name, describeTransport(h), h.NodeName)
 				return nil
+			})
+		},
+		"check": func(a []string) int {
+			c := newCommand("node hub check", u, stdout, stderr, "<alias>")
+			return c.nodeDo(a, func(ctx context.Context, s nodestore.Store, _ bool, pos []string) error {
+				return c.hubCheck(ctx, s, pos[0])
 			})
 		},
 		"list": func(a []string) int {
@@ -295,4 +325,113 @@ func hubIDOrNone(id string) string {
 		return "noch kein Kontakt"
 	}
 	return id
+}
+
+// addHubCreate trägt einen local-Eintrag ein und legt den Node dafür am Hub
+// derselben config an. Geprüft wird vorher alles, was der Node prüfen kann;
+// scheitert das Eintragen danach doch, wird der Node am Hub wieder entfernt.
+// Das Token erzeugt der Hub, es geht direkt in node.db und wird nie
+// angezeigt.
+func (c *command) addHubCreate(ctx context.Context, s nodestore.Store, h nodestore.Hub, hubInConfig bool) error {
+	placeholder, err := ident.NewToken()
+	if err != nil {
+		return err
+	}
+	check := h
+	check.Token = placeholder
+	if err := nodestore.CheckHub(check, hubInConfig); err != nil {
+		return err
+	}
+	if _, err := s.Hub(ctx, h.Name); err == nil {
+		return fmt.Errorf("Hub %s %w", h.Name, nodestore.ErrExists)
+	} else if !errors.Is(err, nodestore.ErrNotFound) {
+		return err
+	}
+	hubs, err := s.Hubs(ctx)
+	if err != nil {
+		return err
+	}
+	for _, o := range hubs {
+		if o.Transport == nodestore.TransportLocal {
+			return fmt.Errorf("Hub %s: es gibt schon einen Eintrag mit Transport local (%s); höchstens einer je Node", h.Name, o.Name)
+		}
+	}
+	cfg, err := c.loadConfig()
+	if err != nil {
+		return err
+	}
+	hs, err := openHubOf(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer hs.Close()
+	token, err := hs.AddNode(ctx, h.NodeName, "")
+	if err != nil {
+		return fmt.Errorf("am Hub: %w", err)
+	}
+	h.Token = token
+	if err := s.AddHub(ctx, h, hubInConfig); err != nil {
+		if rmErr := hs.RemoveNode(ctx, h.NodeName); rmErr != nil {
+			return fmt.Errorf("%w; der am Hub angelegte Node %s ließ sich nicht wieder entfernen: %v", err, h.NodeName, rmErr)
+		}
+		return fmt.Errorf("%w; der am Hub angelegte Node %s ist wieder entfernt", err, h.NodeName)
+	}
+	fmt.Fprintf(c.stdout, "Node %s am Hub angelegt, Token direkt eingetragen (%s).\n", h.NodeName, ident.MaskToken(token))
+	fmt.Fprintf(c.stdout, "Hub %s eingetragen (%s, als Node %s).\n", h.Name, describeTransport(h), h.NodeName)
+	fmt.Fprintf(c.stdout, "Collections erlauben: kephalaion hub node grant %s <collection>\n", h.NodeName)
+	return nil
+}
+
+// hubCheck fragt den Hub eines Eintrags mit whoami und zeigt, was er
+// antwortet. Beim ersten Kontakt merkt der Node die hub_id; nennt der Hub
+// eine andere als die Replica, wird sie geleert.
+func (c *command) hubCheck(ctx context.Context, s nodestore.Store, alias string) error {
+	h, err := s.Hub(ctx, alias)
+	if err != nil {
+		return err
+	}
+	cfg, err := c.loadConfig()
+	if err != nil {
+		return err
+	}
+	conn := &connector{ctx: ctx, cfg: cfg}
+	defer conn.close()
+	hub, err := conn.connect(h)
+	if err != nil {
+		return fmt.Errorf("Hub %s: %w", alias, err)
+	}
+	resp, err := hub.Whoami(ctx, contract.WhoamiRequest{Version: contract.Version,
+		Auth: contract.NodeAuth{Node: h.NodeName, Token: h.Token}})
+	if err != nil {
+		return fmt.Errorf("Hub %s (%s): %w", alias, describeTransport(h), err)
+	}
+	if _, err := ulid.ParseStrict(resp.HubID); err != nil {
+		return fmt.Errorf("Hub %s nennt als hub_id %q, keine ULID", alias, resp.HubID)
+	}
+	first := h.HubID == ""
+	reset, err := replica.AdoptHubID(ctx, s, h, resp.HubID)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(c.stdout, "Hub %s: erreichbar (%s)\n", alias, describeTransport(h))
+	idNote := ""
+	if first {
+		idNote = " (erster Kontakt, gemerkt)"
+	}
+	fmt.Fprintf(c.stdout, "  hub_id:       %s%s\n", resp.HubID, idNote)
+	if reset != "" {
+		fmt.Fprintf(c.stdout, "  Replica:      %s\n", reset)
+	}
+	fmt.Fprintf(c.stdout, "  Node-Name:    %s\n", resp.Node)
+	fmt.Fprintf(c.stdout, "  erlaubt:      %s\n", joinOrNone(resp.Allowed))
+	var missing []string
+	for _, w := range h.Collections {
+		if !slices.Contains(resp.Allowed, w) {
+			missing = append(missing, w)
+		}
+	}
+	if len(missing) > 0 {
+		fmt.Fprintf(c.stdout, "  gewünscht, aber nicht erlaubt: %s\n", joinOrNone(missing))
+	}
+	return nil
 }
