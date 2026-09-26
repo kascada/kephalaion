@@ -174,7 +174,7 @@ Regeln dazu:
 - Die Toolchain ist die `toolchain`-Zeile in `go.mod`. CI baut mit `GOTOOLCHAIN=local` und
   prüft sie mit `make check-toolchain`. Wer sie anhebt, hebt sie nur dort an.
 - Actions in `.github/workflows/` sind auf Commit-SHA gepinnt, mit Versionskommentar;
-  Dependabot hält `gomod` und `github-actions` wöchentlich nach.
+  Dependabot hält `gomod` und `github-actions` wöchentlich nach, mit PRs gegen `dev`.
 
 ## Testen
 
@@ -188,23 +188,51 @@ Regeln dazu:
 - Tests gegen GitHub laufen über `httptest`; die Basis-URL der API ist dafür im
   `upgrade.Upgrader` überschreibbar. Sie ist keine Nutzeroption und wird nicht dokumentiert.
 
+## Branches
+
+- **`dev`** ist der Arbeitsbranch: dort wird gearbeitet und gesichert. Auf `dev` darf jeder
+  ohne Prüfung und ohne Rückfrage sichern und pushen, auch die KI und `/k-task-run` — `dev`
+  ist nur die Sicherung des Arbeitsstands.
+- **`main`** trägt nur veröffentlichte Stände und rückt allein über `release` per
+  Fast-Forward auf `dev` vor. Nach `main` wird nie direkt committet oder gepusht. Das ist
+  Regel, keine Sperre: Das Ruleset „main und dev“ auf GitHub sperrt für beide Branches nur
+  Force-Push und Löschen. Weicht `main` doch ab (etwa ein auf GitHub gemergter PR), erkennt
+  `release` das in Schritt 6 und bricht ab.
+- `main` bleibt Standard-Branch auf GitHub: Ein Clone bekommt den Release-Stand; wer arbeiten
+  will, wechselt nach `dev` (`git switch dev`).
+- **Dependabot:** Versions-Updates kommen als PR gegen `dev` (`target-branch` in
+  `.github/dependabot.yml`; wirkt erst, wenn `main` die Datei enthält). Security-Updates gehen
+  nach GitHub-Vorgabe immer gegen `main`. Solche PRs nicht auf GitHub mergen, sondern lokal
+  nach `dev` holen (`git fetch origin`, `git merge origin/<branch>`, sichern); enthält `main`
+  die Commits nach dem nächsten Release, markiert GitHub den PR als gemergt.
+
 ## Release
 
 - Ein Release ist ein Tag `vX.Y.Z` (mit Suffix `-…` eine Vorabversion). Es gibt keine
   `VERSION`-Datei und keine versionierte `SHA256SUMS`.
-- Anlegen nur über `make -C k-playbook-local release VERSION=vX.Y.Z`: verlangt sauberen
-  Arbeitsbaum, Branch `main` und `HEAD == origin/main`, legt den Tag an und pusht ihn.
+- Anlegen nur über `make -C k-playbook-local release VERSION=vX.Y.Z`, von `dev` aus. Alle
+  Prüfungen laufen vor dem ersten Push: gültige Version, Branch `dev`, sauberer Arbeitsbaum,
+  `HEAD == origin/dev` (nach `git fetch`), `origin/main` Vorfahre von `HEAD`, Tag weder auf
+  `origin` noch lokal auf einem anderen Commit, CI (`ci.yml`) auf `HEAD` grün — es zählt der
+  neueste Lauf auf `dev`, abgefragt mit `gh`. Danach schiebt es `main` per Fast-Forward auf
+  `HEAD` (`git push origin HEAD:refs/heads/main`, ohne Force), legt den Tag annotiert an,
+  pusht ihn und zieht den lokalen `main` nach.
+- Bricht es nach dem Push von `main` ab, wird es einfach wiederholt: `main` steht dann schon
+  auf `HEAD`, ein lokal schon angelegter Tag auf `HEAD` wird nur noch gepusht.
 - Den Rest macht `.github/workflows/release.yml` (Workflow „Release“): `make check`, `make
   dist`, Release als Entwurf, Assets (vier Binaries, `SHA256SUMS`, `install.sh`), dann
   veröffentlichen. `latest` bekommt nur die höchste Version ohne Suffix.
 - Scheitert ein Lauf, wird er über `workflow_dispatch` mit dem Tag wiederholt
   (`gh workflow run release.yml -f tag=vX.Y.Z`); vorhandene Assets werden ersetzt.
 - Ein Release wirkt öffentlich: Tag, Push und Veröffentlichung nur nach Rückfrage beim
-  Nutzer. Ein v0.x-Release gilt nicht als Veröffentlichung im Sinne der Namensprüfung
+  Nutzer. Das gilt für `release` (und damit für jeden Push nach `main`), nicht für Pushes auf
+  `dev`. Ein v0.x-Release gilt nicht als Veröffentlichung im Sinne der Namensprüfung
   (`docs/konzept.md`); die ist erst vor v1.0 fällig.
 
 ## Sichern
 
-- `make -C k-playbook-local sichern [MSG=…]` committet alles und pusht ohne Prüfung —
-  für Zwischenstände, nicht für Releases. Da `git add -A` alles nimmt, vorher sehen, was
-  im Arbeitsbaum liegt.
+- `make -C k-playbook-local sichern [MSG=…]` committet alles und pusht nach `origin dev`,
+  ohne Prüfung — für Zwischenstände, nicht für Releases. Es läuft nur auf `dev`; auf einem
+  anderen Branch bricht es ab. Ist `dev` auf `origin` weiter, lehnt der Push ab: dann
+  `git pull --no-rebase origin dev` und erneut sichern. Da `git add -A` alles nimmt, vorher
+  sehen, was im Arbeitsbaum liegt.

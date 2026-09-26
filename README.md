@@ -412,8 +412,13 @@ make dev-install  # diese Plattform bauen und ~/.local/bin/kephalaion ersetzen
 make              # alle Targets
 ```
 
-Ein Release entsteht aus einem Tag `v*`: `.github/workflows/release.yml` prüft, baut und
-veröffentlicht es mit den Binaries, `SHA256SUMS` und `install.sh`.
+`main` ist der Standard-Branch und trägt nur veröffentlichte Stände; ein Clone bekommt den
+Release-Stand. Gearbeitet wird auf `dev` — nach dem Klonen `git switch dev`.
+
+Ein Release entsteht mit `make -C k-playbook-local release VERSION=vX.Y.Z`: Es prüft `dev`
+(gepusht, CI grün), schiebt `main` per Fast-Forward darauf und pusht den Tag. Aus dem Tag
+`v*` baut `.github/workflows/release.yml` das Release und veröffentlicht es mit den Binaries,
+`SHA256SUMS` und `install.sh`.
 
 ## Lizenz
 

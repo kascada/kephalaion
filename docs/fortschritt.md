@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`)
+Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt)
 
 ## So wird diese Datei aktualisiert
 
@@ -55,6 +55,11 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`)
   - MCP `whoami` nach Konzept: `version`, alle Hubs mit `login`, `node`, `sync`,
     `unknown_hubs`; Anmeldung über alle Hubs als `mcpnode.Authenticate` (Grundlage für Task 009);
   - `kephalaion node whoami [<account>] [--hub] [--json]` aus derselben Funktion.
+- **Task 010 — Arbeitsbranch `dev`** (2026-09-26): gearbeitet und gesichert wird auf `dev`,
+  `main` rückt nur über `make -C k-playbook-local release` per Fast-Forward vor (von `dev`,
+  gepusht, CI grün; alle Prüfungen vor dem ersten Push, wiederholbar); `sichern` nur auf
+  `dev`; CI-Push nur für `main`/`dev`; Dependabot gegen `dev`; Ruleset „main und dev“ sperrt
+  Force-Push und Löschen (`k-playbook-local/k-playbook.md`, „Branches“, „Release“).
 
 ## In Arbeit
 
@@ -130,6 +135,9 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`)
     (Ausführung, Restrisiken);
   - `last_error` in `whoami` nur als fester Satz je Fehlerart (Adresse); bewusst, ggf.
     besprechen (Ausführung, Restrisiken).
+- **`TestBackgroundSync` wackelt in CI:** scheiterte auf `dev` (a92d9e1, nur Task-Dateien
+  geändert) mit „wartet vergeblich auf: Logzeilen“; `release` verlangt grüne CI auf `dev`
+  (Task 010, Etappe 2).
 - **Kleinere Punkte aus Reviews (Task 003):**
   - `node hub add` prüft Transportregeln erst nach der Token-Eingabe;
   - `parseFlags`: Flag-Wert `--` gilt als Ende der Optionen;
@@ -147,6 +155,9 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`)
 - **Task 004, Etappe 5:** Durchlauf Hub + Node in einer config über `local`.
 - **Task 005, Etappe 6:** Durchlauf `rotate` über `local` und `http`, `whoami` per MCP aus
   einem echten Client, `lock` → `sync` → `whoami` scheitert.
+- **Erster Security-PR von Dependabot** gegen `main`: lokal nach `dev` holen und prüfen, ob
+  GitHub ihn nach dem Release als gemergt markiert — auch wenn Dependabot den Branch rebased
+  (Task 010, Review-Punkt 5, vertagt).
 - **macOS:** Installation und `upgrade` nie echt getestet (Task 001, Intent-Alignment).
 - **`upgrade`-Abbruch:** nur per httptest belegt, nicht durch einen echten Abbruch.
 - **PostgreSQL:** Tauglichkeit der Hub-Abfragen nur per Check auf verbotene Konstrukte;
