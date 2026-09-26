@@ -22,6 +22,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/node/mcpnode"
 	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
 	"github.com/kephalaion/kephalaion/internal/reqlog"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 const serveUsage = `Aufruf:
@@ -52,6 +53,11 @@ hält die anderen nicht auf. Transport local nimmt den Hub desselben serve,
 http den Hub unter seiner Adresse; https und ssh werden noch übergangen.
 Erfolg und letzter Fehler je Hub stehen in node.db (kephalaion status).
 kephalaion node sync läuft daneben wie immer.
+
+Als Node fragt serve außerdem höchstens einmal am Tag bei GitHub nach dem
+neuesten Release (nach einem Fehler frühestens nach einer Stunde) und gibt
+die Antwort im Werkzeug whoami mit (update) — aus seiner Sicht: global also
+der Weg des Verwalters. Die Antwort bleibt im Speicher.
 
 Logs gehen nach stderr: eine Zeile je Anfrage mit Methode, Pfad, Status,
 Dauer und den Namen von Node bzw. Account — nie ein Token. Vom Abgleich im
@@ -84,17 +90,17 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "serve: %v\n", err)
 		return 1
 	}
-	cfgPath, err := config.Path(*cfgFlag)
+	loc, err := config.Locate(*cfgFlag)
 	if err != nil {
 		return fail(err)
 	}
-	cfg, _, err := config.Load(cfgPath)
+	cfg, _, err := config.Load(loc.Path)
 	if err != nil {
 		return fail(err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := serve(ctx, cfg, reqlog.New(stderr), serveReady); err != nil {
+	if err := serve(ctx, cfg, loc.System(), reqlog.New(stderr), serveReady); err != nil {
 		return fail(err)
 	}
 	return 0
@@ -128,8 +134,11 @@ type role struct {
 
 // serve startet die Listener aller eingerichteten Rollen und läuft, bis ctx
 // endet; dann beendet es sie mit Frist. Bevor irgendetwas lauscht, ist alles
-// geprüft, gesperrt und geöffnet. ready bekommt die tatsächlichen Adressen.
-func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready func(map[config.Role]string)) error {
+// geprüft, gesperrt und geöffnet. system sagt, ob die globale config gilt
+// (für den Weg des Upgrades in whoami). ready bekommt die tatsächlichen
+// Adressen.
+func serve(ctx context.Context, cfg config.Config, system bool, log *reqlog.Logger,
+	ready func(map[config.Role]string)) error {
 	if cfg.Empty() {
 		return errors.New("keine Rolle eingerichtet; zuerst kephalaion hub init oder kephalaion node init")
 	}
@@ -139,6 +148,15 @@ func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready fun
 				return err
 			}
 		}
+	}
+	// Als Node fragt serve höchstens einmal am Tag nach einer neuen Version
+	// und gibt die Antwort in whoami mit; bis dahin ohne Frage an GitHub.
+	var updates *upgrade.Watcher
+	if cfg.Node != nil {
+		u := newUpgrader(io.Discard)
+		u.System = system
+		updates = upgrade.NewWatcher(u.Report, u.Local())
+		updates.Changed = func(r upgrade.Report) { log.Printf("%s", r.Summary()) }
 	}
 	var roles []*role
 	defer func() {
@@ -152,7 +170,7 @@ func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready fun
 		if sec == nil {
 			continue
 		}
-		rl, err := startRole(ctx, cfg, r, sec)
+		rl, err := startRole(ctx, cfg, r, sec, updates)
 		if err != nil {
 			return err
 		}
@@ -205,7 +223,14 @@ func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready fun
 		bg := newBackgroundSync(nodes, cfg, hub, log)
 		go func() {
 			defer close(bgDone)
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				updates.Run(bgCtx)
+			}()
 			bg.run(bgCtx)
+			wg.Wait()
 		}()
 	} else {
 		close(bgDone)
@@ -252,7 +277,8 @@ func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready fun
 
 // startRole nimmt die Sperre einer Rolle, öffnet ihre Datenbank und baut
 // ihren Server; lauschen tut es noch nicht.
-func startRole(ctx context.Context, cfg config.Config, r config.Role, sec *config.Section) (*role, error) {
+func startRole(ctx context.Context, cfg config.Config, r config.Role, sec *config.Section,
+	updates *upgrade.Watcher) (*role, error) {
 	addr, err := config.ParseDB(sec.DB)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", r, err)
@@ -291,7 +317,7 @@ func startRole(ctx context.Context, cfg config.Config, r config.Role, sec *confi
 		rl.close = func() { _ = st.Close() }
 		rl.nodes = st
 		rl.server = &http.Server{
-			Handler:           newNodeHandler(st),
+			Handler:           newNodeHandler(st, updates.Report),
 			ReadHeaderTimeout: httpapi.ReadHeaderTimeout,
 			IdleTimeout:       httpapi.IdleTimeout,
 		}
@@ -300,8 +326,8 @@ func startRole(ctx context.Context, cfg config.Config, r config.Role, sec *confi
 }
 
 // newNodeHandler ist der Eingang des Nodes für Clients: MCP unter /mcp.
-func newNodeHandler(st nodestore.Store) http.Handler {
-	return mcpnode.NewHandler(st, buildinfo.Get().Version)
+func newNodeHandler(st nodestore.Store, update func() upgrade.Report) http.Handler {
+	return mcpnode.NewHandler(st, buildinfo.Get().Version, update)
 }
 
 // lockPath ist die Sperrdatei neben einer Datenbank: <db>.lock.

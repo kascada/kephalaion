@@ -13,6 +13,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/buildinfo"
 	"github.com/kephalaion/kephalaion/internal/config"
 	"github.com/kephalaion/kephalaion/internal/node/mcpnode"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 // headerRT setzt die Header, die ein Client aus seiner MCP-Konfiguration
@@ -25,6 +26,18 @@ func (rt headerRT) RoundTrip(r *http.Request) (*http.Response, error) {
 		r.Header[k] = v
 	}
 	return http.DefaultTransport.RoundTrip(r)
+}
+
+// mcpWhoamiChecked ruft whoami wie mcpWhoami, bis serve GitHub gefragt hat
+// (update nicht mehr unchecked) — die Frage läuft beim Start im Hintergrund.
+func mcpWhoamiChecked(t *testing.T, endpoint string, pairs map[string][2]string) mcpnode.WhoamiOutput {
+	t.Helper()
+	var out mcpnode.WhoamiOutput
+	eventually(t, "Antwort von GitHub in whoami", func() bool {
+		out = mcpWhoami(t, endpoint, pairs)
+		return out.Update.State != upgrade.StateUnchecked
+	})
+	return out
 }
 
 // mcpWhoami ruft whoami am MCP-Eingang unter endpoint, mit einem Header-Paar

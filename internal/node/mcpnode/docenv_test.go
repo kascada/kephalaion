@@ -20,6 +20,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/ident"
 	"github.com/kephalaion/kephalaion/internal/node/replica"
 	"github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 // docHub ist eine Attrappe von contract.Hub für die Werkzeuge, die lesen:
@@ -193,7 +194,7 @@ func newDocEnv(t *testing.T) *docEnv {
 	e.hubs["keph"].grant("otto", "wissen", e.tokens["keph/otto"], contract.Rights{})
 	e.hubs["team"].grant("anna", "notizen", e.tokens["team/anna"], contract.Rights{})
 	e.sync(t)
-	srv := httptest.NewServer(NewHandler(nodes, "test"))
+	srv := httptest.NewServer(NewHandler(nodes, "test", func() upgrade.Report { return testUpdate }))
 	t.Cleanup(srv.Close)
 	e.url = srv.URL
 	return e

@@ -21,6 +21,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/node/replica"
 	"github.com/kephalaion/kephalaion/internal/node/store"
 	"github.com/kephalaion/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 // env ist ein Node mit zwei Hub-Einträgen und ihren Replicas: keph mit
@@ -94,7 +95,7 @@ func newEnv(t *testing.T) *env {
 			t.Fatal(err)
 		}
 	}
-	srv := httptest.NewServer(NewHandler(nodes, "test"))
+	srv := httptest.NewServer(NewHandler(nodes, "test", func() upgrade.Report { return testUpdate }))
 	t.Cleanup(srv.Close)
 	e.url = srv.URL
 	return e
@@ -189,14 +190,15 @@ func TestWhoamiWithoutHeaders(t *testing.T) {
 	e := newEnv(t)
 	out, raw := e.whoami(t, nil)
 	zero := int64(0)
-	want := WhoamiOutput{Version: "test", UnknownHubs: []string{}, Hubs: []HubInfo{
+	want := WhoamiOutput{Version: "test", Update: testUpdate, UnknownHubs: []string{}, Hubs: []HubInfo{
 		{Hub: "keph", Login: LoginMissing, Node: "laptop", Sync: SyncInfo{Revision: &zero}},
 		{Hub: "team.x_y", Login: LoginMissing, Node: "laptop", Sync: SyncInfo{Revision: &zero}},
 	}}
 	if !reflect.DeepEqual(out, want) {
 		t.Errorf("ohne Header: %+v", out)
 	}
-	if !strings.Contains(raw, "kephalaion test") || !strings.Contains(raw, "keph (Node laptop): keine Zugangsdaten; Revision 0") {
+	if !strings.Contains(raw, `kephalaion test\nUpdate: v0.2.0 verfügbar`) ||
+		!strings.Contains(raw, "keph (Node laptop): keine Zugangsdaten; Revision 0") {
 		t.Errorf("Text:\n%s", raw)
 	}
 }
@@ -566,7 +568,7 @@ func TestWhoamiUnreadableReplica(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cli, _, unread, err := Whoami(ctx, e.nodes, "test", logins)
+	cli, _, unread, err := Whoami(ctx, e.nodes, "test", testUpdate, logins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +609,7 @@ func TestWhoamiCanceled(t *testing.T) {
 	if _, err := accountRows(ctx, e.nodes, h, "bob"); err == nil || asUnreadable(err) != nil {
 		t.Errorf("accountRows mit abgebrochenem ctx: %v", err)
 	}
-	if _, _, _, err := Whoami(ctx, e.nodes, "test", Logins{}); err == nil {
+	if _, _, _, err := Whoami(ctx, e.nodes, "test", testUpdate, Logins{}); err == nil {
 		t.Error("Whoami mit abgebrochenem ctx ohne Fehler")
 	}
 	if _, err := AccountLogins(ctx, e.nodes, "bob"); err == nil {
@@ -645,3 +647,9 @@ func TestDescribeSync(t *testing.T) {
 		}
 	}
 }
+
+// testUpdate ist die Antwort auf die Frage nach einer neuen Version, die der
+// Handler in den Tests bekommt.
+var testUpdate = upgrade.Report{State: upgrade.StateOK, CheckedAt: "2026-09-26T08:00:00Z", Version: "test",
+	Latest: "v0.2.0", UpdateAvailable: true, Method: upgrade.MethodAdmin,
+	Command: "sudo kephalaion upgrade && sudo systemctl restart kephalaion", Hint: "globale Installation"}

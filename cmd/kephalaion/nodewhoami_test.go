@@ -14,6 +14,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/node/replica"
 	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
 	"github.com/kephalaion/kephalaion/internal/sqlitedb"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 // node whoami ohne Account: Hubs mit Node-Name und Stand, die Accounts aus
@@ -89,7 +90,7 @@ func TestNodeWhoamiAccount(t *testing.T) {
 	cfg.Node.Listen = "127.0.0.1:0"
 	srv := startServe(t, cfg)
 	endpoint := "http://" + srv.addrs[config.Node] + mcpnode.Path
-	viaMCP := mcpWhoami(t, endpoint, map[string][2]string{"eigen": {"bob", bob}, "fern": {"bob", bob}})
+	viaMCP := mcpWhoamiChecked(t, endpoint, map[string][2]string{"eigen": {"bob", bob}, "fern": {"bob", bob}})
 
 	r = e.run(t, "node", "whoami", "bob", "--json")
 	r.want(t, 0)
@@ -103,7 +104,11 @@ func TestNodeWhoamiAccount(t *testing.T) {
 	if viaCLI.Hubs[0].Login != mcpnode.LoginOK || viaCLI.Hubs[1].Login != mcpnode.LoginOK {
 		t.Errorf("nicht angemeldet: %+v", viaCLI)
 	}
-	for _, key := range []string{`"version"`, `"hubs"`, `"unknown_hubs"`, `"login": "ok"`, `"last_success"`} {
+	if viaCLI.Update.State != upgrade.StateOK || viaCLI.Update.Latest != "v0.2.0" {
+		t.Errorf("update: %+v", viaCLI.Update)
+	}
+	for _, key := range []string{`"version"`, `"update"`, `"latest": "v0.2.0"`, `"hubs"`, `"unknown_hubs"`,
+		`"login": "ok"`, `"last_success"`} {
 		if !strings.Contains(r.out, key) {
 			t.Errorf("JSON ohne %s:\n%s", key, r.out)
 		}
@@ -237,7 +242,7 @@ func TestNodeWhoamiUnreadableReplica(t *testing.T) {
 	cfg.Hub = nil
 	cfg.Node.Listen = "127.0.0.1:0"
 	srv := startServe(t, cfg)
-	viaMCP := mcpWhoami(t, "http://"+srv.addrs[config.Node]+mcpnode.Path,
+	viaMCP := mcpWhoamiChecked(t, "http://"+srv.addrs[config.Node]+mcpnode.Path,
 		map[string][2]string{"eigen": {"bob", bob}, "fern": {"bob", bob}, "dritt": {"bob", bob}})
 	if !reflect.DeepEqual(viaCLI, viaMCP) {
 		t.Errorf("CLI\n%+v\nMCP\n%+v", viaCLI, viaMCP)

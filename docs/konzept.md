@@ -1423,6 +1423,7 @@ Node“; ein eigenes `status` brächte kaum mehr. Die Antwort:
 | Feld | Inhalt | auch ohne Anmeldung |
 |---|---|---|
 | `version` | Version des Nodes; die Erweiterung für VS Code vergleicht sie mit ihrer | ja |
+| `update` | neueste Version, ob es ein Update gibt, ob sich das Binary selbst ersetzen kann, Weg, Zeitpunkt der Prüfung — aus der zwischengespeicherten Antwort von `serve` | ja |
 | je Hub: `hub` | Alias — **alle** Hub-Einträge des Nodes, nicht nur die mit Header-Paar | ja |
 | `login` | `ok`, `invalid` (geschickt, aber ungültig) oder `missing` (nichts geschickt oder Replica nicht lesbar) | ja |
 | `node` | Name dieses Nodes am Hub | ja |
@@ -1439,6 +1440,18 @@ erreichbar“), nicht die Meldung — die kann die Adresse nennen. Fehlt die Rep
 Header-Paar, ist `login` `invalid`, auch mit richtigen Zugangsdaten; den Grund erkennen Client
 und Erweiterung an `sync`. Ein halbes Header-Paar ist `invalid`. Der Textteil nennt die
 Version und je Hub eine Zeile.
+
+**`update` — gebaut in Task 011 (2026-09-26).** Dieselbe Struktur wie `kephalaion upgrade
+--check --json`, aus derselben Funktion (`upgrade.Report`): `state` (`ok`, `unchecked` vor der
+ersten Prüfung, `failed` nach einem Fehler, dann mit `error`), `checked_at` (RFC 3339, UTC),
+`version`, `dev_build`, `latest`, `update_available` (bei einem dev build nie), `self_upgrade`,
+`method` (`self`, `explicit` für einen dev build, `admin` für die globale Installation,
+`manual`), `command` und `hint`. `latest` und `update_available` gibt es nur bei `ok`; der Weg
+steht immer darin. `serve` fragt als Node beim Start und danach höchstens einmal am Tag, nach
+einem Fehler frühestens nach einer Stunde, in einer eigenen Goroutine, die mit `serve` endet;
+die Antwort bleibt im Speicher. Der Weg gilt aus Sicht des `serve`-Prozesses — global also
+der des Verwalters. `kephalaion node whoami` hat dieselbe Struktur, fragt aber wie `upgrade
+--check` direkt. Der Textteil nennt das Update in einer Zeile nach der Version.
 
 **Replica nicht lesbar — entschieden am 2026-09-26, gebaut in Task 012.** Lässt sich die
 Replica eines Hubs nicht öffnen oder lesen — alte Schemafassung, ohne `entry_id`, beschädigt,

@@ -13,6 +13,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/node/replica"
 	"github.com/kephalaion/kephalaion/internal/node/store"
 	"github.com/kephalaion/kephalaion/internal/reqlog"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 // WhoamiOutput ist die Antwort des Werkzeugs whoami (docs/konzept.md,
@@ -21,6 +22,11 @@ import (
 type WhoamiOutput struct {
 	// Version ist die Version des Nodes.
 	Version string `json:"version"`
+	// Update sagt, ob es eine neuere Version gibt, ob sich das Binary selbst
+	// ersetzen kann und wie das Upgrade geht — aus der Sicht von serve, mit
+	// der zwischengespeicherten Antwort von GitHub (höchstens eine Frage am
+	// Tag). Dieselbe Struktur wie kephalaion upgrade --check --json.
+	Update upgrade.Report `json:"update"`
 	// Hubs nennt alle Hub-Einträge des Nodes, nach Alias.
 	Hubs []HubInfo `json:"hubs"`
 	// UnknownHubs sind die Aliase aus Headern, zu denen der Node keinen
@@ -72,7 +78,8 @@ type CollectionRights struct {
 }
 
 // Whoami baut die Antwort von whoami aus den Anmeldungen, samt Textteil —
-// eine Zeile je Hub. Dieselbe Funktion dient dem Werkzeug (über
+// die Version, eine Zeile zum Update, eine Zeile je Hub. update ist die
+// Antwort auf die Frage nach einer neuen Version, wie der Aufrufer sie hat. Dieselbe Funktion dient dem Werkzeug (über
 // Authenticate) und der Kommandozeile (node whoami, über AccountLogins).
 //
 // Eine Replica, die sich nicht lesen lässt, betrifft nur ihren Hub: login
@@ -80,8 +87,8 @@ type CollectionRights struct {
 // Meldungen dazu stehen in unread, je Hub eine — fürs Log bzw. stderr, nie
 // für die Antwort. Der Fehler ist nur einer von node.db oder ein
 // abgebrochener ctx.
-func Whoami(ctx context.Context, nodes store.Store, version string, logins Logins) (out WhoamiOutput, text string,
-	unread []*UnreadableError, err error) {
+func Whoami(ctx context.Context, nodes store.Store, version string, update upgrade.Report, logins Logins) (
+	out WhoamiOutput, text string, unread []*UnreadableError, err error) {
 	status, err := nodes.SyncStatus(ctx)
 	if err != nil {
 		return WhoamiOutput{}, "", nil, err
@@ -94,11 +101,12 @@ func Whoami(ctx context.Context, nodes store.Store, version string, logins Login
 	for _, h := range hubs {
 		entries[h.Name] = h
 	}
-	out = WhoamiOutput{Version: version, Hubs: make([]HubInfo, 0, len(logins.Hubs)), UnknownHubs: logins.Unknown}
+	out = WhoamiOutput{Version: version, Update: update, Hubs: make([]HubInfo, 0, len(logins.Hubs)),
+		UnknownHubs: logins.Unknown}
 	if out.UnknownHubs == nil {
 		out.UnknownHubs = []string{}
 	}
-	lines := []string{"kephalaion " + version}
+	lines := []string{"kephalaion " + version, update.Summary()}
 	for _, l := range logins.Hubs {
 		info := HubInfo{Hub: l.Hub, Login: l.State, Node: l.Node}
 		sync, err := syncInfo(ctx, nodes, entries[l.Hub], status[l.Hub])
@@ -226,7 +234,7 @@ func (n *Node) whoami(ctx context.Context, req *mcp.CallToolRequest, _ struct{})
 		reqlog.NoteError(ctx, err)
 		return nil, WhoamiOutput{}, fmt.Errorf("Datenbank des Nodes nicht lesbar")
 	}
-	out, text, unread, err := Whoami(ctx, n.nodes, n.version, logins)
+	out, text, unread, err := Whoami(ctx, n.nodes, n.version, n.update(), logins)
 	if err != nil {
 		reqlog.NoteError(ctx, err)
 		return nil, WhoamiOutput{}, fmt.Errorf("Datenbank des Nodes nicht lesbar")

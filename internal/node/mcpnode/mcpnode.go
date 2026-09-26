@@ -30,6 +30,7 @@ import (
 	"github.com/kephalaion/kephalaion/internal/loopback"
 	"github.com/kephalaion/kephalaion/internal/node/store"
 	"github.com/kephalaion/kephalaion/internal/reqlog"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 // Path ist der Pfad des MCP-Eingangs.
@@ -46,18 +47,21 @@ const (
 type Node struct {
 	nodes   store.Store
 	version string
+	update  func() upgrade.Report
 }
 
 // NewHandler liefert den Handler des Nodes: /mcp mit Prüfung von Host und
-// Origin, alles andere 404. version steht in der Antwort auf initialize.
-func NewHandler(nodes store.Store, version string) http.Handler {
-	n := &Node{nodes: nodes, version: version}
+// Origin, alles andere 404. version steht in der Antwort auf initialize;
+// update liefert für whoami die letzte Antwort auf die Frage nach einer
+// neuen Version — ohne selbst GitHub zu fragen.
+func NewHandler(nodes store.Store, version string, update func() upgrade.Report) http.Handler {
+	n := &Node{nodes: nodes, version: version, update: update}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "kephalaion", Version: version}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "whoami",
-		Description: "Zeigt die Version des Nodes und je Hub die Anmeldung (ok, invalid, missing) und den Stand " +
-			"des Abgleichs; bei ok Account, User und Collections mit Adresse und Rechten (read, write, " +
-			"supersede). Ohne Argumente.",
+		Description: "Zeigt die Version des Nodes, ob es eine neuere gibt und wie das Upgrade geht (update), und je " +
+			"Hub die Anmeldung (ok, invalid, missing) und den Stand des Abgleichs; bei ok Account, User und " +
+			"Collections mit Adresse und Rechten (read, write, supersede). Ohne Argumente.",
 	}, n.whoami)
 	mcp.AddTool(srv, &mcp.Tool{Name: "list", Description: listDescription}, n.list)
 	mcp.AddTool(srv, &mcp.Tool{Name: "read", Description: readDescription}, n.read)

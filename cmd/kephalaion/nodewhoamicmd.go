@@ -8,11 +8,14 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/kephalaion/kephalaion/internal/buildinfo"
+	"github.com/kephalaion/kephalaion/internal/config"
 	"github.com/kephalaion/kephalaion/internal/ident"
 	"github.com/kephalaion/kephalaion/internal/node/mcpnode"
 	nodestore "github.com/kephalaion/kephalaion/internal/node/store"
+	"github.com/kephalaion/kephalaion/internal/upgrade"
 )
 
 const nodeWhoamiUsage = `Aufruf:
@@ -32,6 +35,11 @@ das Werkzeug.
 Lässt sich die Replica eines Hubs nicht lesen, steht der Hub ohne Accounts
 und mit „Replica nicht lesbar“ da; die übrigen Hubs gelten weiter. Die volle
 Meldung, samt Pfad, steht auf stderr (wie in kephalaion status).
+
+Die Zeile Update bzw. das Feld update sagt wie im Werkzeug, ob es eine neuere
+Version gibt und wie das Upgrade geht; node whoami fragt dafür wie
+kephalaion upgrade --check direkt bei GitHub (serve dagegen höchstens einmal
+am Tag).
 
 Ohne Token: Wer die Kommandozeile aufruft, kann die Datenbanken des Nodes
 ohnehin lesen. Ob ein Token gilt, prüft kephalaion node account check.
@@ -55,11 +63,12 @@ func runNodeWhoami(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		version := buildinfo.Get().Version
+		if len(pos) == 0 && *asJSON {
+			return errors.New("--json gibt es nur mit <account>: die Struktur ist die des Werkzeugs whoami")
+		}
+		update := cliUpdate(ctx, *c.cfg)
 		if len(pos) == 0 {
-			if *asJSON {
-				return errors.New("--json gibt es nur mit <account>: die Struktur ist die des Werkzeugs whoami")
-			}
-			return printNodeOverview(ctx, stdout, stderr, s, version, *hub)
+			return printNodeOverview(ctx, stdout, stderr, s, version, update, *hub)
 		}
 		account := pos[0]
 		if err := ident.CheckPrincipalName("Account", account); err != nil {
@@ -70,7 +79,7 @@ func runNodeWhoami(args []string, stdout, stderr io.Writer) int {
 			return err
 		}
 		logins.Hubs = onlyHub(logins.Hubs, *hub)
-		out, text, unread, err := mcpnode.Whoami(ctx, s, version, logins)
+		out, text, unread, err := mcpnode.Whoami(ctx, s, version, update, logins)
 		if err != nil {
 			return err
 		}
@@ -83,6 +92,22 @@ func runNodeWhoami(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, text)
 		return nil
 	})
+}
+
+// cliUpdateTimeout begrenzt die Frage nach einer neuen Version in node whoami.
+const cliUpdateTimeout = 10 * time.Second
+
+// cliUpdate fragt für node whoami direkt bei GitHub nach einer neuen Version,
+// wie upgrade --check, aus der Sicht dieses Aufrufs; serve fragt dagegen
+// höchstens einmal am Tag und antwortet über MCP aus dem Speicher.
+func cliUpdate(ctx context.Context, cfgFlag string) upgrade.Report {
+	ctx, cancel := context.WithTimeout(ctx, cliUpdateTimeout)
+	defer cancel()
+	u := newUpgrader(io.Discard)
+	if loc, err := config.Locate(cfgFlag); err == nil {
+		u.System = loc.System()
+	}
+	return u.Report(ctx)
 }
 
 // onlyUnreadable grenzt die Meldungen zu unlesbaren Replicas auf einen Alias
@@ -133,7 +158,8 @@ func reportUnreadable(stderr io.Writer, unread ...[]*mcpnode.UnreadableError) {
 // — aus Whoami, ohne Anmeldung — und die bekannten Accounts. Ein Hub, dessen
 // Replica sich nicht lesen lässt, steht mit dem Hinweis darauf und ohne
 // Accounts da.
-func printNodeOverview(ctx context.Context, w, stderr io.Writer, s nodestore.Store, version, alias string) error {
+func printNodeOverview(ctx context.Context, w, stderr io.Writer, s nodestore.Store, version string,
+	update upgrade.Report, alias string) error {
 	hubs, err := s.Hubs(ctx)
 	if err != nil {
 		return err
@@ -143,11 +169,12 @@ func printNodeOverview(ctx context.Context, w, stderr io.Writer, s nodestore.Sto
 		none.Hubs = append(none.Hubs, mcpnode.Login{Hub: h.Name, Node: h.NodeName, State: mcpnode.LoginMissing})
 	}
 	none.Hubs = onlyHub(none.Hubs, alias)
-	out, _, unread, err := mcpnode.Whoami(ctx, s, version, none)
+	out, _, unread, err := mcpnode.Whoami(ctx, s, version, update, none)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "kephalaion %s\n", out.Version)
+	fmt.Fprintln(w, out.Update.Summary())
 	if len(out.Hubs) == 0 {
 		fmt.Fprintln(w, "Keine Hubs.")
 		return nil

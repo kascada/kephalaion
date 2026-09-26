@@ -48,11 +48,18 @@ type running struct {
 // es lauscht.
 func startServe(t *testing.T, cfg config.Config) *running {
 	t.Helper()
+	return startServeWith(t, cfg, false)
+}
+
+// startServeWith startet serve wie startServe; system sagt, ob die globale
+// config gilt.
+func startServeWith(t *testing.T, cfg config.Config, system bool) *running {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &running{log: &syncBuffer{}, cancel: cancel, done: make(chan error, 1)}
 	ready := make(chan map[config.Role]string, 1)
 	go func() {
-		r.done <- serve(ctx, cfg, reqlog.New(r.log), func(a map[config.Role]string) { ready <- a })
+		r.done <- serve(ctx, cfg, system, reqlog.New(r.log), func(a map[config.Role]string) { ready <- a })
 	}()
 	select {
 	case r.addrs = <-ready:
@@ -150,7 +157,7 @@ func TestServe(t *testing.T) {
 		}
 	}
 	// Ein zweiter serve auf denselben Rollen scheitert an der Sperre.
-	err := serve(context.Background(), portZero(t, cfgPath), reqlog.New(&bytes.Buffer{}), nil)
+	err := serve(context.Background(), portZero(t, cfgPath), false, reqlog.New(&bytes.Buffer{}), nil)
 	if err == nil || !strings.Contains(err.Error(), "läuft schon") {
 		t.Errorf("zweiter serve: %v", err)
 	}
@@ -182,7 +189,7 @@ func TestServeLoopbackOnly(t *testing.T) {
 	} {
 		cfg := portZero(t, cfgPath)
 		cfg.Hub.Listen, cfg.Node.Listen = bad.hub, bad.node
-		err := serve(context.Background(), cfg, reqlog.New(&bytes.Buffer{}), nil)
+		err := serve(context.Background(), cfg, false, reqlog.New(&bytes.Buffer{}), nil)
 		if err == nil || !strings.Contains(err.Error(), "nur auf diesem Rechner") {
 			t.Errorf("%+v: %v", bad, err)
 		}
