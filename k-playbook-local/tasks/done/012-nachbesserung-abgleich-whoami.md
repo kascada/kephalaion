@@ -224,3 +224,86 @@ Präzisierung im Intent (Moderator) ist der einzige Befund behoben: Ja.
 
 ### Offen (nicht gefixt)
 - —
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** Eine unlesbare Replica betrifft in `whoami` (MCP) und `node whoami` nur noch ihren eigenen Hub: `UnreadableError` in `mcpnode`, dazu `login` `missing`, der feste Satz „Replica nicht lesbar“ und die volle Meldung im Log bzw. auf stderr. `DescribeSync` ist ohne nil-Dereferenz. `openForSync` verwirft eindeutig unlesbare Replicas (`sqlitedb.IsCorrupt`, `ErrNoInfo`, fehlende IDs) und legt sie neu an. `replica.Create` prüft nach `Open` die `entry_id` (sonst `ErrChanged`), und `serve` wartet beim Beenden höchstens `shutdownGrace` auf den Abgleich. Die Doku ist nachgezogen in `konzept.md`, `fortschritt.md`, `begriffe.md` und `k-playbook.md`. `make check` ist grün, ebenso `go test -race` über `./cmd/kephalaion` und `./internal/node/...`. Commits: 04e09de, bdf896e, 2d8ff8a.
+
+**Geänderte Dateien:**
+```
+ cmd/kephalaion/bgsync_test.go                      |  93 ++++++++++
+ cmd/kephalaion/nodewhoami_test.go                  | 143 +++++++++++++++
+ cmd/kephalaion/nodewhoamicmd.go                    |  50 +++++-
+ cmd/kephalaion/serve.go                            |  28 ++-
+ docs/begriffe.md                                   |   4 +-
+ docs/fortschritt.md                                |  20 +--
+ docs/konzept.md                                    |  31 +++-
+ internal/node/mcpnode/login.go                     | 111 +++++++++---
+ internal/node/mcpnode/mcpnode_test.go              | 197 +++++++++++++++++++++
+ internal/node/mcpnode/whoami.go                    |  95 +++++++---
+ internal/node/replica/replica.go                   |  28 ++-
+ internal/node/replica/sync.go                      |  25 ++-
+ internal/node/replica/sync_test.go                 | 178 +++++++++++++++++++
+ internal/sqlitedb/sqlitedb.go                      |  41 ++++-
+ k-playbook-local/data/todos.json                   |   8 +-
+ k-playbook-local/k-playbook.md                     |  11 +-
+ .../tasks/012-nachbesserung-abgleich-whoami.md     |   8 +
+ 17 files changed, 986 insertions(+), 85 deletions(-)
+```
+(Die Datei `013-tests-schnell-und-vollstaendig.md` im Diff-Bereich stammt aus dem fremden Commit 69f83d1 und ist hier ausgelassen.)
+
+**Code-Änderungen (Auszug):**
+
+Der Diff umfasst ca. 1600 Zeilen, davon gut die Hälfte Tests (`mcpnode_test.go`, `nodewhoami_test.go`, `sync_test.go`, `bgsync_test.go`). Im Überblick:
+- `internal/node/mcpnode/login.go` und `whoami.go`: Replicas werden je Hub eingeordnet (fehlt / nicht lesbar / Fehler der Anfrage). `Whoami` liefert zusätzlich die Liste der unlesbaren Replicas, und `DescribeSync` ist ohne nil und ohne Fehlerzeit.
+- `internal/sqlitedb/sqlitedb.go`: `IsCorrupt` (NOTADB/CORRUPT) und `ErrNoInfo`.
+- `internal/node/replica/sync.go`: `openForSync` verwirft auch eindeutig unlesbare Replicas.
+- `cmd/kephalaion/nodewhoamicmd.go`: gibt die volle Meldung auf stderr aus, je Hub einmal.
+
+Die zentralen Hunks:
+
+```diff
+--- a/internal/node/replica/replica.go
++++ b/internal/node/replica/replica.go
+@@ func Create(ctx context.Context, path, hubID, entryID string) (*Replica, error)
+-	return Open(ctx, path)
++	if afterLink != nil {
++		afterLink(path)
++	}
++	r, err := Open(ctx, path)
++	if err != nil {
++		return nil, err
++	}
++	if r.EntryID() != entryID {
++		_ = r.Close()
++		return nil, ErrChanged
++	}
++	return r, nil
+--- a/cmd/kephalaion/serve.go
++++ b/cmd/kephalaion/serve.go
+@@ func serve(...)
+ 	stopBg()
+-	<-bgDone
++	bgWait := time.NewTimer(shutdownGrace)
++	select {
++	case <-bgDone:
++		bgWait.Stop()
++	case <-bgWait.C:
++		log.Printf("Abgleich im Hintergrund endet nicht in der Frist %s; beende trotzdem", shutdownGrace)
++	}
+```
+
+**Code-Review:**
+Grundlage ist nur der Diff (engineering:code-review).
+1. **Warnung:** `openForSync` im Zweig „unlesbar“ ruft `Remove(path)` auf, ohne vorher wie im `entry_id`-Zweig zu prüfen, ob der Eintrag noch gilt.
+   - Folge: Ein veralteter oder paralleler Abgleich (etwa `serve` im Hintergrund neben `node sync`) kann eine gerade frisch angelegte Replica löschen.
+   - Die Folgen sind begrenzt, weil die Replica abgeleitet ist, aber die Regel zur Nebenläufigkeit wird verletzt.
+   - Empfehlung: vor `Remove` dieselbe Prüfung auf den gültigen Eintrag, sonst `ErrEntryGone`.
+2. **Vorschlag:** In `Create` auch `sqlitedb.ErrNotFound` nach `Open` auf `ErrChanged` abbilden. Das ist der Fall, dass die Datei zwischen Link und Open nur entfernt wird.
+3. **Vorschlag:** Der Grund in `Reset` enthält die volle Meldung mit Pfad. Zu prüfen ist, dass er nur ins Log und in die CLI gelangt; laut Ausführung ist das so.
+4. **Vorschlag:** Die Test-Haken `afterLink`, `serveBackground` und `shutdownGrace` sind globale Variablen, deshalb dürfen die Tests nicht mit `t.Parallel()` laufen. Das sollte im Kommentar stehen.
+5. **Hinweis:** Das Beenden dauert höchstens 2 × `shutdownGrace` und ist so dokumentiert, es besteht kein Handlungsbedarf.
+
+Gesamturteil: solide und gut getestet. Befund 1 sollte vor dem nächsten Release angesehen werden.
