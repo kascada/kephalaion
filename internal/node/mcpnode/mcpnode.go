@@ -60,6 +60,7 @@ func NewHandler(nodes store.Store, version string) http.Handler {
 			"supersede). Ohne Argumente.",
 	}, n.whoami)
 	mcp.AddTool(srv, &mcp.Tool{Name: "list", Description: listDescription}, n.list)
+	mcp.AddTool(srv, &mcp.Tool{Name: "read", Description: readDescription}, n.read)
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	mux := http.NewServeMux()

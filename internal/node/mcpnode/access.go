@@ -136,12 +136,16 @@ type target struct {
 // <hub>:.
 func (t target) Address() string { return t.Hub + ":" + t.Collection }
 
-// resolve löst eine Adresse auf (nicht leer): <hub>:<collection>, <hub>: für
-// die Wurzel eines Hubs, oder <collection> ohne Hub-Teil. Der fehlende
-// Hub-Teil ist der eine Hub, an dem der Client gültig angemeldet ist; ist er
-// an keinem angemeldet und hat der Node genau einen Eintrag, dieser. Sonst
-// nennt der Fehler die möglichen Hubs.
+// resolve löst eine Adresse auf: <hub>:<collection>, <hub>: für die Wurzel
+// eines Hubs, <collection> ohne Hub-Teil, oder leer — dann nur den Hub (für
+// read per id). Der fehlende Hub-Teil ist der eine Hub, an dem der Client
+// gültig angemeldet ist; ist er an keinem angemeldet und hat der Node genau
+// einen Eintrag, dieser. Sonst nennt der Fehler die möglichen Hubs.
 func (r *request) resolve(addr string) (target, error) {
+	what := fmt.Sprintf("Adresse %q", addr)
+	if addr == "" {
+		what = "ohne collection"
+	}
 	hub, coll, withHub := strings.Cut(addr, ":")
 	if !withHub {
 		coll = addr
@@ -154,19 +158,18 @@ func (r *request) resolve(addr string) (target, error) {
 				hub = h
 			}
 		case len(valid) == 0:
-			return target{}, &toolError{fmt.Sprintf("Adresse %q ohne Hub: an keinem Hub gültig angemeldet; "+
-				"erwartet <hub>:<collection>", addr)}
+			return target{}, &toolError{what + " ohne Hub: an keinem Hub gültig angemeldet; erwartet <hub>:<collection>"}
 		default:
-			return target{}, &toolError{fmt.Sprintf("Adresse %q ohne Hub: angemeldet an %s; erwartet <hub>:<collection>",
-				addr, strings.Join(valid, ", "))}
+			return target{}, &toolError{fmt.Sprintf("%s ohne Hub: angemeldet an %s; erwartet <hub>:<collection>",
+				what, strings.Join(valid, ", "))}
 		}
 	}
 	if err := ident.CheckName("Hub", hub); err != nil {
-		return target{}, &toolError{fmt.Sprintf("Adresse %q: %v", addr, err)}
+		return target{}, &toolError{fmt.Sprintf("%s: %v", what, err)}
 	}
-	if coll != "" || !withHub {
+	if coll != "" || (!withHub && addr != "") {
 		if err := ident.CheckName("Collection", coll); err != nil {
-			return target{}, &toolError{fmt.Sprintf("Adresse %q: %v", addr, err)}
+			return target{}, &toolError{fmt.Sprintf("%s: %v", what, err)}
 		}
 	}
 	return target{Hub: hub, Collection: coll}, nil

@@ -112,6 +112,10 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **list** — Werkzeug des Nodes: Inhalt eines Verzeichnisses aus der Replica, ohne Löschmarken
   und `SYSTEM:`-Namen; ohne `collection` die lesbaren Collections. Sortiert nach `name`,
   `created` oder `updated`, geblättert mit `limit` und `cursor`, gefiltert mit `mask`.
+- **read** — Werkzeug des Nodes: ein Dokument aus der Replica, per Name oder `id`; Art
+  `document`, `directory` oder `none` (kein Fehler). Mit `content: false` nur die Angaben —
+  so beantwortet die Erweiterung für VS Code `stat`. Löschmarken sind `none`.
+- **writable** (schreibbar) — Angabe von `read`: Der Account hat `write` in der Collection.
 - **cursor** — undurchsichtige Angabe in der Antwort von `list` und `changes`, mit der der
   nächste Aufruf weiterfragt; der Client gibt sie unverändert zurück. Bei `list` die Stelle
   nach dem letzten Eintrag, bei `changes` der Stand je Collection und die `generation` je Hub.
