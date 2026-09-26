@@ -504,7 +504,8 @@ make              # alle Targets
 ```
 
 CI prüft jeden Push auf `dev` und `main` auf Linux (samt Cross-Build aller vier Plattformen
-und shellcheck) und auf macOS (Tests, LaunchAgent mit `plutil -lint`, `install.sh`).
+und shellcheck). Ein Job für macOS (Tests, LaunchAgent mit `plutil -lint`, `install.sh`) ist
+vorhanden, aber seit 2026-09-26 abgeschaltet (`if: false` in `.github/workflows/ci.yml`).
 
 `main` ist der Standard-Branch und trägt nur veröffentlichte Stände; ein Clone bekommt den
 Release-Stand. Gearbeitet wird auf `dev` — nach dem Klonen `git switch dev`.

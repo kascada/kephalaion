@@ -23,7 +23,8 @@ Dienst (`kephalaion service install`, systemd `--user` bzw. LaunchAgent) und glo
 User eines Linux-Rechners (System-Unit aus `service unit --system`, von Hand oder per
 Ansible) — global bisher nur für User auf dem Rechner selbst, ohne Devcontainer. Die config
 wird ohne Angabe gefunden, `upgrade --check [--json]` und `whoami` sagen, ob es eine neue
-Version gibt und wie das Upgrade geht; CI prüft auch auf macOS. Noch nicht gebaut: `https`
+Version gibt und wie das Upgrade geht; ein CI-Job für macOS ist gebaut, derzeit aber
+abgeschaltet. Noch nicht gebaut: `https`
 und `ssh`, Suche, Schreiben über den Node und das Lauschen auf der Docker-Bridge. Die Überlegungen
 entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
 Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
@@ -1000,7 +1001,10 @@ Datenbanken.
   `make dev-install` startet den Dienst pro User ebenso neu.
 - **macOS nur pro User.** Systembenutzer und LaunchDaemon sind dort umständlich; hier ist
   macOS nur selten zu testen. Die CI prüft es auf `macos-latest` — für ein öffentliches
-  Repo kostenlos.
+  Repo kostenlos. Gebaut in Task 011 (Tests, `plutil -lint` des LaunchAgent, `install.sh`);
+  seit 2026-09-26 auf Wunsch des Nutzers abgeschaltet (`if: false`), weil
+  `TestBackgroundSync` dort fast immer an der Race-Condition scheitert (Task 013); später
+  wieder einschalten.
 
 **Upgrade — entschieden am 2026-09-26.**
 

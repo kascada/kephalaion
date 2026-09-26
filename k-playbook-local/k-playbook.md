@@ -211,10 +211,13 @@ Regeln dazu:
 - CI hat zwei Jobs: `check` auf Ubuntu (`make check`, `make dist`, shellcheck) und `macos` auf
   `macos-latest` (`make check`, `make dist-host`, der LaunchAgent des gebauten Binarys mit
   `plutil -lint`, `install.sh` mit dem neuesten Release in leerem `HOME`, der Tag aus der
-  Weiterleitung von `releases/latest` — keine Anfrage an die GitHub-API ohne Token). Tests
-  vergleichen Pfade des Binarys aufgelöst (`filepath.EvalSymlinks`): Auf macOS liegt das
-  temporäre Verzeichnis hinter einem Link. `TestBackgroundSync` scheitert auf macOS öfter an
-  der bekannten Race-Condition (Task 013); bis dahin `gh run rerun --failed`.
+  Weiterleitung von `releases/latest` — keine Anfrage an die GitHub-API ohne Token). **Der
+  Job `macos` ist seit 2026-09-26 abgeschaltet** (`if: false`, auf Wunsch des Nutzers):
+  `TestBackgroundSync` scheitert dort fast immer an der bekannten Race-Condition (Task 013).
+  Die Definition bleibt, Dependabot pflegt ihre Actions; ein übersprungener Job lässt den Lauf
+  grün. Wieder einschalten: `if: false` entfernen. Tests vergleichen Pfade des Binarys
+  aufgelöst (`filepath.EvalSymlinks`): Auf macOS liegt das temporäre Verzeichnis hinter einem
+  Link.
 - Von Hand, weder in `make check` noch in CI: `make race` (Race-Detector, braucht cgo und
   einen C-Compiler), `make cover` (Abdeckung je Paket einschließlich der Tests anderer Pakete,
   Bericht nach `coverage/`) und `make mutate` (Mutationstests mit gremlins, per `go run` in

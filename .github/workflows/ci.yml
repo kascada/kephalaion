@@ -3,7 +3,8 @@ name: CI
 # Jeder Push auf main und dev, jeder Pull Request und von Hand: Format, vet,
 # Tests und der Cross-Build aller vier Plattformen — über dieselben
 # Make-Targets wie lokal —, dazu dieselben Prüfungen auf macOS samt
-# LaunchAgent und install.sh. Der Lauf ändert nichts und veröffentlicht nichts.
+# LaunchAgent und install.sh (derzeit abgeschaltet, siehe Job macos). Der Lauf
+# ändert nichts und veröffentlicht nichts.
 
 on:
   # Push nur für main und dev: andere Branches kommen als Pull Request. Mit
@@ -71,7 +72,15 @@ jobs:
   # das Binary dieser Plattform, der LaunchAgent, den es erzeugt, und
   # install.sh gegen das neueste Release. Kein Aufruf der GitHub-API: Die
   # Runner teilen sich Adressen und damit das Rate-Limit ohne Anmeldung.
+  #
+  # ABGESCHALTET seit 2026-09-26, auf Wunsch des Nutzers: Auf dem macOS-Runner
+  # scheitert TestBackgroundSync fast immer an der bekannten Race-Condition
+  # (Task 013); der Job wird so schnell nicht gebraucht. Er lief, einzig dieser
+  # Test scheiterte (Läufe 36260080975, 36260519391). Die Definition bleibt,
+  # damit Dependabot die gepinnten Actions weiter pflegt; ein übersprungener
+  # Job lässt den Lauf grün. Später wieder einschalten: if: false entfernen.
   macos:
+    if: false
     runs-on: macos-latest
     env:
       GOTOOLCHAIN: local

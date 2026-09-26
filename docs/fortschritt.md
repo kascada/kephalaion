@@ -94,8 +94,9 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   - `upgrade --check [--json]` mit Schreibrecht und Weg (`self`, `explicit`, `admin`,
     `manual`), Abbruch vor dem Download, Neustart des Dienstes; `make dev-install` ebenso;
   - `serve` fragt höchstens einmal am Tag, `whoami` zeigt `update`;
-  - CI-Job auf macOS (LaunchAgent mit `plutil`, `install.sh`); `docs/installation.md` mit
-    Ansible-Beispiel (`konzept.md`, „Installation und Betrieb“);
+  - CI-Job auf macOS (LaunchAgent mit `plutil`, `install.sh`), derzeit abgeschaltet (siehe
+    „Zu tun“); `docs/installation.md` mit Ansible-Beispiel (`konzept.md`, „Installation und
+    Betrieb“);
   - Durchlauf: pro User hier echt (Abbruch bei `serve` von Hand, Dienst eingerichtet, Neustart
     über `make dev-install`, `uninstall` und wieder `install`; der Dienst läuft), global im
     Container nach der Doku, Ansible gegen einen zweiten Container (echter Download von v0.1.1
@@ -111,6 +112,12 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     `run()` (import → sync → list/get → rm → sync).
 
 ## Zu tun
+
+- **macOS-Job in CI wieder einschalten:** seit 2026-09-26 auf Wunsch des Nutzers abgeschaltet
+  (`if: false` in `.github/workflows/ci.yml`, Job `macos`); später `if: false` entfernen. Stand:
+  Er lief, einzig `TestBackgroundSync` scheiterte (Läufe 36260080975, 36260519391; grün waren
+  36259254294 im dritten Versuch und 36260980326) — die Race-Condition, die Task 013 behebt
+  (Task 011, Etappe 5; Befund `material/befunde/ci-macos.md`).
 
 - **VS-Code-Erweiterung in die Installation:** heute nur aus `vscode/` von Hand gebaut und
   mit `code --install-extension` installiert. Gehört ins gemeinsame Release und in die
@@ -174,8 +181,8 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     besprechen (Ausführung, Restrisiken).
 - **`TestBackgroundSync` wackelt in CI:** scheiterte auf `dev` (a92d9e1, nur Task-Dateien
   geändert) mit „wartet vergeblich auf: Logzeilen“; `release` verlangt grüne CI auf `dev`
-  (Task 010, Etappe 2). Auf macOS öfter: im Lauf 36259254294 zwei von drei Versuchen rot
-  (Befund `material/befunde/ci-macos.md`); behebt Task 013.
+  (Task 010, Etappe 2). Auf macOS fast immer (13 von 15 Versuchen, Befund
+  `material/befunde/ci-macos.md`), der Job ist deshalb abgeschaltet; behebt Task 013.
 - **Kleinere Punkte aus Reviews (Task 003):**
   - `node hub add` prüft Transportregeln erst nach der Token-Eingabe;
   - `parseFlags`: Flag-Wert `--` gilt als Ende der Optionen;
@@ -196,7 +203,8 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
 - **Erster Security-PR von Dependabot** gegen `main`: lokal nach `dev` holen und prüfen, ob
   GitHub ihn nach dem Release als gemergt markiert — auch wenn Dependabot den Branch rebased
   (Task 010, Review-Punkt 5, vertagt).
-- **macOS:** `install.sh` und der LaunchAgent (`plutil -lint`) laufen in CI (Task 011);
+- **macOS:** `install.sh` und der LaunchAgent (`plutil -lint`) liefen in CI (Task 011, Job
+  derzeit abgeschaltet);
   `service install` mit `launchctl` und `upgrade` nie echt auf einem Mac getestet (Task 001,
   Intent-Alignment; Task 011).
 - **Task 011, global mit systemd als PID 1:** Im Container lief `serve` von Hand; die
