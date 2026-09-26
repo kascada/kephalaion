@@ -500,21 +500,25 @@ Go in der Version aus der `toolchain`-Zeile von `go.mod`; ein älteres Go lädt 
 nach.
 
 ```sh
-make check        # gofmt, go vet, Tests, Syntax von install.sh
+make check        # gofmt, go vet, alle Tests, Syntax von install.sh
+make check-quick  # dasselbe ohne die langsamen Tests (go test -short), für Zwischenstände
 make dist         # alle vier Plattformen und SHA256SUMS nach dist/
 make dev-install  # diese Plattform bauen, ~/.local/bin/kephalaion ersetzen, laufenden Dienst neu starten
 make              # alle Targets
 ```
 
 CI prüft jeden Push auf `dev` und `main` auf Linux (samt Cross-Build aller vier Plattformen
-und shellcheck). Ein Job für macOS (Tests, LaunchAgent mit `plutil -lint`, `install.sh`) ist
-vorhanden, aber seit 2026-09-26 abgeschaltet (`if: false` in `.github/workflows/ci.yml`).
+und shellcheck): `dev` nur mit den schnellen Tests (`make check-quick`), `main` und Pull
+Requests vollständig (`make check`). Ein Job für macOS (Tests, LaunchAgent mit
+`plutil -lint`, `install.sh`) ist vorhanden, aber seit 2026-09-26 abgeschaltet (`if: false` in
+`.github/workflows/ci.yml`).
 
 `main` ist der Standard-Branch und trägt nur veröffentlichte Stände; ein Clone bekommt den
 Release-Stand. Gearbeitet wird auf `dev` — nach dem Klonen `git switch dev`.
 
 Ein Release entsteht mit `make -C k-playbook-local release VERSION=vX.Y.Z`: Es prüft `dev`
-(gepusht, CI grün), schiebt `main` per Fast-Forward darauf und pusht den Tag. Aus dem Tag
+(gepusht, ein vollständiger CI-Lauf für genau diesen Stand grün — fehlt er, stößt es ihn an
+und wartet darauf), schiebt `main` per Fast-Forward darauf und pusht den Tag. Aus dem Tag
 `v*` baut `.github/workflows/release.yml` das Release und veröffentlicht es mit den Binaries,
 `SHA256SUMS` und `install.sh`.
 

@@ -204,20 +204,32 @@ Regeln dazu:
 
 ## Testen
 
-- Vor jedem Commit mit Code: `make check` (gofmt, `go vet`, `go test`, `sh -n install.sh`).
+- Vor jedem Commit mit Code mindestens `make check-quick` (gofmt, `go vet`, `go test -short`,
+  `sh -n install.sh`); für Zwischenstände genügt das. Vor dem Abschluss einer Task, auch unter
+  `/k-task-run`, und bei Änderungen an `serve` oder dem Abgleich im Hintergrund (`bgsync`)
+  vollständig `make check` (dasselbe mit allen Tests).
+- **Langsam** ist, was die Messung so ausweist: mehr als etwa 0,5 s, oder der Test wartet auf
+  `sync_interval`, Timer oder Runden. Dass er `serve` startet, reicht nicht. Ein langsamer Test
+  beginnt mit `slow(t, "…")` (`cmd/kephalaion/main_test.go`) und wird unter `-short`
+  übersprungen; kompiliert und von `go vet` gesehen wird er immer. Ohne `-v` ist das
+  Überspringen nicht zu sehen; den vollständigen Lauf verlangt `release`.
 - `shellcheck` über `install.sh` läuft nur in CI; lokal ist es nicht installiert (zur Not:
   `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable install.sh`). Keine
   typografischen Anführungszeichen in `install.sh` (SC1111).
-- CI hat zwei Jobs: `check` auf Ubuntu (`make check`, `make dist`, shellcheck) und `macos` auf
-  `macos-latest` (`make check`, `make dist-host`, der LaunchAgent des gebauten Binarys mit
+- CI prüft in zwei Suiten: **quick** (`make check-quick`) für einen Push auf `dev`, **full**
+  (`make check`) für einen Push auf `main` und jeden Pull Request; von Hand wählt der Input
+  `suite` (Vorgabe `full`), dazu eine optionale `kennung`. Der Name des Laufs nennt beides
+  (`CI full, workflow_dispatch dev, kennung …`); daran erkennt `release` den vollständigen Lauf.
+- CI hat zwei Jobs: `check` auf Ubuntu (Suite, `make dist`, shellcheck) und `macos` auf
+  `macos-latest` (Suite, `make dist-host`, der LaunchAgent des gebauten Binarys mit
   `plutil -lint`, `install.sh` mit dem neuesten Release in leerem `HOME`, der Tag aus der
   Weiterleitung von `releases/latest` — keine Anfrage an die GitHub-API ohne Token). **Der
   Job `macos` ist seit 2026-09-26 abgeschaltet** (`if: false`, auf Wunsch des Nutzers):
-  `TestBackgroundSync` scheitert dort fast immer an der bekannten Race-Condition (Task 013).
-  Die Definition bleibt, Dependabot pflegt ihre Actions; ein übersprungener Job lässt den Lauf
-  grün. Wieder einschalten: `if: false` entfernen. Tests vergleichen Pfade des Binarys
-  aufgelöst (`filepath.EvalSymlinks`): Auf macOS liegt das temporäre Verzeichnis hinter einem
-  Link.
+  `TestBackgroundSync` scheiterte dort fast immer an einer Race-Condition im Test. Task 013 hat
+  sie behoben; der Job bleibt trotzdem vorerst aus. Die Definition bleibt, Dependabot pflegt
+  ihre Actions; ein übersprungener Job lässt den Lauf grün. Wieder einschalten: `if: false`
+  entfernen. Tests vergleichen Pfade des Binarys aufgelöst (`filepath.EvalSymlinks`): Auf
+  macOS liegt das temporäre Verzeichnis hinter einem Link.
 - Von Hand, weder in `make check` noch in CI: `make race` (Race-Detector, braucht cgo und
   einen C-Compiler), `make cover` (Abdeckung je Paket einschließlich der Tests anderer Pakete,
   Bericht nach `coverage/`) und `make mutate` (Mutationstests mit gremlins, per `go run` in
@@ -230,12 +242,14 @@ Regeln dazu:
 
 - **`dev`** ist der Arbeitsbranch: dort wird gearbeitet und gesichert. Auf `dev` darf jeder
   ohne Prüfung und ohne Rückfrage sichern und pushen, auch die KI und `/k-task-run` — `dev`
-  ist nur die Sicherung des Arbeitsstands.
+  ist nur die Sicherung des Arbeitsstands. CI prüft einen Push auf `dev` nur mit den schnellen
+  Tests; vollständig geprüft wird vor dem Release.
 - **`main`** trägt nur veröffentlichte Stände und rückt allein über `release` per
-  Fast-Forward auf `dev` vor. Nach `main` wird nie direkt committet oder gepusht. Das ist
-  Regel, keine Sperre: Das Ruleset „main und dev“ auf GitHub sperrt für beide Branches nur
-  Force-Push und Löschen. Weicht `main` doch ab (etwa ein auf GitHub gemergter PR), erkennt
-  `release` das in Schritt 6 und bricht ab.
+  Fast-Forward auf `dev` vor, nach einem grünen vollständigen CI-Lauf auf `dev`; der Push auf
+  `main` prüft noch einmal vollständig. Nach `main` wird nie direkt committet oder gepusht.
+  Das ist Regel, keine Sperre: Das Ruleset „main und dev“ auf GitHub sperrt für beide
+  Branches nur Force-Push und Löschen. Weicht `main` doch ab (etwa ein auf GitHub gemergter
+  PR), erkennt `release` das in Schritt 6 und bricht ab.
 - `main` bleibt Standard-Branch auf GitHub: Ein Clone bekommt den Release-Stand; wer arbeiten
   will, wechselt nach `dev` (`git switch dev`).
 - **Dependabot:** Versions-Updates kommen als PR gegen `dev` (`target-branch` in
@@ -251,10 +265,24 @@ Regeln dazu:
 - Anlegen nur über `make -C k-playbook-local release VERSION=vX.Y.Z`, von `dev` aus. Alle
   Prüfungen laufen vor dem ersten Push: gültige Version, Branch `dev`, sauberer Arbeitsbaum,
   `HEAD == origin/dev` (nach `git fetch`), `origin/main` Vorfahre von `HEAD`, Tag weder auf
-  `origin` noch lokal auf einem anderen Commit, CI (`ci.yml`) auf `HEAD` grün — es zählt der
-  neueste Lauf auf `dev`, abgefragt mit `gh`. Danach schiebt es `main` per Fast-Forward auf
-  `HEAD` (`git push origin HEAD:refs/heads/main`, ohne Force), legt den Tag annotiert an,
-  pusht ihn und zieht den lokalen `main` nach.
+  `origin` noch lokal auf einem anderen Commit, zuletzt die CI mit `gh`:
+  - Es zählt der neueste vollständige Lauf von `ci.yml` auf `dev` für `HEAD` (Name
+    `CI full, …`); ein schneller zählt nicht.
+  - Gibt es keinen, stößt `release` ihn an (`gh workflow run ci.yml --ref dev -f suite=full`,
+    mit einer Kennung) und findet ihn über die URL, die `gh workflow run` zurückgibt, sonst
+    über die Kennung im Namen des Laufs — nicht einfach den neuesten.
+  - Er zählt nur, wenn sein `headSha` gleich `HEAD` ist, sonst Abbruch: `--ref dev` nimmt die
+    Spitze von `dev` beim Anstoß.
+  - Läuft er noch, wartet `release` darauf (`gh run watch --exit-status`), statt einen zweiten
+    anzustoßen. Ist er rot, bricht es mit der URL ab. Einen neuen Versuch gibt es nur
+    ausdrücklich (`gh run rerun <id>`, danach `release` erneut); `release` wiederholt nie
+    selbst.
+  - Nach der CI holt es `origin` erneut und wiederholt die Prüfungen dort: `HEAD` gleich
+    `origin/dev`, `origin/main` Vorfahre, Tag nicht auf `origin`.
+
+  Danach schiebt es `main` per Fast-Forward auf `HEAD` (`git push origin
+  HEAD:refs/heads/main`, ohne Force), legt den Tag annotiert an, pusht ihn und zieht den
+  lokalen `main` nach.
 - Bricht es nach dem Push von `main` ab, wird es einfach wiederholt: `main` steht dann schon
   auf `HEAD`, ein lokal schon angelegter Tag auf `HEAD` wird nur noch gepusht.
 - Den Rest macht `.github/workflows/release.yml` (Workflow „Release“): `make check`, `make

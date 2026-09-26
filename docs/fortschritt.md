@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Tasks 001–012 abgeschlossen, in `done/`; Tasks 013 und 014 offen)
+Stand: 2026-09-26 (Tasks 001–012 abgeschlossen, in `done/`; Task 013 Etappen 1–5 erledigt; Task 014 offen)
 
 ## So wird diese Datei aktualisiert
 
@@ -114,6 +114,16 @@ Stand: 2026-09-26 (Tasks 001–012 abgeschlossen, in `done/`; Tasks 013 und 014 
     Container nach der Doku, Ansible gegen einen zweiten Container (echter Download von v0.1.1
     mit Prüfsumme, danach das lokale Binary; zweiter Lauf ohne Änderung).
 
+- **Task 013 — Tests schnell und vollständig** (2026-09-26, Etappen 1–5):
+  - `TestBackgroundSync` wackelt nicht mehr: Er wartet vor `hub doc put` auf die erste Runde;
+    `eventuallyLog` gibt beim Fehlschlag den Log von `serve` aus;
+  - langsame Tests (> ~0,5 s oder Warten auf Runden, Timer, Fristen) beginnen mit `slow` und
+    fallen unter `-short` weg; `make check-quick`, `make check` bleibt vollständig;
+  - CI: Push auf `dev` quick, `main` und Pull Requests full, von Hand `suite` (Vorgabe full)
+    und `kennung`, der Name des Laufs nennt beides;
+  - `release` verlangt den neuesten vollständigen Lauf auf `dev` für `HEAD`, stößt ihn bei
+    Bedarf an, wartet darauf und prüft danach `origin` erneut.
+
 ## In Arbeit
 
 Nichts.
@@ -129,8 +139,9 @@ Nichts.
 - **macOS-Job in CI wieder einschalten:** seit 2026-09-26 auf Wunsch des Nutzers abgeschaltet
   (`if: false` in `.github/workflows/ci.yml`, Job `macos`); später `if: false` entfernen. Stand:
   Er lief, einzig `TestBackgroundSync` scheiterte (Läufe 36260080975, 36260519391; grün waren
-  36259254294 im dritten Versuch und 36260980326) — die Race-Condition, die Task 013 behebt
-  (Task 011, Etappe 5; Befund `material/befunde/ci-macos.md`).
+  36259254294 im dritten Versuch und 36260980326) — an einer Race-Condition im Test, seit
+  Task 013 behoben; der Job bleibt trotzdem vorerst aus (Task 011, Etappe 5; Befund
+  `material/befunde/ci-macos.md`).
 
 - **Update-Hinweis einstellbar oder zwischengespeichert** (vorgemerkt 2026-09-26, Todo):
   `node whoami` fragt GitHub bei jedem Aufruf, auch ohne Account und vor der Prüfung des
@@ -187,17 +198,14 @@ Nichts.
   - `whoami` liest die Hubs zweimal und öffnet je Replica bis zu zweimal (9);
   - nach `Remove` in `openForSync` sehen lesende Pfade eines alten `*sql.DB` womöglich die neue
     Datei — nur schreibende Pfade geschützt; im Kommentar festhalten (10);
-  - Log-Tests nur langsam über `serve` (`TestBackgroundSyncErrors` ~9 s); Unit-Test der
-    Log-Zustandsmaschine mit gefälschtem Connector (11);
+  - Unit-Test der Log-Zustandsmaschine mit gefälschtem Connector; die Langsamkeit der
+    Log-Tests über `serve` ist mit Task 013 gelöst — sie fallen unter `-short` weg und laufen
+    nur noch im vollständigen Lauf, auf `dev` bleibt die Zustandsmaschine ungeprüft (11);
   - geloggte „Revision“ ist das Minimum über die Collections; so benennen (12);
   - ungültiges `sync_interval` aus `config import` wird nicht abgewiesen, `serve` nimmt 30 s
     (Ausführung, Restrisiken);
   - `last_error` in `whoami` nur als fester Satz je Fehlerart (Adresse); bewusst, ggf.
     besprechen (Ausführung, Restrisiken).
-- **`TestBackgroundSync` wackelt in CI:** scheiterte auf `dev` (a92d9e1, nur Task-Dateien
-  geändert) mit „wartet vergeblich auf: Logzeilen“; `release` verlangt grüne CI auf `dev`
-  (Task 010, Etappe 2). Auf macOS fast immer (13 von 15 Versuchen, Befund
-  `material/befunde/ci-macos.md`), der Job ist deshalb abgeschaltet; behebt Task 013.
 - **Kleinere Punkte aus Reviews (Task 003):**
   - `node hub add` prüft Transportregeln erst nach der Token-Eingabe;
   - `parseFlags`: Flag-Wert `--` gilt als Ende der Optionen;

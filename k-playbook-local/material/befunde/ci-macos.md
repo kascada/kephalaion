@@ -30,3 +30,14 @@ Was der zweite CI-Job auf `macos-latest` (Task 011, Etappe 5) zeigt, das unter L
 **Sackgassen:** Wiederholen hilft auf macOS kaum (2 von 15). Die Änderungen der Task 011 an `serve` (Frage nach Updates beim Start) laufen vor dem `ready` bzw. nebenher; der grüne Versuch in 36259254294 enthielt sie schon — sie sind also nicht die Ursache. Nutzervorgabe (Koordinator, 2026-09-26): CI-Fehler an `TestBackgroundSync` bis Task 013 ignorieren, nicht wiederholen, den Test nicht ändern.
 
 <!-- sitzung: 262d4cab-642d-4b5d-9cf8-ff3d1768a0ab -->
+
+## 2026-09-26 — Die Race-Condition in TestBackgroundSync ist behoben, der macOS-Job bleibt aus
+
+**Befund:** `TestBackgroundSync` wartet jetzt vor `hub doc put` auf die erste Runde von `eigen` und `fern` (`hub_sync.OKAt != 0`); mit derselben künstlichen Verzögerung, die den Fehler vorher jedes Mal auslöste, ist er grün.
+**Beleg:** Wegwerf-Kopie mit `time.Sleep(500 * time.Millisecond)` am Anfang von `syncOne` (`cmd/kephalaion/bgsync.go`): alter Stand `go test -count=1 -run 'TestBackgroundSync$' ./cmd/kephalaion` rot, „wartet vergeblich auf: Logzeilen“, Log zeigt „Abgleich eigen: 4 Zeilen, Revision 5“; neuer Stand (Commit c2daf33) `-count=3 -run TestBackgroundSync` alle fünf `TestBackgroundSync*` grün, ganzes `cmd/kephalaion` grün.
+**Sicherheit:** bestaetigt
+**Frage:** Liegt der Fehler im Test oder im Abgleich, und reicht es, die erste Runde abzuwarten?
+**Warum es so ist:** `serve` startet den Abgleich vor dem ready-Callback, die erste Runde läuft asynchron; ohne Warten kamen Account-Zeilen und Dokument in einer Runde.
+**Sackgassen:** Die übrigen `TestBackgroundSync*` haben diese Race nicht: `Errors` zählt Fehlerzeilen erst nach weiteren Runden (die Logzeile einer Runde steht, bevor die nächste startet), `Off` legt das Dokument vor `serve` an, `RemoveAddDuringSync` und `Shutdown` halten den ersten Abgleich über http selbst an. Auf macOS nicht nachgeprüft: Der Job bleibt auf Wunsch des Nutzers aus.
+
+<!-- sitzung: d52d0ec3-d3db-4473-a6ce-fa9ae90f265c -->
