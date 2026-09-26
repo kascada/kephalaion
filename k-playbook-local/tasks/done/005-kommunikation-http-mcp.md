@@ -358,3 +358,114 @@ Ja: Jeder Intent-Punkt hat eine Etappe mit Tests (serve, `/v1/` gegen local und 
 - WARNUNG-01: kein Split, bewusst
 - WARNUNG-10: Header-Kanonisierung dem Ausführenden überlassen
 - FEHLEND-04: Replica-Index prüft der Ausführende
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** Alle sechs Etappen gebaut und einzeln committet (178a254, 32a88c9, 6bc8722, ac965d1, d59316e, 454969a). Neu sind die Accounts am Hub (Tabelle `accounts`, Hub-Schema 3, Exportformat 4, `admin` reserviert) und der Vertrag mit `whoami` und `rotate` über `local` und HTTP `/v1/` (`internal/contract/httpapi`, Vertragstests gegen beide Transporte). Dazu kommen der Node mit `http`, `node hub check`, `--create` und `node account rotate|check` samt `.pending` (Replica-Schema 2 mit `documents_system`), `serve` je Rolle nur auf Loopback mit flock-Sperre und Request-Log sowie der Node als MCP-Server (go-sdk v1.7.0) mit `whoami` gegen die Replica. Der Durchlauf mit dem Binary lief über alle Strecken durch, ohne ein Token im Log; `make check` ist grün.
+
+**Entscheidungen des Ausführenden:**
+- Die Header-Zuordnung unterscheidet keine Groß- und Kleinschreibung. Der Alias ist der Rest nach `x-keph-account-` bzw. `x-keph-token-`, klein geschrieben. Ein halbes oder doppeltes Paar ergibt „nicht angemeldet“.
+- Ein Export vor Format 4 lässt die Accounts beim Import unberührt, damit der Rettungsweg über Schemawechsel erhalten bleibt. Im Format 4 bricht der Import ab, wenn der Accounts-Teil fehlt.
+- `SYSTEM:A:`-Zeilen werden nie entfernt, sondern werden Löschmarke und bei `grant` wiederbelebt.
+- Die Replica wird je MCP-Anfrage geöffnet: Korrektheit nach `hub rm` bzw. nach dem Verwerfen einer Replica geht vor Tempo.
+- Der User am Account (Konzept aus einer parallelen Sitzung) ist nicht gebaut; das übernimmt Task 006.
+
+**Geänderte Dateien:** (Baseline 4ba0fbc; `docs/fortschritt.md`, `docs/vscode.md`, `vscode/`, `tasks/006-…` und Teile von `docs/konzept.md` stammen aus parallelen Commits)
+```
+ README.md                                          | 176 +++--
+ cmd/kephalaion/accountcmd.go                       | 221 +++++++
+ cmd/kephalaion/accountcmd_test.go                  |  59 ++
+ cmd/kephalaion/command.go                          |   6 +-
+ cmd/kephalaion/configcmd.go                        |  17 +-
+ cmd/kephalaion/configcmd_test.go                   |   4 +-
+ cmd/kephalaion/configimport_test.go                | 130 +++-
+ cmd/kephalaion/exportfile.go                       |  72 +-
+ cmd/kephalaion/hubcmd.go                           |   3 +-
+ cmd/kephalaion/main.go                             |  13 +-
+ cmd/kephalaion/mcp_test.go                         | 102 +++
+ cmd/kephalaion/nodeaccount_test.go                 | 342 ++++++++++
+ cmd/kephalaion/nodeaccountcmd.go                   | 345 ++++++++++
+ cmd/kephalaion/nodecmd.go                          | 145 +++-
+ cmd/kephalaion/roles.go                            |  65 +-
+ cmd/kephalaion/roles_test.go                       |   2 +-
+ cmd/kephalaion/serve.go                            | 286 ++++++++
+ cmd/kephalaion/serve_test.go                       | 223 +++++++
+ cmd/kephalaion/synccmd.go                          |  43 +-
+ docs/begriffe.md                                   |  90 ++-
+ docs/fortschritt.md                                |  23 +-
+ docs/konzept.md                                    | 269 ++++++--
+ docs/vertrag.md                                    | 128 +++-
+ docs/vscode.md                                     | 204 ++++++
+ go.mod                                             |   8 +
+ go.sum                                             |  18 +
+ internal/contract/account.go                       |  84 +++
+ internal/contract/contract.go                      | 107 ++-
+ internal/contract/httpapi/client.go                | 199 ++++++
+ internal/contract/httpapi/httpapi.go               | 103 +++
+ internal/contract/httpapi/httpapi_test.go          | 218 +++++++
+ internal/contract/httpapi/server.go                | 170 +++++
+ internal/hub/replication/accounts_test.go          | 304 +++++++++
+ internal/hub/replication/replication.go            | 124 +++-
+ internal/hub/replication/replication_test.go       | 529 ++++++++-------
+ internal/hub/store/accounts.go                     | 726 +++++++++++++++++++++
+ internal/hub/store/accounts_test.go                | 515 +++++++++++++++
+ internal/hub/store/admin.go                        | 145 ++--
+ internal/hub/store/admin_test.go                   |  11 +-
+ internal/hub/store/store.go                        | 105 ++-
+ internal/hub/store/store_test.go                   |   2 +-
+ internal/ident/ident.go                            |  32 +
+ internal/ident/ident_test.go                       |  26 +
+ internal/node/mcpnode/mcpnode.go                   | 315 +++++++++
+ internal/node/mcpnode/mcpnode_test.go              | 275 ++++++++
+ internal/node/replica/accounts.go                  | 119 ++++
+ internal/node/replica/accounts_test.go             | 143 ++++
+ internal/node/replica/fake_test.go                 |  13 +
+ internal/node/replica/replica.go                   |   7 +-
+ internal/node/replica/sync_test.go                 |   7 +-
+ internal/node/store/hubs.go                        |   2 +-
+ internal/reqlog/reqlog.go                          | 117 ++++
+ internal/reqlog/reqlog_test.go                     |  32 +
+ internal/separation_test.go                        |  23 +-
+ k-playbook-local/k-playbook.md                     |  66 +-
+ .../tasks/005-kommunikation-http-mcp.md            |  11 +
+ k-playbook-local/tasks/006-user-je-account.md      |  70 ++
+ vscode/.gitignore                                  |   1 +
+ vscode/.vscodeignore                               |   3 +
+ vscode/README.md                                   |  17 +
+ vscode/extension.js                                |  96 +++
+ vscode/package.json                                |  19 +
+ 62 files changed, 7204 insertions(+), 526 deletions(-)
+```
+
+**Code-Änderungen (Überblick, Diff zu groß für wörtliche Wiedergabe, etwa 7700 Zeilen ohne Markdown):**
+- `internal/hub/store/accounts.go` (+726): Account-CRUD, `lock`/`unlock`/`grant`/`revoke`, `RotateAccount` mit erneuter Prüfung in der Transaktion, Import-Angleich.
+- `internal/hub/replication/replication.go`: `Whoami`/`Rotate` mit `subtle.ConstantTimeCompare` und Dummy-Hash.
+- `internal/contract/httpapi/` (neu): Handler (`/v1/whoami|rotate|sync`, 1 MiB Body-Limit, gzip, Abbildung Code → Status) und Client (Wiederholen nur bei `whoami`/`sync`, `ErrOutcomeUnknown` bei unklarem Ausgang).
+- `cmd/kephalaion/nodeaccountcmd.go` (+345): `rotate`/`check` mit `.pending` (O_EXCL, fsync, atomar ersetzen).
+- `cmd/kephalaion/serve.go` (+286): Listener je Rolle, Loopback-Prüfung, flock, Beenden per Signal mit 10 s Frist.
+- `internal/node/mcpnode/mcpnode.go` (+315): Host/Origin-Guard, Header-Paare je Hub, Werkzeug `whoami`.
+- `internal/reqlog` (neu): Log je Anfrage, Namen über `ident.LogName` maskiert.
+
+**Code-Review:** (engineering:code-review, nur auf dem Diff der sechs Task-Commits) — Urteil **Request Changes**
+| # | Datei | Befund | Schwere |
+|---|---|---|---|
+| 1 | internal/hub/replication/replication.go, cmd/kephalaion/nodeaccountcmd.go | `Rotate` liest `Info` erst nach dem Commit von `RotateAccount`. Ein Fehler danach kommt über `local` als eindeutiges Scheitern an: `.pending` wird gelöscht, das neue Token ist verloren, das alte ungültig, der Account ist ausgesperrt. Abhilfe: `Info` vorher lesen und im local-Connector Nicht-Vertragsfehler als `ErrOutcomeUnknown` melden. | Mittel–Hoch |
+| 2 | internal/hub/store/accounts.go | `RotateAccount` prüft per SELECT und schreibt ohne Bedingung. Unter PostgreSQL READ COMMITTED können zwei `rotate` mit demselben alten Token beide gelingen. Abhilfe: bedingtes UPDATE (`AND token_hash = $3`, RowsAffected prüfen). | Mittel (PG) |
+| 3 | internal/hub/store/accounts.go, admin.go | Die gemeinsame Namenseindeutigkeit von Node und Account ist nur per Zählabfrage geprüft, es gibt keine Constraint. Unter PostgreSQL ist sie damit anfällig für eine Race. | Niedrig–Mittel (PG) |
+
+Vorschläge:
+- **Timing:** Hub (`checkAccount` liest die Rechte nur bei bekanntem Account) und Node (`accountRows` ohne DB-Zugriff bei ungültigem Namen) haben einen Laufzeitunterschied zwischen bekannt und unbekannt.
+- **Redirects:** Der HTTP-Client folgt Redirects; bei `rotate` ginge der Body mit dem Token an das Redirect-Ziel. Abhilfe: `CheckRedirect` mit `ErrUseLastResponse`.
+- **4xx-Antworten:** Eine 4xx-Antwort ohne Vertragsform wird bei `rotate` zu `ErrOutcomeUnknown`, dadurch bleibt `.pending` unnötig liegen.
+- **Hub-Listener:** keine Host-Prüfung, anders als der Node.
+- **Origin-Regel:** `http://localhost:<beliebiger Port>` ist erlaubt (wie spezifiziert, zu diskutieren).
+- **`/mcp`:** kein Body-Limit, kein ReadTimeout.
+- **Import:** `accounts:` ohne Wert (null) gilt im Format 4 als leerer Teil und würde alle Accounts zu Löschmarken machen.
+- **Collections:** Eine Collection, in der je ein Account Rechte hatte, lässt sich wegen der Löschmarken nie mehr entfernen.
+- **Windows:** `syscall.Flock`/`Kill` bauen nicht unter Windows (nur relevant, falls Windows ein Ziel wird).
+- **Einrichtungstoken:** Es meldet vor dem ersten `rotate` am Node voll an (bewusst entscheiden).
+- **Hilfetexte:** Bei `lock`/`rotate` ist nicht erwähnt, dass andere Nodes erst nach ihrem Abgleich nachziehen.
+
+**Intent-Alignment:** Teilweise. Alle Punkte des Intents sind gebaut und im Durchlauf belegt: `serve` je Rolle, `/v1/` neben `local` mit Vertragstests gegen beide, MCP `whoami` gegen die Replica ohne Cache, Prüfung auf jedem Weg, 0 Tokens im Log. Offen sind die Review-Befunde: die mögliche Aussperrung bei `rotate` über `local` nach dem Commit, Races unter PostgreSQL, der HTTP-Client folgt Redirects, der Hub-Listener prüft den Host nicht. Solange sie offen sind, trägt der Unterbau noch nicht verlässlich.
