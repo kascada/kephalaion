@@ -269,3 +269,59 @@ Ja. Sichern auf `dev` ohne Prüfung, geschützt durch das Ruleset. `main` rückt
 ### Offen (nicht gefixt)
 - 5: automatisches Schließen der Security-PRs unsicher, wenn Dependabot rebased — auf den ersten Fall vertagt.
 - 6: parallele Sitzungen auf `dev` während der Umsetzung — nicht blockierend.
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** Branch `dev` ist lokal und auf origin angelegt. `sichern` sichert nur noch auf `dev` (`git push origin dev`, kein Force). `release` prüft alles vor dem ersten Push: `dev` gepusht, `origin/main` Vorfahre, Tag, CI auf `dev` grün über `gh`. Danach schiebt es `main` per Fast-Forward nach und legt den Tag an. Wiederholungen nach einem Abbruch funktionieren. CI läuft bei Push nur für `main` und `dev`, Dependabot hat `target-branch: dev`. Das Ruleset „main und dev“ (ID 24044142, `deletion` + `non_fast_forward`, ohne Bypass) ist aktiv. Die Doku (Projektregeln „Branches“/„Release“/„Sichern“/„Bauen“, README, `docs/fortschritt.md`) ist nachgezogen. Den Durchlauf in einer Wegwerf-Kopie haben alle Abbruchfälle, der Erfolgsfall und beide Wiederholungsfälle bestanden. GitHub blieb unverändert: `main` auf e758ee8, kein neuer Tag, kein Release.
+
+**Hinweise:**
+- Commit a92d9e1 („Task 008: abgeschlossen, Task 012 angelegt“) ist fremder Stand, auf Wunsch des Users vor dem Lauf mitgesichert.
+- Commit 31d70e8 („Task 012: Refine“) stammt aus einer parallelen Sitzung auf `dev` und ist mit gepusht.
+- CI auf a92d9e1 war rot: `TestBackgroundSync` wackelt, notiert in `docs/fortschritt.md`. CI auf 1b3892c und 342a2b7 ist grün.
+
+**Geänderte Dateien** (ohne die fremde Task 012):
+```
+ .github/dependabot.yml                          |  11 ++
+ .github/workflows/ci.yml                        |  14 ++-
+ README.md                                       |   9 +-
+ docs/fortschritt.md                             |  13 +-
+ k-playbook-local/Makefile                       | 151 +++++++++++++++++++-----
+ k-playbook-local/k-playbook.md                  |  42 +++++--
+ k-playbook-local/tasks/010-arbeitsbranch-dev.md |  10 ++
+ 7 files changed, 207 insertions(+), 43 deletions(-)
+```
+
+**Code-Änderungen** (Auszug; vollständig: `git diff a92d9e1 -- .github k-playbook-local/Makefile README.md k-playbook-local/k-playbook.md docs/fortschritt.md`):
+- `.github/workflows/ci.yml`: `push.branches` von `"**"` auf `main`, `dev`; Kommentar zum Grund (doppelte Dependabot-Läufe).
+- `.github/dependabot.yml`: `target-branch: dev` für `gomod` und `github-actions`, Kommentar zu Security-Updates.
+- `k-playbook-local/Makefile`: `GH_REPO := kephalaion/kephalaion`; `sichern` mit Branch-Prüfung und `git push origin dev`; `release` mit neuer Prüfkette:
+
+```sh
+  if ! git -C "$(REPO)" merge-base --is-ancestor origin/main HEAD; then \
+    printf 'main hat Commits, die dev fehlen (etwa ein auf GitHub gemergter PR):\n' >&2; \
+    git -C "$(REPO)" log --oneline HEAD..origin/main >&2; ...
+  run="$$(gh run list -R "$(GH_REPO)" --workflow ci.yml --branch dev --commit "$$head" --limit 1 \
+    --json status,conclusion,url --jq '...')" || { ... }
+  ...
+  git -C "$(REPO)" push origin HEAD:refs/heads/main || { ... }
+  if test -z "$$tagged"; then git -C "$(REPO)" tag -a "$$version" -m "Release $$version"; fi
+  git -C "$(REPO)" push origin "refs/tags/$$version" || { ... }
+```
+
+**Code-Review** (nur der Diff):
+
+Keine kritischen Befunde. Die Prüfkette läuft vollständig vor dem ersten Push, der Push nach `main` erfolgt ohne Force, und die Wiederholbarkeit ist bedacht.
+
+| # | Datei | Befund | Schwere |
+|---|---|---|---|
+| 1 | Makefile `release` | `version="$(VERSION)"` wird von make vor der Shell eingesetzt: Ein `VERSION` mit `"` oder `$(…)` würde als Shell-Code ausgeführt. Das war schon vorher so, und der Wert kommt nur vom lokalen Aufrufer. Robuster: `VERSION` exportieren und in der Shell `$$VERSION` lesen (wie `MSG`). | Niedrig |
+| 2 | Makefile `sichern` | Scheitert der Push aus einem anderen Grund (Netz, Auth), rät die Meldung trotzdem zu `git pull --no-rebase`. Die git-Ausgabe steht zwar darüber, der Hinweis sollte aber „z. B. wenn dev auf origin weiter ist“ lauten. | Niedrig |
+| 3 | Makefile `release`, Schritt 8 | Die CI-Prüfung hängt an einem Lauf auf `dev` für genau diesen Commit. Ein Push mit `[skip ci]` erzeugt keinen Lauf und damit einen dauerhaften Abbruch („noch kein CI-Lauf“). Das ist beabsichtigt, aber die Meldung könnte `gh workflow run ci.yml --ref dev` als Ausweg nennen. | Hinweis |
+| 4 | Makefile `release`, Schritt 7 | Der Remote-Tag wird vor dem lokalen Tag geprüft. Ist der Tag-Push gelungen und erst Schritt 11 gescheitert, meldet eine Wiederholung „Tag gibt es auf origin bereits“. Das ist korrekt, weil das Release dann fertig ist; der Hinweis, dass nichts mehr zu tun ist, fehlt aber. | Hinweis |
+| 5 | Makefile `sichern` | `git add -A` auf `dev` nimmt auch fremde Änderungen paralleler Sitzungen mit. So gewollt und dokumentiert. | Hinweis |
+
+Positiv: `ls-remote --exit-code` unterscheidet jetzt „fehlt“ (2) von einem Fehler, der lokale Tag wird über `^{commit}` verglichen, `cancelled`/`skipped` gelten nicht als grün, und nach Schritt 9 gibt jeder Fehler einen konkreten Wiederholungsweg an.
+
+**Intent-Alignment:** Ja. Jede Vorgabe des Intents ist umgesetzt und in der Wegwerf-Kopie geprüft. Dass `main` sich nur über `release` bewegt, ist eine dokumentierte Regel und keine technische Sperre; `release` erkennt Abweichungen aber in Schritt 6.
