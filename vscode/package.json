@@ -2,7 +2,7 @@
   "name": "kephalaion",
   "displayName": "Kephalaion",
   "description": "Collections von Kephalaion als Ordner in VS Code",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "kascada",
   "license": "SEE LICENSE IN ../LICENSE",
   "repository": "https://github.com/kephalaion/kephalaion",
@@ -15,6 +15,7 @@
       { "command": "kephalaion.menu", "title": "Kephalaion: Menü" },
       { "command": "kephalaion.showStatus", "title": "Kephalaion: Status anzeigen" },
       { "command": "kephalaion.refresh", "title": "Kephalaion: Neu verbinden" },
+      { "command": "kephalaion.chooseAccount", "title": "Kephalaion: Account wählen" },
       { "command": "kephalaion.addCollection", "title": "Kephalaion: Collection einbinden" },
       { "command": "kephalaion.showLog", "title": "Kephalaion: Log anzeigen" }
     ],
@@ -25,6 +26,13 @@
           "type": "string",
           "default": "",
           "description": "Adresse des Nodes, z. B. http://127.0.0.1:7433. Leer: aus listen im Abschnitt node der config."
+        },
+        "kephalaion.accounts": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "scope": "machine-overridable",
+          "markdownDescription": "Account je Hub, etwa `{\"home\": \"kamran-desktop\"}` — nur nötig, wenn unter `~/.config/kephalaion/tokens/<hub>/` mehrere Token-Dateien liegen. Gesetzt über „Kephalaion: Account wählen“; gilt für diesen Rechner und wird nicht synchronisiert."
         }
       }
     }

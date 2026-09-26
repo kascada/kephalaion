@@ -78,11 +78,12 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     (`generation`) und Collection, `reset`, `dropped`, `since`;
   - `generation` in `db_info` der Replica (Replica-Schema 4); Durchlauf über `serve`
     (`konzept.md`, „Allgemein — lesen“).
-- **VS-Code-Erweiterung, Lesen** (2026-09-26, ohne Task, Version 0.0.3): `vscode/`, reines
+- **VS-Code-Erweiterung, Lesen** (2026-09-26, ohne Task, Version 0.0.4): `vscode/`, reines
   JavaScript; Statusleiste und Menü aus `whoami`, Adresse aus `listen`, Tokens aus
-  `tokens/<hub>/<account>.token`; Collections als Ordner über `list`/`read`, Änderungen über
-  `changes`. „Collection einbinden“ (0.0.2) im echten VS Code geprüft, Inhalte (0.0.3) nur
-  gegen den Node mit Ersatz für `vscode` (`docs/vscode.md`, „Umsetzung“; README „VS Code“).
+  `tokens/<hub>/<account>.token`, Account je Hub wählbar (`kephalaion.accounts`); Collections
+  als Ordner über `list`/`read`, Änderungen über `changes`. Im echten VS Code geprüft:
+  „Collection einbinden“, Dokument öffnen; Account-Wahl nur mit Ersatz für `vscode`
+  (`docs/vscode.md`, „Umsetzung“; README „VS Code“). Schreiben folgt, wenn der Node es kann.
 
 - **Task 011 — Installation pro User und global** (2026-09-26, Etappen 1–7):
   - config-Suche `--config` > `KEPHALAION_CONFIG` > User > `/etc/kephalaion/config.yaml` > Ort

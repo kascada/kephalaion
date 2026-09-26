@@ -1,6 +1,6 @@
 // Kephalaion in VS Code: Status aus whoami und ein FileSystemProvider für keph://.
-// Stufe 1: nur whoami — Statusleiste, Collections als Wurzel von keph://<hub>/.
-// Inhalte der Collections kommen mit list/read (Task 009). Siehe docs/vscode.md.
+// Lesen über list, read und changes; Schreiben kommt, wenn der Node es kann.
+// Siehe docs/vscode.md.
 
 const vscode = require('vscode');
 const fs = require('fs');
@@ -52,24 +52,56 @@ function nodeUrl() {
 }
 
 // Token-Dateien: tokens/<hub>/<account>.token; *.pending wird übergangen.
-// Mehrere Accounts an einem Hub: vorerst der erste nach Namen (Auswahl kommt später).
-function readCredentials(log) {
+// Liefert je Hub die Accounts, nach Namen sortiert.
+function tokenAccounts() {
   const base = path.join(configDir(), 'tokens');
-  const creds = {};
+  const out = {};
   let hubs = [];
   try {
     hubs = fs.readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory());
   } catch {
-    return creds;
+    return out;
   }
   for (const hub of hubs) {
-    const files = fs.readdirSync(path.join(base, hub.name))
-      .filter((f) => f.endsWith('.token'))
-      .sort();
-    if (files.length === 0) continue;
-    if (files.length > 1) log(`Hub ${hub.name}: mehrere Accounts (${files.join(', ')}), nehme ${files[0]}`);
-    const token = fs.readFileSync(path.join(base, hub.name, files[0]), 'utf8').split('\n')[0].trim();
-    if (token) creds[hub.name] = { account: files[0].slice(0, -'.token'.length), token };
+    let files = [];
+    try {
+      files = fs.readdirSync(path.join(base, hub.name)).filter((f) => f.endsWith('.token')).sort();
+    } catch {
+      continue;
+    }
+    if (files.length) out[hub.name] = files.map((f) => f.slice(0, -'.token'.length));
+  }
+  return out;
+}
+
+// Der gewählte Account je Hub steht in der Einstellung kephalaion.accounts ({hub: account}).
+function chosenAccounts() {
+  return vscode.workspace.getConfiguration('kephalaion').get('accounts') || {};
+}
+
+// Welcher Account je Hub benutzt wird und warum: only (einziger), chosen (Einstellung),
+// first (mehrere, keiner oder ein unbekannter gewählt — der erste nach Namen).
+function readCredentials(log) {
+  const base = path.join(configDir(), 'tokens');
+  const chosen = chosenAccounts();
+  const creds = {};
+  for (const [hub, accounts] of Object.entries(tokenAccounts())) {
+    let account = accounts[0];
+    let how = accounts.length === 1 ? 'only' : 'first';
+    if (chosen[hub] && accounts.includes(chosen[hub])) {
+      account = chosen[hub];
+      how = 'chosen';
+    } else if (chosen[hub]) {
+      log(`Hub ${hub}: gewählter Account ${chosen[hub]} hat keine Token-Datei, nehme ${account}`);
+    }
+    let token = '';
+    try {
+      token = fs.readFileSync(path.join(base, hub, `${account}.token`), 'utf8').split('\n')[0].trim();
+    } catch (e) {
+      log(`Hub ${hub}: Token-Datei ${account}.token nicht lesbar: ${e.message}`);
+    }
+    const missing = how === 'first' && chosen[hub] ? chosen[hub] : undefined;
+    creds[hub] = { account, token, accounts, how, missing };
   }
   return creds;
 }
@@ -102,6 +134,11 @@ class Node {
     return this._creds;
   }
 
+  // Nach einer anderen Wahl oder Einstellung sofort neu lesen.
+  invalidate() {
+    this._creds = undefined;
+  }
+
   async request(tool, args) {
     const url = nodeUrl();
     if (!url) throw new Error(`keine Adresse des Nodes: listen fehlt in ${configFile()}`);
@@ -110,6 +147,7 @@ class Node {
       Accept: 'application/json, text/event-stream',
     };
     for (const [hub, c] of Object.entries(this.credentials())) {
+      if (!c.token) continue;
       headers[`X-Keph-Account-${hub}`] = c.account;
       headers[`X-Keph-Token-${hub}`] = c.token;
     }
@@ -176,6 +214,20 @@ class Status {
     return (h.collections || []).filter((c) => (c.rights || []).includes('read'));
   }
 
+  // Hinweis zur Wahl des Accounts eines Hubs, leer bei nur einem Account.
+  accountNote(hub) {
+    const c = this.node.credentials()[hub];
+    if (!c || c.accounts.length < 2) return '';
+    if (c.missing) return `gewählter Account ${c.missing} hat keine Token-Datei — benutzt ${c.account}; wählen im Menü`;
+    if (c.how === 'first') return `mehrere Accounts (${c.accounts.join(', ')}), keiner gewählt — benutzt ${c.account}; wählen im Menü`;
+    return `gewählt aus ${c.accounts.join(', ')}`;
+  }
+
+  // Hubs, an denen mehrere Accounts liegen und keiner gewählt ist.
+  unchosen() {
+    return Object.entries(this.node.credentials()).filter(([, c]) => c.how === 'first').map(([h]) => h);
+  }
+
   // Dasselbe wie der Tooltip, als Text — für „Kephalaion: Status anzeigen“.
   summary() {
     const lines = [`Kephalaion — Node ${nodeUrl() || '(keine Adresse)'}`];
@@ -188,6 +240,7 @@ class Status {
       let l = `Hub ${h.hub} (Node ${h.node}): Anmeldung ${h.login}`;
       if (h.login === 'ok') l += `, Account ${h.account}, User ${h.user}`;
       lines.push(l);
+      if (this.accountNote(h.hub)) lines.push(`  ${this.accountNote(h.hub)}`);
       for (const c of h.collections || []) lines.push(`  ${c.address}: ${c.rights.join(', ')}`);
       const sy = h.sync;
       lines.push(sy.never_synced ? '  noch nie abgeglichen' : `  abgeglichen ${sy.last_success}, Revision ${sy.revision}`);
@@ -206,7 +259,8 @@ class Status {
       return;
     }
     const hubs = this.hubs();
-    const bad = hubs.filter((h) => h.login !== 'ok' || h.sync.last_error);
+    const unchosen = this.unchosen();
+    const bad = hubs.filter((h) => h.login !== 'ok' || h.sync.last_error || unchosen.includes(h.hub));
     it.text = `${bad.length ? '$(warning)' : '$(database)'} Keph ${hubs.map((h) => h.hub).join(' ')}`;
     it.backgroundColor = bad.length ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
 
@@ -216,6 +270,7 @@ class Status {
       md.appendMarkdown(`**${h.hub}** (Node ${h.node}): Anmeldung \`${h.login}\``);
       if (h.login === 'ok') md.appendMarkdown(`, Account ${h.account}, User ${h.user}`);
       md.appendMarkdown('\n\n');
+      if (this.accountNote(h.hub)) md.appendMarkdown(`${this.accountNote(h.hub)}\n\n`);
       for (const c of h.collections || []) md.appendMarkdown(`- \`${c.address}\` — ${c.rights.join(', ')}\n`);
       const s = h.sync;
       if (s.never_synced) md.appendMarkdown('\nnoch nie abgeglichen\n\n');
@@ -341,6 +396,14 @@ class KephFs {
   delete(uri) { throw vscode.FileSystemError.NoPermissions(uri); }
   rename(uri) { throw vscode.FileSystemError.NoPermissions(uri); }
 
+  // Anderer Account: Rechte und lesbare Collections können anders sein. changes setzt neu
+  // an, und alle Hubs werden neu gelesen.
+  rebase(hubs) {
+    this.cursor = undefined;
+    const events = hubs.map((hub) => ({ type: vscode.FileChangeType.Changed, uri: vscode.Uri.parse(`${SCHEME}://${hub}/`) }));
+    if (events.length) this._emitter.fire(events);
+  }
+
   // changes lückenlos weiterfragen und daraus onDidChangeFile auslösen. Ohne cursor liefert
   // der erste Aufruf nur den Ausgangspunkt „ab jetzt“.
   async pollChanges() {
@@ -405,7 +468,40 @@ function activate(context) {
       isCaseSensitive: true,
       isReadonly: true,
     }),
-    vscode.commands.registerCommand('kephalaion.refresh', () => status.refresh()),
+    vscode.commands.registerCommand('kephalaion.refresh', () => {
+      node.invalidate();
+      return status.refresh();
+    }),
+    vscode.commands.registerCommand('kephalaion.chooseAccount', async () => {
+      const all = tokenAccounts();
+      const hubs = Object.keys(all).sort();
+      if (hubs.length === 0) {
+        vscode.window.showWarningMessage(`Kephalaion: keine Token-Dateien unter ${path.join(configDir(), 'tokens')}.`);
+        return;
+      }
+      const creds = node.credentials();
+      const items = [];
+      for (const hub of hubs) {
+        items.push({ label: hub, kind: vscode.QuickPickItemKind.Separator });
+        for (const account of all[hub]) {
+          const active = creds[hub] && creds[hub].account === account;
+          items.push({
+            label: `${active ? '$(check)' : '$(blank)'} ${account}`,
+            description: active ? (creds[hub].how === 'first' ? 'benutzt, nicht gewählt' : 'aktiv') : '',
+            detail: `Hub ${hub}`,
+            hub,
+            account,
+          });
+        }
+      }
+      const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Account je Hub wählen' });
+      if (!pick || !pick.hub) return;
+      const cfg = vscode.workspace.getConfiguration('kephalaion');
+      // In den Einstellungen des Benutzers — auf diesem Rechner, nicht synchronisiert
+      // (Scope machine-overridable); ein Workspace kann es überschreiben.
+      await cfg.update('accounts', { ...chosenAccounts(), [pick.hub]: pick.account }, vscode.ConfigurationTarget.Global);
+      log(`Hub ${pick.hub}: Account ${pick.account} gewählt`);
+    }),
     vscode.commands.registerCommand('kephalaion.showLog', () => out.show()),
     vscode.commands.registerCommand('kephalaion.showStatus', async () => {
       await status.refresh();
@@ -437,12 +533,21 @@ function activate(context) {
       const pick = await vscode.window.showQuickPick([
         { label: '$(info) Status anzeigen', cmd: 'kephalaion.showStatus' },
         { label: '$(refresh) Neu verbinden', cmd: 'kephalaion.refresh' },
+        { label: '$(account) Account wählen', cmd: 'kephalaion.chooseAccount' },
         { label: '$(folder-library) Collection einbinden', cmd: 'kephalaion.addCollection' },
         { label: '$(output) Log anzeigen', cmd: 'kephalaion.showLog' },
       ]);
       if (pick) vscode.commands.executeCommand(pick.cmd);
     }),
   );
+
+  // Andere Wahl des Accounts oder andere Adresse — auch von Hand in settings.json.
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+    if (!e.affectsConfiguration('kephalaion.accounts') && !e.affectsConfiguration('kephalaion.nodeUrl')) return;
+    node.invalidate();
+    kfs.rebase(Object.keys(tokenAccounts()));
+    status.refresh();
+  }));
 
   log(`Node: ${nodeUrl() || '(keine Adresse)'}, config ${configFile()}`);
   status.refresh();

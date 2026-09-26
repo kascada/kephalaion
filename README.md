@@ -472,7 +472,7 @@ muss (`extensionKind: workspace`):
 
 ```sh
 cd vscode && npx --yes @vscode/vsce package --skip-license
-code --install-extension kephalaion-0.0.3.vsix
+code --install-extension kephalaion-0.0.4.vsix
 ```
 
 Danach „Developer: Reload Window“.
@@ -480,12 +480,15 @@ Danach „Developer: Reload Window“.
 - **Einrichtung braucht sie keine.** Die Adresse des Nodes liest sie aus `listen` im
   Abschnitt `node:` der config (Einstellung `kephalaion.nodeUrl` zum Überschreiben), Account
   und Token aus `~/.config/kephalaion/tokens/<hub>/<account>.token` — das Verzeichnis ist der
-  Alias des Hubs, der Dateiname der Account.
+  Alias des Hubs, der Dateiname der Account. Liegen an einem Hub mehrere, wählt man einen
+  mit „Kephalaion: Account wählen“; die Wahl steht in der Einstellung `kephalaion.accounts`,
+  je Rechner. Ohne Wahl nimmt sie den ersten nach Namen und zeigt die Statusleiste gelb.
 - **Statusleiste:** `Keph <hub>`, der Tooltip zeigt, was `whoami` liefert — Version, je Hub
   Anmeldung, Account, User, Collections mit Rechten und Stand des Abgleichs. Gelb, wenn der
-  Node nicht erreichbar ist oder eine Anmeldung nicht gilt; abgefragt alle 30 s.
+  Node nicht erreichbar ist, eine Anmeldung nicht gilt oder kein Account gewählt ist;
+  abgefragt alle 30 s.
 - **Menü** per Klick auf die Statusleiste: Status anzeigen (dasselbe als Text im Output
-  „Kephalaion“), neu verbinden, Collection einbinden, Log.
+  „Kephalaion“), neu verbinden, Account wählen, Collection einbinden, Log.
 - **„Kephalaion: Collection einbinden“** bietet die lesbaren Collections zur Auswahl an und
   fügt die gewählte als Ordner in den Workspace ein. Verzeichnisse und Dokumente kommen über
   `list` und `read` aus der Replica; Änderungen erscheinen nach dem Abgleich des Nodes von

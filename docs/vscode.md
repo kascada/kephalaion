@@ -5,7 +5,7 @@ description: Erweiterung, die Collections über einen FileSystemProvider als Ord
 
 # Kephalaion in VS Code
 
-**Stand: Lesen gebaut** (2026-09-26, Version 0.0.3, siehe „Umsetzung“ unten): Statusleiste
+**Stand: Lesen gebaut** (2026-09-26, Version 0.0.4, siehe „Umsetzung“ unten): Statusleiste
 aus `whoami`, Collections als Ordner mit Inhalt über `list` und `read`, Änderungen über
 `changes`. Schreiben fehlt. Was die Erweiterung zum Lesen braucht, gibt es am Node: `whoami` in der Form,
 die die Statusleiste braucht — Version, alle Hubs mit `login`, Node-Name und Stand des
@@ -135,8 +135,12 @@ und deren Benachrichtigungen brauchen eine Sitzung.
   „Orte nach XDG“) — sie läuft als `workspace` auf demselben Rechner und braucht so keine
   eigene Einrichtung. Die Zuordnung ist eindeutig: Das Verzeichnis ist der Alias des Hubs und
   damit der Name im Header, der Dateiname der Account; Dateien auf `.pending` übergeht sie.
-  `whoami` bestätigt danach nur, dass die Anmeldung gilt (`login: ok`). Mehrere Accounts an
-  einem Hub: Auswahl im Menü der Statusleiste.
+  `whoami` bestätigt danach nur, dass die Anmeldung gilt (`login: ok`). **Mehrere Accounts an
+  einem Hub:** Auswahl über „Kephalaion: Account wählen“ (auch im Menü der Statusleiste); die
+  Wahl steht in der Einstellung `kephalaion.accounts` (`{"<hub>": "<account>"}`) — nur Namen,
+  kein Token —, Scope `machine-overridable`: je Rechner, nicht über Settings Sync, ein
+  Workspace kann sie überschreiben. Ohne Wahl nimmt die Erweiterung den ersten nach Namen und
+  zeigt die Statusleiste gelb, ebenso bei einem gewählten Account ohne Token-Datei.
   Der `SecretStorage` von VS Code bleibt nur der Ausweg, wenn keine Datei da ist; nie
   `settings.json` — die landet leicht im Repository oder in Settings Sync.
   Geprüft am 2026-09-26: `whoami` mit dem Token aus `tokens/home/kamran-desktop.token`
@@ -300,8 +304,15 @@ ohne Sitzung — das SDK braucht es dafür nicht.
 - **Alles schreibgeschützt**, auch mit `writable: true`, bis Schreiben gebaut ist.
 - **Geprüft** mit einem Ersatz für das Modul `vscode` gegen den laufenden Node (`home:eins`,
   Dokumente unter `test/`): Verzeichnisse, Metadaten, Inhalt, „nicht gefunden“, fremde
-  Collection, Ereignisse nach `hub doc put` und `node sync`. Im echten VS Code steht der
-  Test von 0.0.3 aus.
+  Collection, Ereignisse nach `hub doc put` und `node sync`. Im echten VS Code: ein Dokument
+  aus `keph://home/eins` geöffnet.
+- **0.0.4 — Account wählen:** alle `tokens/<hub>/*.token` je Hub, Wahl über „Kephalaion:
+  Account wählen“ in `kephalaion.accounts` (siehe „Status und Auswahl“). Eine andere Wahl —
+  auch von Hand in `settings.json` — liest die Tokens sofort neu, setzt `changes` neu an und
+  lässt die Hubs neu lesen, weil Rechte und Collections dann andere sein können. Tooltip und
+  „Status anzeigen“ nennen die Accounts eines Hubs und welcher gewählt ist. Geprüft mit dem
+  Ersatz für `vscode` und Kopien der Token-Dateien samt einem erfundenen zweiten Account:
+  ohne Wahl, gewählt, gewählt ohne Datei, falscher Account gewählt; `.pending` übergangen.
 
 ## Fundstellen
 
