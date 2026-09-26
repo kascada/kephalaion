@@ -259,3 +259,5 @@ Außerdem: `accountTx.by` (Admin bzw. User) für `created_by`/`updated_by`. `sto
 - Gut: `"user"` ist durchgehend quotiert (PostgreSQL reserviert), und `sqlq.Check` sichert das ab. Den User liest `rotate` erst nach der Sperre durch das bedingte Schreiben. `whoami` gibt ihn nur bei gültiger Anmeldung heraus, und Encode/Decode verlangen einen nicht-leeren User.
 
 **Beobachtungen (außerhalb des Tasks):** `docs/fortschritt.md` ist insgesamt veraltet (Stand/In Arbeit auf Task 004); nur der User-Punkt ist abgehakt. Weiter offen aus 007: `RemoveCollection` prüft ohne Sperre.
+
+**Intent-Alignment:** Ja - `--user` bei add/set (Vorgabe Name), User in `accounts` (Index) und `SYSTEM:A:`-Zeilen, `set --user` in einer Revision, Urheber = User bzw. `admin`, `whoami`/`rotate` nennen ihn, Export/Import (Format 5, Format 4 → Name) nehmen ihn mit.

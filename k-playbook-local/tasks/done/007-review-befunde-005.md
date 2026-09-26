@@ -293,3 +293,5 @@ Außerdem: `hasPart` prüft den Accounts-Teil am YAML-Knoten. `loopback.Guard` u
 - Vorschlag (Nebenläufigkeit, außerhalb des Tasks): `RemoveCollection` prüft `accounts`/`documents` ohne Sperre. Unter READ COMMITTED kann ein gleichzeitiges `grant` oder ein Dokument-Schreibvorgang zwischen Prüfung und Löschen fallen. Der Sub-Agent hat das beobachtet, es ist nicht behoben.
 - Hinweis: `localHub` macht auch einen Abbruch vor dem Commit (etwa `ctx` abgelaufen) zu „unklar“. Das ist konservativ und gewollt, `node account check` löst es auf.
 - Gut: Das bedingte `rotate` ersetzt den Vergleich im Code und ist zugleich die Sperre. `claimName` mit `ON CONFLICT DO NOTHING` hält eine PostgreSQL-Transaktion am Leben und liefert dieselbe Meldung wie die Vorprüfung. Eine 3xx-Antwort wird ohne `sent` zum eindeutigen Fehler.
+
+**Intent-Alignment:** Ja - alle Punkte des Intents umgesetzt und getestet; Ausnahmen bei „Test scheitert vorher“ (SQLite-Races, Format 4 null) vermerkt. Offen außerhalb des Intents: Race in `RemoveCollection`.
