@@ -54,7 +54,8 @@ Pakete unter `internal/`:
   (`Syncer`), der sie über `contract.Hub` füllt; dazu die Account-Zeilen (`AccountRows` über
   den Teilindex `documents_system`, `WriteAccountRows` nach `rotate`).
 - `node/mcpnode` — der MCP-Eingang des Nodes (`/mcp`, go-sdk, zustandslos): Host/Origin,
-  Header-Paare je Hub, Prüfung gegen die Replica, Werkzeug `whoami`.
+  Header-Paare je Hub, Anmeldung über alle Hubs (`Authenticate`), Werkzeug `whoami`
+  (`Whoami`, auch für `node whoami`).
 
 Regeln dazu:
 
@@ -134,11 +135,28 @@ Regeln dazu:
   prüfen `Host` (`loopback`); ein Tunnel geht nur mit gleichem Port. Er nimmt je
   Rolle eine Sperre (`flock` auf `<db>.lock` neben der Datenbank); CLI-Kommandos laufen daneben
   über SQLite, `status` prüft die Sperre ohne zu warten. Ein Log je Anfrage auf stderr über
-  `reqlog`. Einen Abgleich im Hintergrund gibt es noch nicht, `local` ist in `serve` nicht
-  verdrahtet.
+  `reqlog`. Als Node gleicht `serve` im Hintergrund ab (`cmd/kephalaion/bgsync.go`): beim Start
+  und je `sync_interval` (`settings`, je Runde gelesen, `0` aus), je Hub-Eintrag eine
+  Goroutine, verdrahtet über `connector` wie `node sync` — `local` bekommt den Hub-Store
+  desselben `serve`. Beim Beenden bricht er ab, bevor die Stores schließen. Log nur bei
+  Zeilen, erstem Fehler, Wechsel der Fehlerart (`replica.ErrorKind`) und Erholung.
+- **Nebenläufigkeit am Node:** `node sync`, `node hub rm|add`, `config import` und `rotate`
+  laufen als eigene Prozesse neben `serve`. Keine Sperre über Prozesse: Jedes Schreiben des
+  Abgleichs ist an `hubs.entry_id` gebunden (ULID, beim Anlegen vergeben, nie wiederkehrend,
+  `config import` behält sie für bleibende Aliase), die auch in `db_info` der Replica steht.
+  Jede schreibende Transaktion der Replica prüft zuerst `entry_id`, `hub_id` und dass kein
+  Stand unter dem `since` der Seite liegt (`ErrChanged`); `SetHubID` und `RecordSync` in
+  `node.db` schreiben nur für die `entry_id` (`ErrEntryGone`). Zeilen per id und Stände gehen
+  nur vorwärts. `replica.Create` baut unter eigenem Namen und linkt fertig an den Ort.
+- **Stand des Abgleichs** je Hub in `hub_sync` (`node.db`): abgeleitet, nicht im Export,
+  `node hub rm` und `config import` räumen mit ab; `Syncer.SyncEntry` schreibt ihn (für
+  `serve` und `node sync`), außer bei Abbruch oder entferntem Eintrag.
 - **MCP am Node:** `internal/node/mcpnode`. Clients melden sich je Hub mit
   `X-Keph-Account-<alias>` und `X-Keph-Token-<alias>` an; der Node prüft sie je Anfrage gegen
-  die Replica, ohne Cache und ohne die Replica offen zu halten.
+  die Replica, ohne Cache und ohne die Replica offen zu halten — über alle Hub-Einträge in
+  einem Schritt (`Authenticate`, `ok`/`invalid`/`missing`, dazu unbekannte Aliase), auf dem
+  jedes Werkzeug aufsetzt. Die Antwort von `whoami` baut `mcpnode.Whoami`, dieselbe Funktion
+  für das Werkzeug und für `kephalaion node whoami` (dort `AccountLogins` ohne Token).
 - **Keine Migrationen, Schema neu anlegen** — befristet, solange es keine Daten gibt, die
   bleiben müssen. Ändert sich das Schema, wird `SchemaVersion` im Store-Paket erhöht;
   vorhandene Datenbanken werden dann abgelehnt und neu angelegt. Dokumente am Hub gelten

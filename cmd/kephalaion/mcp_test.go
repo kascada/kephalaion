@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/kephalaion/kephalaion/internal/buildinfo"
 	"github.com/kephalaion/kephalaion/internal/config"
 	"github.com/kephalaion/kephalaion/internal/node/mcpnode"
 )
@@ -61,6 +63,8 @@ func TestMCPWhoamiLockAndSync(t *testing.T) {
 	file := e.tokenFile(t, "carol", e.tokens["carol"])
 	e.run(t, "node", "account", "rotate", "eigen", "carol", "--token-file", file).want(t, 0)
 	carol := readFileToken(t, file)
+	// Ohne Abgleich im Hintergrund: Der Test steuert ihn mit node sync.
+	e.run(t, "config", "set", "node", "sync_interval", "0").want(t, 0)
 
 	cfg, _, err := config.Load(e.cfg)
 	if err != nil {
@@ -72,12 +76,13 @@ func TestMCPWhoamiLockAndSync(t *testing.T) {
 	endpoint := "http://" + srv.addrs[config.Node] + mcpnode.Path
 
 	out := mcpWhoami(t, endpoint, map[string][2]string{"eigen": {"carol", carol}})
-	if len(out.Hubs) != 1 || !out.Hubs[0].Authenticated || out.Hubs[0].Account != "carol" ||
-		len(out.Hubs[0].Collections) != 1 || out.Hubs[0].Collections[0].Address != "eigen:team-x" {
+	if len(out.Hubs) != 2 || out.Hubs[0].Hub != "eigen" || out.Hubs[0].Login != mcpnode.LoginOK ||
+		out.Hubs[0].Account != "carol" || len(out.Hubs[0].Collections) != 1 ||
+		out.Hubs[0].Collections[0].Address != "eigen:team-x" || out.Hubs[1].Login != mcpnode.LoginMissing {
 		t.Fatalf("vor lock: %+v", out)
 	}
-	if out.Hubs[0].User != "carol" {
-		t.Errorf("User vor set: %+v", out.Hubs[0])
+	if out.Hubs[0].User != "carol" || out.Version != buildinfo.Get().Version || out.Hubs[0].Node != "laptop" {
+		t.Errorf("vor set: %+v", out)
 	}
 	// set --user am Hub kommt mit dem Abgleich an.
 	e.run(t, "hub", "account", "set", "carol", "--user", "kleist").want(t, 0)
@@ -87,12 +92,12 @@ func TestMCPWhoamiLockAndSync(t *testing.T) {
 	}
 	e.run(t, "hub", "account", "lock", "carol").want(t, 0)
 	// Ohne Abgleich weiß der Node noch nichts davon.
-	if out := mcpWhoami(t, endpoint, map[string][2]string{"eigen": {"carol", carol}}); !out.Hubs[0].Authenticated {
+	if out := mcpWhoami(t, endpoint, map[string][2]string{"eigen": {"carol", carol}}); out.Hubs[0].Login != mcpnode.LoginOK {
 		t.Error("gesperrt schon vor dem Abgleich")
 	}
 	e.run(t, "node", "sync", "eigen").want(t, 0)
 	out = mcpWhoami(t, endpoint, map[string][2]string{"eigen": {"carol", carol}})
-	if len(out.Hubs) != 1 || out.Hubs[0].Authenticated || out.Hubs[0].Account != "" || out.Hubs[0].User != "" {
+	if out.Hubs[0].Login != mcpnode.LoginInvalid || out.Hubs[0].Account != "" || out.Hubs[0].User != "" {
 		t.Errorf("nach lock und sync: %+v", out)
 	}
 	srv.stop(t)
@@ -108,4 +113,42 @@ func contains(s string, parts ...string) bool {
 		}
 	}
 	return true
+}
+
+// whoami über serve mit dem Abgleich im Hintergrund: alle Hubs, der Stand
+// aus hub_sync und Replica; ein Header-Paar für einen Hub ohne Replica ist
+// invalid mit „noch nie abgeglichen“; ein unbekannter Alias wird gemeldet.
+func TestMCPWhoamiWithBackgroundSync(t *testing.T) {
+	e := newCommEnv(t)
+	file := e.tokenFile(t, "bob", e.tokens["bob"])
+	e.run(t, "node", "account", "rotate", "fern", "bob", "--token-file", file).want(t, 0)
+	bob := readFileToken(t, file)
+	// Ein Eintrag über https: nie abgeglichen.
+	e.runIn(t, bob, "node", "hub", "add", "extern", "--node", "laptop", "--transport", "https",
+		"--address", "https://hub.example.org", "--token-stdin").want(t, 0)
+	e.run(t, "config", "set", "node", "sync_interval", "1s").want(t, 0)
+	srv := startServe(t, portZero(t, e.cfg))
+	ns := nodeStore(t, e.cfg)
+	eventually(t, "Abgleich von eigen und fern", func() bool {
+		return syncStatus(t, ns, "eigen").OKAt != 0 && syncStatus(t, ns, "fern").OKAt != 0
+	})
+	endpoint := "http://" + srv.addrs[config.Node] + mcpnode.Path
+	out := mcpWhoami(t, endpoint, map[string][2]string{"fern": {"bob", bob}, "extern": {"bob", bob}, "tippfehler": {"bob", bob}})
+	if len(out.Hubs) != 3 || fmt.Sprint(out.UnknownHubs) != "[tippfehler]" {
+		t.Fatalf("whoami: %+v", out)
+	}
+	byHub := map[string]mcpnode.HubInfo{}
+	for _, h := range out.Hubs {
+		byHub[h.Hub] = h
+	}
+	if h := byHub["fern"]; h.Login != mcpnode.LoginOK || h.User != "kleist" || h.Node != "laptop-http" ||
+		h.Sync.LastSuccess == "" || h.Sync.Revision == nil || *h.Sync.Revision == 0 || h.Sync.LastError != "" {
+		t.Errorf("fern: %+v", h)
+	}
+	if h := byHub["eigen"]; h.Login != mcpnode.LoginMissing || h.Sync.LastSuccess == "" {
+		t.Errorf("eigen: %+v", h)
+	}
+	if h := byHub["extern"]; h.Login != mcpnode.LoginInvalid || !h.Sync.NeverSynced || h.Sync.Revision != nil {
+		t.Errorf("extern: %+v", h)
+	}
 }

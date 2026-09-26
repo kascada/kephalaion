@@ -17,6 +17,10 @@ import (
 var (
 	ErrNotFound = errors.New("gibt es nicht")
 	ErrExists   = errors.New("gibt es schon")
+	// ErrEntryGone meldet, dass der Hub-Eintrag, für den geschrieben werden
+	// sollte, nicht mehr besteht: entfernt, oder unter demselben Alias neu
+	// angelegt (andere entry_id).
+	ErrEntryGone = errors.New("wurde entfernt oder neu angelegt")
 )
 
 // Die Transporte, über die ein Node einen Hub erreicht.
@@ -34,6 +38,10 @@ var Transports = []string{TransportLocal, TransportHTTP, TransportHTTPS, Transpo
 // gewünschten Collections aus hub_collections; Tables führt sie getrennt.
 type Hub struct {
 	Name string
+	// EntryID ist die Kennung des Eintrags: beim Anlegen vergeben, nie
+	// wiederkehrend, nicht im Export. Ein Import behält sie für Aliase, die
+	// bleiben. An sie ist das Schreiben des Abgleichs gebunden.
+	EntryID string
 	// NodeName ist der Name, unter dem der Hub diesen Node kennt; mit ihm
 	// und dem Token meldet sich der Node beim Hub an.
 	NodeName  string
@@ -180,15 +188,15 @@ func CheckTables(t Tables, hubInConfig bool) error {
 
 // Abfragen des Nodes. Hier ist SQLite-Eigenes erlaubt; nötig ist es nicht.
 const (
-	qHubsAll = `SELECT name, node_name, transport, COALESCE(address, ''), COALESCE(token, ''),
+	qHubsAll = `SELECT name, entry_id, node_name, transport, COALESCE(address, ''), COALESCE(token, ''),
 		COALESCE(ssh_key, ''), COALESCE(hub_id, '') FROM hubs ORDER BY name`
-	qHubGet = `SELECT name, node_name, transport, COALESCE(address, ''), COALESCE(token, ''),
+	qHubGet = `SELECT name, entry_id, node_name, transport, COALESCE(address, ''), COALESCE(token, ''),
 		COALESCE(ssh_key, ''), COALESCE(hub_id, '') FROM hubs WHERE name = ?`
-	qHubInsert = `INSERT INTO hubs (name, node_name, transport, address, token, ssh_key, hub_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	qHubInsert = `INSERT INTO hubs (name, entry_id, node_name, transport, address, token, ssh_key, hub_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	qHubUpdate = `UPDATE hubs SET node_name = ?, transport = ?, address = ?, ssh_key = ? WHERE name = ?`
 	qHubToken  = `UPDATE hubs SET token = ? WHERE name = ?`
-	qHubID     = `UPDATE hubs SET hub_id = ? WHERE name = ?`
+	qHubID     = `UPDATE hubs SET hub_id = ? WHERE name = ? AND entry_id = ?`
 	qHubDelete = `DELETE FROM hubs WHERE name = ?`
 	qHubsClear = `DELETE FROM hubs`
 
@@ -210,7 +218,7 @@ func nullable(v string) any {
 
 func scanHub(sc interface{ Scan(...any) error }) (Hub, error) {
 	var h Hub
-	err := sc.Scan(&h.Name, &h.NodeName, &h.Transport, &h.Address, &h.Token, &h.SSHKey, &h.HubID)
+	err := sc.Scan(&h.Name, &h.EntryID, &h.NodeName, &h.Transport, &h.Address, &h.Token, &h.SSHKey, &h.HubID)
 	return h, err
 }
 
@@ -335,6 +343,7 @@ func checkWithOthers(ctx context.Context, tx sqlitedb.Querier, h Hub, hubInConfi
 
 func (s *sqliteStore) AddHub(ctx context.Context, h Hub, hubInConfig bool) error {
 	h.HubID = ""
+	h.EntryID = ulid.Make().String()
 	if err := CheckHub(h, hubInConfig); err != nil {
 		return err
 	}
@@ -347,7 +356,7 @@ func (s *sqliteStore) AddHub(ctx context.Context, h Hub, hubInConfig bool) error
 		if err := checkWithOthers(ctx, tx, h, hubInConfig); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, qHubInsert, h.Name, h.NodeName, h.Transport, nullable(h.Address), h.Token,
+		_, err := tx.ExecContext(ctx, qHubInsert, h.Name, h.EntryID, h.NodeName, h.Transport, nullable(h.Address), h.Token,
 			nullable(h.SSHKey), nil)
 		return err
 	})
@@ -412,22 +421,20 @@ func (s *sqliteStore) SetHubToken(ctx context.Context, name, token string) error
 	})
 }
 
-func (s *sqliteStore) SetHubID(ctx context.Context, name, hubID string) error {
+func (s *sqliteStore) SetHubID(ctx context.Context, name, entryID, hubID string) error {
 	if _, err := ulid.ParseStrict(hubID); err != nil {
 		return fmt.Errorf("Hub %s: hub_id %q ist keine ULID", name, hubID)
 	}
-	return s.inTx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, qHubID, hubID, name)
-		if err != nil {
-			return err
-		}
-		if n, err := res.RowsAffected(); err != nil {
-			return err
-		} else if n == 0 {
-			return fmt.Errorf("Hub %s %w", name, ErrNotFound)
-		}
-		return nil
-	})
+	res, err := s.db.ExecContext(ctx, qHubID, hubID, name, entryID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return fmt.Errorf("Hub-Eintrag %s %w", name, ErrEntryGone)
+	}
+	return nil
 }
 
 // RemoveHub entfernt die Replica innerhalb der Transaktion, vor dem Eintrag:
@@ -440,6 +447,9 @@ func (s *sqliteStore) RemoveHub(ctx context.Context, name string) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, qWantedOfDel, name); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, qSyncOfDel, name); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, qHubDelete, name); err != nil {
@@ -522,13 +532,23 @@ func (s *sqliteStore) Import(ctx context.Context, settings map[string]string, ta
 		if err != nil {
 			return err
 		}
-		for _, del := range []string{qWantedClear, qHubsClear} {
+		entryIDs := make(map[string]string, len(before))
+		for _, h := range before {
+			entryIDs[h.Name] = h.EntryID
+		}
+		for _, del := range []string{qWantedClear, qSyncClear, qHubsClear} {
 			if _, err := tx.ExecContext(ctx, del); err != nil {
 				return err
 			}
 		}
 		for _, h := range tables.Hubs {
-			if _, err := tx.ExecContext(ctx, qHubInsert, h.Name, h.NodeName, h.Transport, nullable(h.Address), h.Token,
+			// Ein Alias, der bleibt, behält seine Kennung und damit seine
+			// Replica; ein neuer bekommt eine neue.
+			id, ok := entryIDs[h.Name]
+			if !ok {
+				id = ulid.Make().String()
+			}
+			if _, err := tx.ExecContext(ctx, qHubInsert, h.Name, id, h.NodeName, h.Transport, nullable(h.Address), h.Token,
 				nullable(h.SSHKey), nullable(h.HubID)); err != nil {
 				return fmt.Errorf("Hub %s: %w", h.Name, err)
 			}

@@ -7,7 +7,9 @@ description: Erweiterung, die Collections über einen FileSystemProvider als Ord
 
 **Stand: Versuch mit Dummy gelungen** (2026-09-26, siehe „Versuch“ unten); die Anbindung an
 den Node ist nicht gebaut. Sie setzt die Werkzeuge `list`, `read` und `changes` des Nodes
-voraus; gebaut ist bisher `whoami` (Task 005). Begriffe nach [`begriffe.md`](begriffe.md), Hintergrund in
+voraus; gebaut ist bisher `whoami` in der Form, die die Statusleiste braucht — Version, alle
+Hubs mit `login`, Node-Name und Stand des Abgleichs (Task 008) —, und `serve` gleicht im
+Hintergrund ab. Begriffe nach [`begriffe.md`](begriffe.md), Hintergrund in
 [`konzept.md`](konzept.md).
 
 ## Wozu
@@ -106,7 +108,12 @@ und deren Benachrichtigungen brauchen eine Sitzung.
 
 - **Statusleiste:** etwa `Keph ✓ team` bzw. `Keph ⚠ offline`. Tooltip: Account je Hub,
   letzter Abgleich, Revision, Version von Node und Erweiterung — mit Warnung, wenn sie
-  verschieden sind. Quelle ist `whoami`, dasselbe Werkzeug, das die KI benutzt.
+  verschieden sind. Quelle ist `whoami`, dasselbe Werkzeug, das die KI benutzt: je Hub
+  `login` (`ok`, `invalid`, `missing`) und `sync` (`last_success`, `revision`, `last_error`,
+  `never_synced`). Ist `login` `invalid` und `sync.never_synced` gesetzt, liegt es nicht am
+  Token, sondern der Node hat den Hub noch nie abgeglichen. `unknown_hubs` nennt Header zu
+  Aliasen, die der Node nicht kennt — ein Hinweis auf eine falsch eingerichtete
+  Erweiterung.
 - **Klick darauf:** ein kleines Menü — neu verbinden, Token setzen, Collection einbinden,
   Log anzeigen (Output-Channel „Kephalaion“ mit den Aufrufen und Fehlern).
 - **Node nicht erreichbar:** Dann scheitert auch das Lesen, weil die Erweiterung die Replica

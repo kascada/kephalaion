@@ -63,6 +63,8 @@ var Queries = struct {
 	SettingsAll    string
 	SettingsDelete string
 	SettingsInsert string
+	SettingsUpsert string
+	SettingsUnset  string
 }{
 	InfoAll:        `SELECT key, value FROM db_info`,
 	InfoGet:        `SELECT value FROM db_info WHERE key = $1`,
@@ -71,6 +73,9 @@ var Queries = struct {
 	SettingsAll:    `SELECT key, value FROM settings ORDER BY key`,
 	SettingsDelete: `DELETE FROM settings`,
 	SettingsInsert: `INSERT INTO settings (key, value) VALUES ($1, $2)`,
+	SettingsUpsert: `INSERT INTO settings (key, value) VALUES ($1, $2)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+	SettingsUnset: `DELETE FROM settings WHERE key = $1`,
 }
 
 // q übersetzt einen Abfragetext für SQLite.
@@ -299,6 +304,29 @@ func Settings(ctx context.Context, db Querier) (map[string]string, error) {
 		return nil, fmt.Errorf("settings lesen: %w", err)
 	}
 	return out, nil
+}
+
+// SetSetting setzt einen Schlüssel der settings, die übrigen bleiben. Eine
+// Anweisung, also ohne eigene Transaktion atomar.
+func SetSetting(ctx context.Context, db Querier, key, value string) error {
+	if _, err := db.ExecContext(ctx, q(Queries.SettingsUpsert), key, value); err != nil {
+		return fmt.Errorf("settings schreiben: %w", err)
+	}
+	return nil
+}
+
+// UnsetSetting entfernt einen Schlüssel der settings; removed sagt, ob er
+// gesetzt war.
+func UnsetSetting(ctx context.Context, db Querier, key string) (removed bool, err error) {
+	res, err := db.ExecContext(ctx, q(Queries.SettingsUnset), key)
+	if err != nil {
+		return false, fmt.Errorf("settings schreiben: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("settings schreiben: %w", err)
+	}
+	return n > 0, nil
 }
 
 // ReplaceSettings ersetzt alle settings in einer Transaktion.

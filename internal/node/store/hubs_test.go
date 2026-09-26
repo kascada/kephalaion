@@ -294,18 +294,44 @@ func TestSetHubID(t *testing.T) {
 		Address: "https://hub.example.org", Token: token(t)}, false); err != nil {
 		t.Fatal(err)
 	}
+	h, err := s.Hub(ctx, "privat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ulid.ParseStrict(h.EntryID); err != nil {
+		t.Fatalf("entry_id %q: %v", h.EntryID, err)
+	}
 	id := ulid.Make().String()
-	if err := s.SetHubID(ctx, "privat", id); err != nil {
+	if err := s.SetHubID(ctx, "privat", h.EntryID, id); err != nil {
 		t.Fatal(err)
 	}
 	if h, err := s.Hub(ctx, "privat"); err != nil || h.HubID != id {
 		t.Errorf("Hub = %+v, %v", h, err)
 	}
-	if err := s.SetHubID(ctx, "privat", "keine-ulid"); err == nil {
+	if err := s.SetHubID(ctx, "privat", h.EntryID, "keine-ulid"); err == nil {
 		t.Error("SetHubID ohne ULID ging durch")
 	}
-	if err := s.SetHubID(ctx, "fremd", id); !errors.Is(err, ErrNotFound) {
+	if err := s.SetHubID(ctx, "fremd", h.EntryID, id); !errors.Is(err, ErrEntryGone) {
 		t.Errorf("SetHubID unbekannt: %v", err)
+	}
+	// rm und add unter demselben Alias: neue entry_id; wer noch die alte
+	// hält, schreibt nichts mehr.
+	if err := s.RemoveHub(ctx, "privat"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddHub(ctx, Hub{Name: "privat", NodeName: "laptop", Transport: "https",
+		Address: "https://hub.example.org", Token: token(t)}, false); err != nil {
+		t.Fatal(err)
+	}
+	h2, err := s.Hub(ctx, "privat")
+	if err != nil || h2.EntryID == h.EntryID {
+		t.Fatalf("neuer Eintrag: %+v, %v", h2, err)
+	}
+	if err := s.SetHubID(ctx, "privat", h.EntryID, ulid.Make().String()); !errors.Is(err, ErrEntryGone) {
+		t.Errorf("SetHubID mit alter entry_id: %v", err)
+	}
+	if h, _ := s.Hub(ctx, "privat"); h.HubID != "" {
+		t.Errorf("alte entry_id schrieb hub_id %q", h.HubID)
 	}
 }
 

@@ -39,12 +39,41 @@ func (r *Replica) AccountRows(ctx context.Context, account string) ([]Document, 
 	return out, rows.Err()
 }
 
+// qAllAccountRows liest die lebenden Zeilen aller Accounts, nach Name und
+// Collection; die Bedingungen stehen wie in qAccountRows, damit SQLite den
+// Teilindex documents_system benutzt.
+const qAllAccountRows = `SELECT ` + documentColumns + ` FROM documents
+	WHERE name LIKE 'SYSTEM:%' AND substr(name, 1, 9) = 'SYSTEM:A:' AND deleted = 0
+	ORDER BY name, collection, revision DESC, id DESC`
+
+// AllAccountRows liest die lebenden Zeilen SYSTEM:A: aller Accounts, je
+// Account und Collection die jüngste, nach Name und Collection.
+func (r *Replica) AllAccountRows(ctx context.Context) ([]Document, error) {
+	rows, err := r.db.QueryContext(ctx, qAllAccountRows)
+	if err != nil {
+		return nil, fmt.Errorf("Account-Zeilen lesen: %w", err)
+	}
+	defer rows.Close()
+	out := []Document{}
+	for rows.Next() {
+		d, err := scanDocument(rows)
+		if err != nil {
+			return nil, fmt.Errorf("Account-Zeilen lesen: %w", err)
+		}
+		if n := len(out); n > 0 && out[n-1].Name == d.Name && out[n-1].Collection == d.Collection {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // AdoptHubID übernimmt die hub_id, die ein Hub genannt hat (whoami): Weicht
 // sie von der Replica ab, wird die Replica geleert (Regel aus docs/vertrag.md,
 // „hub_id“) und reset sagt warum; danach folgt die Kopie in node.db. Fehlt
 // die Replica, wird nur die Kopie geschrieben — anlegen tut sie der Abgleich.
 func AdoptHubID(ctx context.Context, nodes store.Store, h store.Hub, hubID string) (reset string, err error) {
-	rep, reason, err := openForSync(ctx, nodes.ReplicaPath(h.Name))
+	rep, reason, err := openForSync(ctx, nodes, h)
 	if err != nil {
 		return "", err
 	}
@@ -61,7 +90,7 @@ func AdoptHubID(ctx context.Context, nodes store.Store, h store.Hub, hubID strin
 		}
 	}
 	if h.HubID != hubID {
-		if err := nodes.SetHubID(ctx, h.Name, hubID); err != nil {
+		if err := nodes.SetHubID(ctx, h.Name, h.EntryID, hubID); err != nil {
 			return reset, err
 		}
 	}
@@ -89,13 +118,13 @@ func WriteAccountRows(ctx context.Context, nodes store.Store, h store.Hub, hubID
 		return nil, "", nil
 	}
 	path := nodes.ReplicaPath(h.Name)
-	rep, reason, err := openForSync(ctx, path)
+	rep, reason, err := openForSync(ctx, nodes, h)
 	if err != nil {
 		return nil, "", err
 	}
 	reset = reason
 	if rep == nil {
-		if rep, err = Create(ctx, path, hubID); err != nil {
+		if rep, err = Create(ctx, path, hubID, h.EntryID); err != nil {
 			return nil, reset, err
 		}
 	} else if rep.HubID() != hubID {
@@ -111,7 +140,7 @@ func WriteAccountRows(ctx context.Context, nodes store.Store, h store.Hub, hubID
 		return nil, reset, err
 	}
 	if h.HubID != hubID {
-		if err := nodes.SetHubID(ctx, h.Name, hubID); err != nil {
+		if err := nodes.SetHubID(ctx, h.Name, h.EntryID, hubID); err != nil {
 			return written, reset, err
 		}
 	}

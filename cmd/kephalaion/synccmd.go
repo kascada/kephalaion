@@ -63,14 +63,17 @@ Optionen:
 `
 
 // connector wählt je Hub-Eintrag die Umsetzung des Vertrags — nur hier, in
-// cmd/kephalaion; internal/node kennt nur contract.Hub. Für local öffnet er
-// den Hub der eigenen config beim ersten Bedarf, einmal für alle Einträge;
-// close schließt ihn am Ende. Für http nimmt er den Client aus
-// internal/contract/httpapi. https und ssh gibt es noch nicht.
+// cmd/kephalaion; internal/node kennt nur contract.Hub. Für local nimmt er
+// hub, wenn der Aufrufer ihn mitgibt (serve mit beiden Rollen), sonst öffnet
+// er den Hub der eigenen config beim ersten Bedarf, einmal für alle
+// Einträge; close schließt nur, was er selbst geöffnet hat. Für http nimmt er
+// den Client aus internal/contract/httpapi. https und ssh gibt es noch nicht.
 type connector struct {
 	ctx context.Context
 	cfg config.Config
 	hub hubstore.Store
+	// owned sagt, dass der connector hub selbst geöffnet hat.
+	owned bool
 	// err ist der Fehler beim Öffnen des Hubs; er gilt für jeden
 	// local-Eintrag.
 	err error
@@ -100,6 +103,7 @@ func (l *connector) connect(h nodestore.Hub) (contract.Hub, error) {
 	}
 	if l.hub == nil && l.err == nil {
 		l.hub, l.err = openHubOf(l.ctx, l.cfg)
+		l.owned = l.err == nil
 		if l.err != nil {
 			l.err = fmt.Errorf("Hub der eigenen config: %w", l.err)
 		}
@@ -131,7 +135,7 @@ func (l localHub) Rotate(ctx context.Context, req contract.RotateRequest) (contr
 }
 
 func (l *connector) close() {
-	if l.hub != nil {
+	if l.owned && l.hub != nil {
 		_ = l.hub.Close()
 	}
 }

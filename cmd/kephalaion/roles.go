@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/kephalaion/kephalaion/internal/config"
 	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
@@ -161,6 +162,7 @@ const nodeUsage = `Aufruf:
   kephalaion node account rotate|check …
   kephalaion node sync [<alias>]
   kephalaion node doc list|get …
+  kephalaion node whoami [<account>] [--hub <alias>] [--json]
 
 Kommandos:
   init         richtet den Node ein: Datenbank, Schema, Abschnitt node: in der config
@@ -169,12 +171,15 @@ Kommandos:
   collection   die Collections, die der Node von seinen Hubs haben will
   account      ersetzt das Token eines Accounts am Hub (rotate) und prüft es
                (check)
-  sync         gleicht die Replicas mit den Hubs ab (Transport local und http)
+  sync         gleicht die Replicas mit den Hubs ab (Transport local und http);
+               serve tut das im Hintergrund selbst
   doc          listet und liest Dokumente aus der Replica
+  whoami       zeigt Version, Hubs, Stand des Abgleichs und die bekannten
+               Accounts; mit Account, was das Werkzeug whoami ihm antwortet
 
 Hilfe: kephalaion node hub --help, kephalaion node collection --help,
 kephalaion node account --help, kephalaion node sync --help,
-kephalaion node doc --help
+kephalaion node doc --help, kephalaion node whoami --help
 `
 
 // runRole verteilt die Kommandos unter hub bzw. node.
@@ -213,6 +218,8 @@ func runRole(r config.Role, args []string, stdin io.Reader, stdout, stderr io.Wr
 		return runNodeSync(args[1:], stdout, stderr)
 	case r == config.Node && args[0] == "doc":
 		return runNodeDoc(args[1:], stdout, stderr)
+	case r == config.Node && args[0] == "whoami":
+		return runNodeWhoami(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unbekanntes Kommando: %s %s\n\n", r, args[0])
 		fmt.Fprint(stderr, usage)
@@ -316,7 +323,8 @@ const statusUsage = `Aufruf:
 Zeigt, welche Rollen auf diesem Rechner eingerichtet sind, wo ihre Datenbank
 liegt, wo ihr Dienst lauscht, ob kephalaion serve für sie läuft (geprüft an
 der Sperrdatei <db>.lock, ohne zu warten), und ihre Kennzahlen. Am Node steht je Hub
-die hub_id aus seiner Replica und je gewünschter Collection der Stand
+der Stand des Abgleichs (letzter Erfolg, letzter Fehler — von serve und node
+sync), die hub_id aus seiner Replica und je gewünschter Collection der Stand
 (Revision) und der letzte Abgleich; ohne Replica „noch kein Abgleich“.
 Öffnet die Datenbanken nur, legt nichts an. Der Exit-Code ist nur dann
 ungleich 0, wenn die Datenbank einer eingerichteten Rolle fehlt oder nicht
@@ -479,7 +487,16 @@ func printNodeStatus(ctx context.Context, w io.Writer, st nodestore.Store) error
 	if err != nil {
 		return err
 	}
+	status, err := st.SyncStatus(ctx)
+	if err != nil {
+		return err
+	}
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(w, "  Schemafassung: %d\n", info.SchemaVersion)
+	fmt.Fprintf(w, "  Abgleich:      %s\n", describeSyncInterval(settings))
 	if len(hubs) == 0 {
 		fmt.Fprintf(w, "  Hubs:          keine\n")
 		return nil
@@ -488,8 +505,47 @@ func printNodeStatus(ctx context.Context, w io.Writer, st nodestore.Store) error
 	for _, h := range hubs {
 		fmt.Fprintf(w, "    %s: %s, als Node %s\n", h.Name, describeTransport(h), h.NodeName)
 		printReplicaStatus(ctx, w, st, h)
+		fmt.Fprintf(w, "      Abgleich:    %s\n", describeSyncStatus(status[h.Name]))
 	}
 	return nil
+}
+
+// describeSyncInterval beschreibt den Abstand des Abgleichs im Hintergrund
+// aus den settings.
+func describeSyncInterval(settings map[string]string) string {
+	d, err := nodestore.SyncInterval(settings)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("im Hintergrund alle %s (%v)", d, err)
+	case d == 0:
+		return "im Hintergrund aus (sync_interval 0)"
+	}
+	if _, set := settings[nodestore.SettingSyncInterval]; !set {
+		return fmt.Sprintf("im Hintergrund alle %s (Standard)", d)
+	}
+	return fmt.Sprintf("im Hintergrund alle %s", d)
+}
+
+// describeSyncStatus beschreibt den Stand des Abgleichs eines Eintrags
+// (hub_sync), wie node sync und serve ihn festhalten.
+func describeSyncStatus(st nodestore.SyncStatus) string {
+	ok := "noch nie gelungen"
+	if st.OKAt != 0 {
+		ok = "zuletzt gelungen " + formatSeconds(st.OKAt)
+	}
+	if st.Err == "" {
+		if st.OKAt == 0 {
+			return "noch keiner festgehalten"
+		}
+		return ok
+	}
+	return fmt.Sprintf("%s; gescheitert %s: %s", ok, formatSeconds(st.ErrAt), st.Err)
+}
+
+// formatSeconds zeigt einen Zeitpunkt (ms seit Epoche) sekundengenau in
+// Ortszeit.
+func formatSeconds(ms int64) string {
+	return time.UnixMilli(ms).Local().Format("2006-01-02 15:04:05")
 }
 
 // printReplicaStatus zeigt den Abgleich eines Hub-Eintrags aus seiner

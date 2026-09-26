@@ -372,7 +372,11 @@ func TestHubIDCopyFollowsReplica(t *testing.T) {
 	ctx := context.Background()
 	e.hub.put("a", "x.md", "x")
 	e.ok()
-	if err := e.nodes.SetHubID(ctx, "privat", ulid.Make().String()); err != nil {
+	h, err := e.nodes.Hub(ctx, "privat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.nodes.SetHubID(ctx, "privat", h.EntryID, ulid.Make().String()); err != nil {
 		t.Fatal(err)
 	}
 	if res := e.ok(); res.Reset != "" {

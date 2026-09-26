@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 
 	"github.com/oklog/ulid/v2"
@@ -92,11 +93,109 @@ type HubResult struct {
 	// des Eintrags, dann die nicht mehr gewünschten, die entfernt wurden.
 	Collections []CollectionResult
 	Err         error
+	// Kind ist die Art des Fehlers (ErrorKind), wenn Err gesetzt ist.
+	Kind ErrorKind
+	// Gone sagt, dass der Eintrag während des Abgleichs entfernt oder unter
+	// demselben Alias neu angelegt wurde. Dann ist nichts festgehalten, auch
+	// kein Fehler: Der neue Eintrag hat seinen eigenen Stand.
+	Gone bool
 }
 
-// Sync gleicht alle Hub-Einträge ab, oder nur den mit dem Alias only. Der
-// Fehler betrifft nur das Lesen der Einträge (oder einen unbekannten
-// Alias); was je Eintrag scheitert, steht in HubResult.Err.
+// ErrorKind ist die Art eines gescheiterten Abgleichs. Sie steht mit der
+// Meldung im Stand des Eintrags (hub_sync); das Log vergleicht sie, nicht die
+// Meldung, und whoami zeigt statt der Meldung — die Adresse des Hubs nennen
+// kann — einen festen Text je Art.
+type ErrorKind string
+
+// Die Arten.
+const (
+	// KindConnect: Der Eintrag lässt sich nicht verbinden (Transport noch
+	// nicht unterstützt, kein Hub in der config).
+	KindConnect ErrorKind = "connect"
+	// KindUnreachable: Der Hub antwortet nicht (Netz, Zeitüberschreitung).
+	KindUnreachable ErrorKind = "unreachable"
+	// KindUnauthenticated: Der Hub nimmt den Node nicht an.
+	KindUnauthenticated ErrorKind = "unauthenticated"
+	// KindVersion: Der Hub bedient die Fassung des Vertrags nicht.
+	KindVersion ErrorKind = "unsupported_version"
+	// KindHub: Der Hub meldet einen anderen Fehler.
+	KindHub ErrorKind = "hub"
+	// KindProtocol: Die Antwort des Hubs passt nicht zur Anfrage.
+	KindProtocol ErrorKind = "protocol"
+	// KindReplica: Replica oder node.db ließen sich nicht lesen oder
+	// schreiben, oder die Replica änderte sich wiederholt unter dem Abgleich.
+	KindReplica ErrorKind = "replica"
+)
+
+// Text ist die Art als kurzer Satz ohne Einzelheiten — ohne Adresse, ohne
+// Namen —, wie whoami ihn zeigt.
+func (k ErrorKind) Text() string {
+	switch k {
+	case KindConnect:
+		return "Verbindung zum Hub nicht einrichtbar"
+	case KindUnreachable:
+		return "Hub nicht erreichbar"
+	case KindUnauthenticated:
+		return "der Hub nimmt diesen Node nicht an"
+	case KindVersion:
+		return "der Hub bedient die Fassung des Vertrags nicht"
+	case KindHub:
+		return "der Hub meldet einen Fehler"
+	case KindProtocol:
+		return "die Antwort des Hubs passt nicht"
+	case KindReplica:
+		return "Replica nicht schreibbar"
+	}
+	return "Abgleich gescheitert"
+}
+
+// kindError hängt einem Fehler seine Art an.
+type kindError struct {
+	kind ErrorKind
+	err  error
+}
+
+func (e *kindError) Error() string { return e.err.Error() }
+func (e *kindError) Unwrap() error { return e.err }
+
+func withKind(kind ErrorKind, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &kindError{kind: kind, err: err}
+}
+
+// kindOf liefert die Art eines Fehlers; ohne angehängte Art KindReplica —
+// was nicht vom Hub kommt, ist lokal.
+func kindOf(err error) ErrorKind {
+	var ke *kindError
+	if errors.As(err, &ke) {
+		return ke.kind
+	}
+	return KindReplica
+}
+
+// hubKind ordnet einen Fehler aus dem Aufruf des Hubs ein.
+func hubKind(err error) ErrorKind {
+	var ce *contract.Error
+	var ne net.Error
+	switch {
+	case errors.Is(err, contract.ErrUnauthenticated):
+		return KindUnauthenticated
+	case errors.Is(err, contract.ErrUnsupportedVersion):
+		return KindVersion
+	case errors.As(err, &ce):
+		return KindHub
+	case errors.As(err, &ne), errors.Is(err, context.DeadlineExceeded):
+		return KindUnreachable
+	}
+	return KindHub
+}
+
+// Sync gleicht alle Hub-Einträge ab, oder nur den mit dem Alias only, einen
+// nach dem anderen (SyncEntry). Der Fehler betrifft nur das Lesen der
+// Einträge (oder einen unbekannten Alias); was je Eintrag scheitert, steht in
+// HubResult.Err.
 func (s *Syncer) Sync(ctx context.Context, only string, connect Connect) ([]HubResult, error) {
 	var hubs []store.Hub
 	if only != "" {
@@ -113,25 +212,69 @@ func (s *Syncer) Sync(ctx context.Context, only string, connect Connect) ([]HubR
 	}
 	out := make([]HubResult, 0, len(hubs))
 	for _, h := range hubs {
-		hub, err := connect(h)
-		if err != nil {
-			out = append(out, HubResult{Hub: h.Name, HubID: h.HubID, Err: err})
-			continue
-		}
-		out = append(out, s.SyncHub(ctx, h, hub))
+		out = append(out, s.SyncEntry(ctx, h, connect))
 	}
 	return out, nil
 }
 
+// SyncEntry verbindet einen Eintrag, gleicht ihn ab (SyncHub) und hält das
+// Ergebnis im Stand des Eintrags fest (hub_sync) — außer der Abgleich wurde
+// abgebrochen (ctx) oder der Eintrag besteht nicht mehr (Gone).
+func (s *Syncer) SyncEntry(ctx context.Context, h store.Hub, connect Connect) HubResult {
+	var res HubResult
+	if hub, err := connect(h); err != nil {
+		res = HubResult{Hub: h.Name, HubID: h.HubID, Err: err, Kind: KindConnect}
+	} else {
+		res = s.SyncHub(ctx, h, hub)
+	}
+	if res.Gone || ctx.Err() != nil {
+		return res
+	}
+	rec := store.SyncRecord{At: s.nowMillis()}
+	if res.Err != nil {
+		rec.Err, rec.ErrKind = res.Err.Error(), string(res.Kind)
+	}
+	if err := s.Nodes.RecordSync(ctx, h.Name, h.EntryID, rec); errors.Is(err, store.ErrEntryGone) {
+		res.Gone = true
+	} else if err != nil && res.Err == nil {
+		res.Err, res.Kind = err, KindReplica
+	}
+	return res
+}
+
+func (s *Syncer) nowMillis() int64 {
+	if s.now != nil {
+		return s.now()
+	}
+	return sqlitedb.NowMillis()
+}
+
 // openForSync öffnet die Replica eines Eintrags. Fehlt sie, ist sie nil. Ist
 // ihre Schemafassung eine andere, wird sie verworfen — sie ist abgeleitet —,
-// und reason sagt es.
-func openForSync(ctx context.Context, path string) (r *Replica, reason string, err error) {
+// und reason sagt es. Gehört sie zu einem anderen Eintrag als h, wird sie
+// ebenso verworfen, aber nur, wenn h noch der gültige Eintrag des Alias ist;
+// sonst ist h selbst veraltet: store.ErrEntryGone.
+func openForSync(ctx context.Context, nodes store.Store, h store.Hub) (r *Replica, reason string, err error) {
+	path := nodes.ReplicaPath(h.Name)
 	r, err = Open(ctx, path)
 	var sv *sqlitedb.SchemaVersionError
 	switch {
 	case err == nil:
-		return r, "", nil
+		if r.EntryID() == h.EntryID {
+			return r, "", nil
+		}
+		_ = r.Close()
+		cur, err := nodes.Hub(ctx, h.Name)
+		if errors.Is(err, store.ErrNotFound) || (err == nil && cur.EntryID != h.EntryID) {
+			return nil, "", fmt.Errorf("Hub-Eintrag %s %w", h.Name, store.ErrEntryGone)
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		if err := Remove(path); err != nil {
+			return nil, "", fmt.Errorf("Replica %s verwerfen: %w", path, err)
+		}
+		return nil, "die Replica gehörte zu einem früheren Eintrag gleichen Namens; neu angelegt", nil
 	case errors.Is(err, sqlitedb.ErrNotFound):
 		return nil, "", nil
 	case errors.As(err, &sv):
@@ -142,6 +285,16 @@ func openForSync(ctx context.Context, path string) (r *Replica, reason string, e
 			sv.Got, sv.Want), nil
 	}
 	return nil, "", err
+}
+
+// createForSync legt die Replica an. War ein anderer schneller, meldet es
+// ErrChanged: Der Abgleich setzt neu auf und öffnet die vorhandene.
+func createForSync(ctx context.Context, path, hubID, entryID string) (*Replica, error) {
+	r, err := Create(ctx, path, hubID, entryID)
+	if errors.Is(err, sqlitedb.ErrExists) {
+		return nil, ErrChanged
+	}
+	return r, err
 }
 
 // checkResponse prüft eine Antwort gegen ihre Anfrage, soweit der Node es
@@ -177,12 +330,39 @@ func checkResponse(req contract.SyncRequest, resp contract.SyncResponse) error {
 //   - Jede Seite ist eine Transaktion: nicht erlaubte Collections entfernen,
 //     Zeilen per id einfügen oder ersetzen, je Collection den Stand auf
 //     max(Stand, until). Dann die nächste Seite, solange more gilt.
+//
+// Laufen zwei Abgleiche derselben Replica nebeneinander (serve und node
+// sync, auch in getrennten Prozessen), schreibt jede Seite nur, wenn die
+// Replica noch zu Eintrag, hub_id und Stand passt, von denen sie ausging;
+// sonst setzt SyncHub neu auf (höchstens zweimal). Wurde der Eintrag
+// inzwischen entfernt oder neu angelegt, bricht es ab (Gone) und schreibt
+// nichts mehr — weder in die Replica noch hub_id oder Stand in node.db.
 func (s *Syncer) SyncHub(ctx context.Context, h store.Hub, hub contract.Hub) HubResult {
-	res := HubResult{Hub: h.Name, HubID: h.HubID}
-	if err := s.syncHub(ctx, h, hub, &res); err != nil {
-		res.Err = err
+	const attempts = 3
+	for attempt := 1; ; attempt++ {
+		res := HubResult{Hub: h.Name, HubID: h.HubID}
+		err := s.syncHub(ctx, h, hub, &res)
+		if err == nil {
+			return res
+		}
+		res.Err, res.Kind = err, kindOf(err)
+		if errors.Is(err, store.ErrEntryGone) {
+			res.Gone = true
+			return res
+		}
+		if !errors.Is(err, ErrChanged) || ctx.Err() != nil {
+			return res
+		}
+		cur, cerr := s.Nodes.Hub(ctx, h.Name)
+		if errors.Is(cerr, store.ErrNotFound) || (cerr == nil && cur.EntryID != h.EntryID) {
+			res.Gone = true
+			return res
+		}
+		if cerr != nil || attempt >= attempts {
+			return res
+		}
+		h = cur
 	}
-	return res
 }
 
 // progress hält fest, was der Abgleich eines Eintrags je Collection getan
@@ -227,7 +407,7 @@ func (s *Syncer) syncHub(ctx context.Context, h store.Hub, hub contract.Hub, res
 	defer func() { res.Collections = prog.results() }()
 
 	path := s.Nodes.ReplicaPath(h.Name)
-	rep, reason, err := openForSync(ctx, path)
+	rep, reason, err := openForSync(ctx, s.Nodes, h)
 	if err != nil {
 		return err
 	}
@@ -266,21 +446,21 @@ func (s *Syncer) syncHub(ctx context.Context, h store.Hub, hub contract.Hub, res
 		}
 		resp, err := hub.Sync(ctx, req)
 		if err != nil {
-			return err
+			return withKind(hubKind(err), err)
 		}
 		if err := checkResponse(req, resp); err != nil {
-			return err
+			return withKind(KindProtocol, err)
 		}
 
 		if rep == nil {
-			if rep, err = Create(ctx, path, resp.HubID); err != nil {
+			if rep, err = createForSync(ctx, path, resp.HubID, h.EntryID); err != nil {
 				return err
 			}
 		} else if why := mismatch(rep, state, resp); why != "" {
 			// Die Seite gehört zu Ständen, die nicht mehr gelten: verwerfen,
 			// Replica leeren, von vorn fragen.
 			if reset {
-				return fmt.Errorf("der Hub wechselt während des Abgleichs erneut: %s", why)
+				return withKind(KindProtocol, fmt.Errorf("der Hub wechselt während des Abgleichs erneut: %s", why))
 			}
 			if err := rep.reset(ctx, resp.HubID); err != nil {
 				return err
@@ -297,7 +477,7 @@ func (s *Syncer) syncHub(ctx context.Context, h store.Hub, hub contract.Hub, res
 		}
 		if h.HubID != resp.HubID {
 			// Die Kopie folgt der maßgeblichen hub_id der Replica.
-			if err := s.Nodes.SetHubID(ctx, h.Name, resp.HubID); err != nil {
+			if err := s.Nodes.SetHubID(ctx, h.Name, h.EntryID, resp.HubID); err != nil {
 				return err
 			}
 			h.HubID = resp.HubID
@@ -317,8 +497,8 @@ func (s *Syncer) syncHub(ctx context.Context, h store.Hub, hub contract.Hub, res
 		}
 		for _, row := range resp.Rows {
 			if _, ok := p.advance[row.Collection]; !ok {
-				return fmt.Errorf("der Hub liefert eine Zeile aus Collection %q, die nicht angefragt oder nicht erlaubt ist",
-					row.Collection)
+				return withKind(KindProtocol, fmt.Errorf("der Hub liefert eine Zeile aus Collection %q, "+
+					"die nicht angefragt oder nicht erlaubt ist", row.Collection))
 			}
 		}
 		minSince := int64(-1)
@@ -349,7 +529,8 @@ func (s *Syncer) syncHub(ctx context.Context, h store.Hub, hub contract.Hub, res
 		// Mit more muss until über dem kleinsten Stand liegen, sonst fragte
 		// der Node ewig dasselbe.
 		if resp.Until <= minSince {
-			return fmt.Errorf("der Hub meldet weitere Zeilen, kommt aber nicht über Revision %d hinaus", resp.Until)
+			return withKind(KindProtocol, fmt.Errorf("der Hub meldet weitere Zeilen, kommt aber nicht über Revision %d hinaus",
+				resp.Until))
 		}
 	}
 }

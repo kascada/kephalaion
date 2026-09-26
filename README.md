@@ -14,14 +14,15 @@ Was geplant ist und warum, steht in [`docs/konzept.md`](docs/konzept.md), die Be
 [`docs/begriffe.md`](docs/begriffe.md).
 
 **Stand:** Gebaut sind das Gerüst (`version`, `upgrade`) und das Einrichten der Rollen:
-`hub init`, `node init`, `status`, `config show|export|import`, dazu am Hub Collections,
+`hub init`, `node init`, `status`, `config show|set|unset|export|import`, dazu am Hub Collections,
 Nodes und Accounts mit Rechten je Collection, am Node seine Hubs und die gewünschten
 Collections. Der Hub nimmt Dokumente auf (`hub doc`, `hub import`), der Node gleicht sie in
 seine Replica ab (`node sync`) und zeigt sie an (`node doc`), über `transport local` oder
 `http` auf diesem Rechner. `kephalaion serve` lauscht je Rolle: der Hub für Nodes, der Node als
-MCP-Server für Clients mit dem Werkzeug `whoami`. Accounts tauschen ihr Token am Node
-(`node account rotate`). Noch nicht gebaut: `https` und `ssh`, Abgleich im Hintergrund,
-Suche, Schreiben über den Node, weitere Werkzeuge.
+MCP-Server für Clients mit dem Werkzeug `whoami`, und gleicht als Node im Hintergrund ab.
+Accounts tauschen ihr Token am Node (`node account rotate`); `node whoami` zeigt, wen der Node
+kennt. Noch nicht gebaut: `https` und `ssh`, Suche, Lesen und Schreiben über MCP, weitere
+Werkzeuge.
 
 ## Was gebraucht wird (grob)
 
@@ -99,16 +100,21 @@ noch nicht unterstützt.
 ```sh
 kephalaion status       # welche Rollen, wo ihre Datenbank liegt, ob serve läuft, Kennzahlen
 kephalaion config show  # config und settings je Rolle
+kephalaion config set node sync_interval 1m          # Abstand des Abgleichs im Hintergrund
+kephalaion config unset node sync_interval           # wieder der Standard (30s)
 kephalaion config export --output keph-config.yaml   # Einstellungen sichern, ohne Inhalte
 kephalaion config import keph-config.yaml            # in eingerichtete Rollen zurückschreiben
 ```
 
 `status` und alle anderen Kommandos öffnen nur vorhandene Datenbanken, angelegt wird nur mit
-`init` — einzige Ausnahme ist die Replica, die der erste `node sync` anlegt (siehe unten).
+`init` — einzige Ausnahme ist die Replica, die der erste Abgleich anlegt (siehe unten).
 Migrationen gibt es noch nicht: Passt die Schemafassung einer Datenbank nicht zum
 Binary, ist sie neu anzulegen; die Einstellungen rettet `config export`/`import`, die Inhalte
 nicht. Dokumente am Hub sind wieder einzuspielen (`hub import`); eine Replica mit fremder
-Schemafassung verwirft `node sync` selbst und gleicht sie neu ab.
+Schemafassung verwirft der Abgleich selbst und gleicht sie neu ab. Mit dem Abgleich im
+Hintergrund stieg `node.db` auf Schemafassung 4 (neu: `hubs.entry_id`, `hub_sync`): die
+Einstellungen vor dem Update mit dem alten Binary per `config export` sichern und nach dem
+Neuanlegen mit `config import` zurückholen.
 
 ### Hub und Node auf einem Rechner
 
@@ -214,8 +220,8 @@ für Nodes (`POST /v1/whoami|rotate|sync`, siehe [`docs/vertrag.md`](docs/vertra
 Node als MCP-Server für Clients unter `/mcp`. Er läuft im Vordergrund, schreibt je Anfrage
 eine Zeile nach stderr (Methode, Pfad, Status, Dauer, Node- und Account-Namen, nie ein Token)
 und endet mit SIGINT oder SIGTERM. Eine Sperre auf `<db>.lock` neben jeder Datenbank verhindert
-einen zweiten `serve` auf derselben Rolle; alle anderen Kommandos laufen daneben. Einen
-Abgleich im Hintergrund gibt es noch nicht — dafür `node sync`. Beide Rollen beantworten nur
+einen zweiten `serve` auf derselben Rolle; alle anderen Kommandos laufen daneben, auch
+`node sync`, `node hub rm|add` und `config import`. Beide Rollen beantworten nur
 Anfragen, deren `Host` dieser Rechner mit dem eigenen Port ist, sonst 403; ein SSH-Tunnel zum
 Hub geht deshalb nur mit gleichem Port (`ssh -L 7434:localhost:7434 …`).
 
@@ -223,6 +229,24 @@ Hub geht deshalb nur mit gleichem Port (`ssh -L 7434:localhost:7434 …`).
 kephalaion serve 2>> ~/.local/state/kephalaion/serve.log &
 kephalaion status | grep serve     # serve: läuft
 ```
+
+Als Node gleicht `serve` seine Replicas selbst ab: beim Start je Hub-Eintrag, danach im
+Abstand `sync_interval` aus den `settings` des Nodes — Standard 30 s, mindestens `1s`, `0`
+schaltet ab; `config set` wirkt ohne Neustart. Die Hub-Einträge liest jede Runde neu, `node
+hub add|rm` wirkt also sofort; ein langsamer Hub hält die anderen nicht auf. `local` nimmt den
+Hub desselben `serve`, `http` den unter seiner Adresse; `https` und `ssh` werden noch
+übergangen (eine Logzeile beim Start). Das Log nennt einen Abgleich nur, wenn Zeilen kamen,
+einen Fehler beim ersten Mal und wenn sich seine Art ändert, und die Erholung:
+
+```text
+2026-09-26T10:15:02+02:00 Abgleich im Hintergrund alle 30s
+2026-09-26T10:15:02+02:00 Abgleich privat: 3 Zeilen, Revision 7
+2026-09-26T10:15:02+02:00 Abgleich test gescheitert: Hub http://localhost:7434: dial tcp 127.0.0.1:7434: connect: connection refused
+2026-09-26T10:20:32+02:00 Abgleich test geht wieder
+```
+
+Letzter Erfolg und letzter Fehler je Hub stehen in `node.db` (Tabelle `hub_sync`, nicht im
+Export), geschrieben auch von `node sync`; `status` und `whoami` zeigen sie.
 
 Ein MCP-Client meldet sich am Node je Hub mit einem Header-Paar an —
 `X-Keph-Account-<alias>` und `X-Keph-Token-<alias>`, der Alias ist der des Hub-Eintrags am
@@ -252,8 +276,21 @@ export KEPH_TOKEN="$(cat ~/.config/kephalaion/alice.token)"
 
 Für mehrere Hubs steht je Hub ein Paar darin. Der Node prüft das Paar bei jeder Anfrage gegen
 die Account-Zeilen seiner Replica, ohne Cache; `initialize` geht ohne Anmeldung. Das Werkzeug
-`whoami` zeigt je Hub, ob die Anmeldung gilt, und wenn ja Account, User, Collections und
-Rechte — nie ein Token. Ein gesperrter Account gilt am Node nach dem nächsten `node sync` nicht mehr.
+`whoami` zeigt die Version des Nodes und je Hub-Eintrag — alle, nicht nur die mit Header-Paar —
+`login` (`ok`, `invalid` oder `missing`), den Namen des Nodes am Hub und den Stand des
+Abgleichs (letzter Erfolg, Revision, letzter Fehler); bei `ok` Account, User, Collections und
+Rechte. Header zu Aliasen, die der Node nicht kennt, stehen in `unknown_hubs`. Nie ein Token,
+ein Hash, die Adresse, der Transport oder die `hub_id`. Hat der Node einen Hub noch nie
+abgeglichen, ist `login` dort `invalid`, und `sync` sagt `never_synced`. Ein gesperrter
+Account gilt am Node nach dem nächsten Abgleich nicht mehr.
+
+Dasselbe auf der Kommandozeile, ohne Token:
+
+```sh
+kephalaion node whoami                  # Version, Hubs mit Stand, bekannte Accounts
+kephalaion node whoami bob              # was whoami einem Client mit bobs Zugangsdaten antwortet
+kephalaion node whoami bob --hub privat --json   # nur ein Hub, als JSON wie das Werkzeug
+```
 Der Node lehnt Anfragen mit fremdem `Host` oder fremder `Origin` mit 403 ab (Schutz gegen
 DNS-Rebinding aus dem Browser).
 
@@ -321,17 +358,20 @@ tasks/        –         –
 
 Nach `kephalaion hub doc rm team-x notizen/heute.md` bringt der nächste `node sync` die
 Löschmarke (`team-x: abgeglichen, 1 Zeile, Revision 3`), und `node doc list` zeigt
-`notizen/` nicht mehr. `status` zeigt am Node je Hub-Eintrag die `hub_id` aus der Replica und je
-Collection Stand und letzten Abgleich:
+`notizen/` nicht mehr. `status` zeigt am Node den Abstand des Abgleichs im Hintergrund und je
+Hub-Eintrag die `hub_id` aus der Replica, je Collection Stand und letzten Abgleich und den
+Stand des Abgleichs aus `hub_sync`:
 
 ```text
 node: eingerichtet
   …
+  Abgleich:      im Hintergrund alle 30s (Standard)
   Hubs:
     privat: local, als Node laptop
       hub_id:      01M3ECGQP32QBHTGXERZSMVBWR
       Collections:
         team-x: Revision 3, abgeglichen 2026-09-26 10:15
+      Abgleich:    zuletzt gelungen 2026-09-26 10:15:02
 ```
 
 `node sync` geht über `local` (der Hub derselben config, im selben Prozess) und über `http`
@@ -354,6 +394,11 @@ Collections, die der Hub nicht (mehr) erlaubt oder die der Node nicht mehr will
 gleicht von vorn ab. Die Replica ist abgeleitet: `node hub rm` löscht sie mit, ebenso `config import` für
 Aliase, die im Export fehlen. Die Regeln des Abgleichs stehen in
 [`docs/vertrag.md`](docs/vertrag.md).
+
+`node sync` und der Abgleich von `serve` dürfen gleichzeitig laufen, auch neben `node hub
+rm|add` und `config import`: Jede Seite prüft in ihrer Transaktion, dass die Replica noch zu
+Eintrag (`entry_id`), `hub_id` und Stand passt, und schreibt sonst nichts. Ein Abgleich für
+einen inzwischen entfernten oder neu angelegten Eintrag schreibt nie in den neuen.
 
 ## Bauen
 

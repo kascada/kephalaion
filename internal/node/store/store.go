@@ -25,7 +25,7 @@ const Role = string(config.Node)
 // SchemaVersion ist die Schemafassung, die dieses Binary erwartet. Es gibt
 // noch keine Migrationen: Passt die Fassung nicht, ist die Datenbank neu
 // anzulegen.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // Info beschreibt eine geöffnete Node-Datenbank.
 type Info struct {
@@ -41,6 +41,10 @@ type Store interface {
 	Settings(ctx context.Context) (map[string]string, error)
 	// ReplaceSettings ersetzt alle settings in einer Transaktion.
 	ReplaceSettings(ctx context.Context, settings map[string]string) error
+	// SetSetting setzt einen bekannten Schlüssel nach Prüfung des Werts
+	// (CheckSetting); UnsetSetting entfernt ihn und sagt, ob er gesetzt war.
+	SetSetting(ctx context.Context, key, value string) error
+	UnsetSetting(ctx context.Context, key string) (bool, error)
 
 	Hubs(ctx context.Context) ([]Hub, error)
 	Hub(ctx context.Context, name string) (Hub, error)
@@ -51,11 +55,20 @@ type Store interface {
 	SetHubToken(ctx context.Context, name, token string) error
 	// SetHubID schreibt die Kopie der hub_id in den Hub-Eintrag. Maßgeblich
 	// ist die hub_id in db_info der Replica; der Abgleich schreibt die Kopie
-	// danach, für Anzeige und Export.
-	SetHubID(ctx context.Context, name, hubID string) error
+	// danach, für Anzeige und Export. Geschrieben wird nur, solange der
+	// Eintrag noch der mit entryID ist, sonst ErrEntryGone.
+	SetHubID(ctx context.Context, name, entryID, hubID string) error
 	// RemoveHub entfernt einen Hub-Eintrag samt seinen gewünschten
-	// Collections und seiner Replica.
+	// Collections, seinem Stand des Abgleichs und seiner Replica.
 	RemoveHub(ctx context.Context, name string) error
+
+	// RecordSync hält das Ergebnis eines Abgleichs im Stand des Eintrags
+	// fest (hub_sync) — nur, solange der Eintrag noch der mit entryID ist,
+	// sonst ErrEntryGone.
+	RecordSync(ctx context.Context, name, entryID string, rec SyncRecord) error
+	// SyncStatus liest den Stand des Abgleichs aller Einträge, nach Alias.
+	// Ein Eintrag ohne Zeile fehlt in der Map.
+	SyncStatus(ctx context.Context) (map[string]SyncStatus, error)
 	// ReplicaPath ist der Ort der Replica eines Hub-Eintrags:
 	// replicas/<alias>.db neben node.db. Die Datei muss es nicht geben.
 	ReplicaPath(name string) string
@@ -70,7 +83,8 @@ type Store interface {
 	Tables(ctx context.Context) (Tables, error)
 	// Import ersetzt in einer Transaktion die settings und, wenn tables nicht
 	// nil ist, die lokalen Tabellen. Die Replicas der Aliase, die danach
-	// fehlen, entfernt es mit, wie RemoveHub.
+	// fehlen, entfernt es mit, wie RemoveHub; der Stand des Abgleichs geht
+	// ganz. Ein Alias, der bleibt, behält seine entry_id.
 	Import(ctx context.Context, settings map[string]string, tables *Tables, hubInConfig bool) error
 
 	Close() error
@@ -78,10 +92,14 @@ type Store interface {
 
 // sqliteSchema ist das DDL des Nodes über den Unterbau hinaus, nach
 // „Datenmodell“ im Konzept: seine Hubs und die Collections, die er von ihnen
-// haben will. Beides gleicht sich nicht ab.
+// haben will. Beides gleicht sich nicht ab. entry_id ist die Kennung des
+// Eintrags, beim Anlegen vergeben und nie wieder vergeben (ULID); an sie ist
+// das Schreiben des Abgleichs gebunden. hub_sync ist der Stand des Abgleichs
+// je Eintrag — abgeleitet, nicht im Export.
 const sqliteSchema = `
 CREATE TABLE hubs (
   name        TEXT PRIMARY KEY,
+  entry_id    TEXT NOT NULL UNIQUE,
   node_name   TEXT NOT NULL,
   transport   TEXT NOT NULL,
   address     TEXT,
@@ -93,6 +111,14 @@ CREATE TABLE hub_collections (
   hub         TEXT NOT NULL REFERENCES hubs(name),
   collection  TEXT NOT NULL,
   PRIMARY KEY (hub, collection)
+);
+CREATE TABLE hub_sync (
+  hub         TEXT PRIMARY KEY REFERENCES hubs(name),
+  entry_id    TEXT NOT NULL,
+  ok_at       INTEGER,
+  error       TEXT,
+  error_kind  TEXT,
+  error_at    INTEGER
 );
 `
 

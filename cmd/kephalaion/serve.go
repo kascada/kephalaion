@@ -44,9 +44,19 @@ Eine Sperre auf einer Datei neben jeder Datenbank (<db>.lock) verhindert einen
 zweiten serve auf derselben Rolle; die übrigen Kommandos laufen daneben wie
 immer. kephalaion status zeigt, ob serve läuft.
 
+Als Node gleicht serve seine Replicas selbst ab: beim Start je Hub-Eintrag,
+danach im Abstand sync_interval aus den settings des Nodes (Standard 30s,
+kephalaion config set node sync_interval 1m; 0 schaltet ab). Die Hub-Einträge
+liest jede Runde neu, node hub add|rm wirkt ohne Neustart; ein langsamer Hub
+hält die anderen nicht auf. Transport local nimmt den Hub desselben serve,
+http den Hub unter seiner Adresse; https und ssh werden noch übergangen.
+Erfolg und letzter Fehler je Hub stehen in node.db (kephalaion status).
+kephalaion node sync läuft daneben wie immer.
+
 Logs gehen nach stderr: eine Zeile je Anfrage mit Methode, Pfad, Status,
-Dauer und den Namen von Node bzw. Account — nie ein Token. Einen Abgleich im
-Hintergrund gibt es noch nicht; dafür kephalaion node sync.
+Dauer und den Namen von Node bzw. Account — nie ein Token. Vom Abgleich im
+Hintergrund eine Zeile, wenn Zeilen kamen, eine beim ersten Fehler eines Hubs
+und wenn sich die Art des Fehlers ändert, und eine, wenn es wieder geht.
 
 Optionen:
   --config pfad   Ort der config (siehe kephalaion hub init --help)
@@ -106,6 +116,9 @@ type role struct {
 	close  func()
 	ln     net.Listener
 	server *http.Server
+	// hub bzw. nodes ist der geöffnete Store der Rolle.
+	hub   hubstore.Store
+	nodes nodestore.Store
 }
 
 // serve startet die Listener aller eingerichteten Rollen und läuft, bis ctx
@@ -168,6 +181,30 @@ func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready fun
 			}
 		}()
 	}
+	// Der Abgleich im Hintergrund, wenn serve den Node trägt; local nimmt
+	// den Hub desselben serve.
+	bgCtx, stopBg := context.WithCancel(ctx)
+	defer stopBg()
+	bgDone := make(chan struct{})
+	var hub hubstore.Store
+	var nodes nodestore.Store
+	for _, rl := range roles {
+		if rl.hub != nil {
+			hub = rl.hub
+		}
+		if rl.nodes != nil {
+			nodes = rl.nodes
+		}
+	}
+	if nodes != nil {
+		bg := newBackgroundSync(nodes, cfg, hub, log)
+		go func() {
+			defer close(bgDone)
+			bg.run(bgCtx)
+		}()
+	} else {
+		close(bgDone)
+	}
 	if ready != nil {
 		ready(addrs)
 	}
@@ -177,6 +214,10 @@ func serve(ctx context.Context, cfg config.Config, log *reqlog.Logger, ready fun
 		log.Printf("beende (Frist %s)", shutdownGrace)
 	case result = <-errc:
 	}
+	// Ein laufender Abgleich bricht ab; geschrieben ist nur, was als ganze
+	// Seite ankam. Die Stores bleiben offen, bis er fertig ist.
+	stopBg()
+	<-bgDone
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
 	for _, rl := range roles {
@@ -214,6 +255,7 @@ func startRole(ctx context.Context, cfg config.Config, r config.Role, sec *confi
 			return nil, fmt.Errorf("hub: %w", err)
 		}
 		rl.close = func() { _ = st.Close() }
+		rl.hub = st
 		rl.server = &http.Server{
 			// Host wie am Node: dieser Rechner mit dem eigenen Port, sonst 403.
 			Handler:           loopback.Guard(httpapi.NewHandler(replication.New(st))),
@@ -229,6 +271,7 @@ func startRole(ctx context.Context, cfg config.Config, r config.Role, sec *confi
 			return nil, fmt.Errorf("node: %w", err)
 		}
 		rl.close = func() { _ = st.Close() }
+		rl.nodes = st
 		rl.server = &http.Server{
 			Handler:           newNodeHandler(st),
 			ReadHeaderTimeout: httpapi.ReadHeaderTimeout,

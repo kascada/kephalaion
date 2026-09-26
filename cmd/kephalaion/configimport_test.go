@@ -91,11 +91,16 @@ func hubTables(t *testing.T, cfg string) hubstore.Tables {
 	return tables
 }
 
+// nodeTables liest die lokalen Tabellen des Nodes, ohne entry_id: Sie ist
+// je Datenbank vergeben und nicht im Export.
 func nodeTables(t *testing.T, cfg string) nodestore.Tables {
 	t.Helper()
 	tables, err := nodeStore(t, cfg).Tables(context.Background())
 	if err != nil {
 		t.Fatal(err)
+	}
+	for i := range tables.Hubs {
+		tables.Hubs[i].EntryID = ""
 	}
 	return tables
 }

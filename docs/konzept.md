@@ -14,8 +14,11 @@ Kommandozeile. Dazu Dokumente am Hub (`hub doc`, `hub import`), der Vertrag
 über `transport local` oder `http` auf diesem Rechner (`node sync`, `node doc`). Accounts mit
 Rechten je Collection (`hub account …`), die ihr Token am Node tauschen (`node account
 rotate`), und `kephalaion serve`: der Hub für Nodes, der Node als MCP-Server mit dem Werkzeug
-`whoami` (Task 005), dazu der User je Account (Task 006). Noch nicht gebaut: `https` und
-`ssh`, Abgleich im Hintergrund, Suche und Schreiben über den Node. Die Überlegungen
+`whoami` (Task 005), dazu der User je Account (Task 006). Seit Task 008 gleicht `serve` die
+Replicas im Hintergrund selbst ab (`sync_interval`, `config set`), `whoami` zeigt Version,
+alle Hubs, Anmeldung und Stand des Abgleichs, `kephalaion node whoami` dasselbe auf der
+Kommandozeile. Noch nicht gebaut: `https` und `ssh`, Suche, Lesen über MCP (`list`, `read`,
+`changes`) und Schreiben über den Node. Die Überlegungen
 entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
 Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
 
@@ -238,7 +241,10 @@ Node. Header-Namen zählen ohne Groß- und Kleinschreibung; der Alias ist der Re
 nach dem Präfix, klein geschrieben — eindeutig, weil Aliase klein sind. Der Client trägt die
 Header aus seiner MCP-Konfiguration ein, die KI sieht sie nicht. Eine Sitzung
 (`Mcp-Session-Id`) wird nicht geführt (go-sdk, zustandsloser Modus); `initialize` geht ohne
-Anmeldung, ein Paar für einen unbekannten Alias ergibt „nicht angemeldet“ für diesen Alias.
+Anmeldung. Header zu einem Alias, den der Node nicht kennt, melden an keinem Hub an; `whoami`
+nennt den Alias in einem eigenen Feld (`unknown_hubs`), nur den Alias — eine Hilfe bei falsch
+eingerichteten Clients, die nichts verrät, was der Client nicht schon weiß. Geprüft wird über
+alle Hubs in einem Schritt je Anfrage, auf dem jedes Werkzeug aufsetzt.
 Die Prüfung je Anfrage kostet Mikrosekunden: ein Nachschlagen der
 Account-Zeilen in der Replica über einen Index, ein SHA-256 über das Token und ein Vergleich in
 konstanter Zeit. Einen Cache im Speicher gibt es bewusst nicht — er müsste nach jedem
@@ -429,6 +435,27 @@ Abgleich, steht das im Log, und der nächste folgt nach dem Abstand. Letzter Erf
 letzter Fehler je Hub liegen in der Datenbank des Nodes, damit `whoami` und `status` dasselbe
 zeigen. Später meldet der Hub Änderungen über einen Ereignisstrom (SSE oder Long-Polling);
 der Abstand bleibt dann als Rückfallebene.
+
+Gebaut in Task 008: Der Abstand ist `sync_interval` in den `settings` des Nodes (Go-Dauer,
+mindestens `1s`, `0` schaltet ab), gesetzt mit `kephalaion config set node sync_interval 1m`
+und je Runde gelesen. Die Hub-Einträge liest jede Runde neu; jeder Eintrag gleicht für sich
+ab, ein hängender Hub hält die anderen nicht auf; `https` und `ssh` werden übergangen. `local`
+nimmt den Hub desselben `serve`. Das Log nennt einen Abgleich nur, wenn Zeilen kamen, einen
+Fehler beim ersten Mal nach dem Start, beim Übergang von Erfolg zu Fehler und wenn sich seine
+Art ändert, und die Erholung. Der Stand je Hub steht in `hub_sync` (letzter Erfolg, letzter
+Fehler mit Zeit und Art), geschrieben auch von `node sync`; abgeleitet, nicht im Export.
+
+**Nebenläufigkeit — entschieden am 2026-09-26.** `node sync`, `node hub rm|add` und `config
+import` laufen als eigene Prozesse neben `serve`. Statt einer Sperre über Prozesse ist das
+Schreiben des Abgleichs an die `entry_id` des Hub-Eintrags gebunden — eine ULID, beim Anlegen
+vergeben, nie wiederkehrend, auch in `db_info` der Replica. Jede Transaktion, die in die
+Replica schreibt, prüft zuerst `entry_id`, `hub_id` und dass kein Stand unter dem liegt, von
+dem die Seite ausging; `hub_id` und `hub_sync` in `node.db` schreibt sie nur für diese
+`entry_id`. Zeilen und Stände gehen nur vorwärts. Passt etwas nicht, schreibt die Seite
+nichts; der Abgleich setzt neu auf oder bricht still ab, wenn sein Eintrag nicht mehr besteht.
+Eine Replica entsteht unter eigenem Namen und wird fertig an ihren Ort gelinkt. So wartet
+`node hub rm` nie auf einen hängenden Hub, und zwei Abgleiche derselben Replica vertragen
+sich.
 
 **Entschieden am 2026-09-25: Abgleich über die Revision, nicht über die Uhrzeit.** Der Hub
 ist der einzige Schreiber und vergibt je Schreibvorgang innerhalb der Transaktion eine
@@ -830,33 +857,6 @@ Projekte dieses Rechners.
   langsam machen. `init` warnt bei solchen Pfaden: `/mnt/` unter WSL sicher, Sync-Ordner
   über bekannte Namen im Pfad.
 
-## Datenmodell
-
-**Entschieden am 2026-09-25: eine Datenbank je Hub**, alle Collections in denselben Tabellen,
-die Collection ist eine Spalte. Collections werden alle gleich behandelt; unterschieden wird
-nur beim Zugriff über Token und Scope. Mehrere Tabellen oder Datenbanken je Collection würden
-den Abgleich zu mehreren Abfragen gegen mehrere Dateien machen. Auf dem Node gilt dasselbe je
-Hub.
-
-**Erster Entwurf:**
-
-```sql
-CREATE TABLE documents (
-  id          TEXT PRIMARY KEY,        -- ULID, vom Hub vergeben
-  collection  TEXT NOT NULL,
-  name        TEXT NOT NULL,           -- Pfad, siehe unten
-  content     TEXT,                    -- NULL, wenn gelöscht
-  meta        TEXT,                    -- freies JSON, der Hub deutet es nicht
-  deleted     INTEGER NOT NULL DEFAULT 0,
-  revision    INTEGER NOT NULL,        -- Abgleich: alles mit revision > X
-  created_at  INTEGER NOT NULL,        -- ms seit Epoche
-  created_by  TEXT NOT NULL,           -- User des Accounts
-  updated_at  INTEGER NOT NULL,
-  updated_by  TEXT NOT NULL            -- User des Accounts
-);
-CREATE UNIQUE INDEX documents_name ON documents(collection, name) WHERE deleted = 0;
-CREATE INDEX documents_revision ON documents(collection, revision);
-
 ## Installation und Betrieb
 
 **Entschieden am 2026-09-26: zwei Arten der Installation, je Rechner genau eine.**
@@ -961,6 +961,33 @@ nfpm), bringt es Systembenutzer, Unit und Neustart mit. Erst, wenn jemand ohne A
 global installieren will; der eigentliche Aufwand ist ein signiertes apt-Repository, ohne
 das `apt upgrade` es nicht findet. Für macOS entspräche dem ein Homebrew-Tap.
 
+## Datenmodell
+
+**Entschieden am 2026-09-25: eine Datenbank je Hub**, alle Collections in denselben Tabellen,
+die Collection ist eine Spalte. Collections werden alle gleich behandelt; unterschieden wird
+nur beim Zugriff über Token und Scope. Mehrere Tabellen oder Datenbanken je Collection würden
+den Abgleich zu mehreren Abfragen gegen mehrere Dateien machen. Auf dem Node gilt dasselbe je
+Hub.
+
+**Erster Entwurf:**
+
+```sql
+CREATE TABLE documents (
+  id          TEXT PRIMARY KEY,        -- ULID, vom Hub vergeben
+  collection  TEXT NOT NULL,
+  name        TEXT NOT NULL,           -- Pfad, siehe unten
+  content     TEXT,                    -- NULL, wenn gelöscht
+  meta        TEXT,                    -- freies JSON, der Hub deutet es nicht
+  deleted     INTEGER NOT NULL DEFAULT 0,
+  revision    INTEGER NOT NULL,        -- Abgleich: alles mit revision > X
+  created_at  INTEGER NOT NULL,        -- ms seit Epoche
+  created_by  TEXT NOT NULL,           -- User des Accounts
+  updated_at  INTEGER NOT NULL,
+  updated_by  TEXT NOT NULL            -- User des Accounts
+);
+CREATE UNIQUE INDEX documents_name ON documents(collection, name) WHERE deleted = 0;
+CREATE INDEX documents_revision ON documents(collection, revision);
+
 CREATE TABLE actions (                 -- Protokoll, befristet
   at          INTEGER NOT NULL,
   account     TEXT NOT NULL,           -- der Account, nicht der User
@@ -1013,6 +1040,7 @@ In `node.db`, ebenfalls lokal:
 ```sql
 CREATE TABLE hubs (
   name        TEXT PRIMARY KEY,        -- Alias, vom Node vergeben
+  entry_id    TEXT NOT NULL UNIQUE,    -- Kennung des Eintrags, ULID, nie wiederkehrend
   node_name   TEXT NOT NULL,           -- Name des Nodes am Hub (nodes.name dort)
   transport   TEXT NOT NULL,           -- local, http, https, ssh
   address     TEXT,                    -- leer bei local
@@ -1024,6 +1052,14 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   hub         TEXT NOT NULL REFERENCES hubs(name),
   collection  TEXT NOT NULL,
   PRIMARY KEY (hub, collection)
+);
+CREATE TABLE hub_sync (                -- Stand des Abgleichs; abgeleitet, nicht im Export
+  hub         TEXT PRIMARY KEY REFERENCES hubs(name),
+  entry_id    TEXT NOT NULL,
+  ok_at       INTEGER,                 -- letzter Erfolg
+  error       TEXT,                    -- letzter Fehler, leer nach einem Erfolg
+  error_kind  TEXT,                    -- seine Art, etwa unreachable
+  error_at    INTEGER
 );
 ```
 
@@ -1111,7 +1147,8 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   beide `(key TEXT PRIMARY KEY, value TEXT NOT NULL)`:
   - `db_info` beschreibt die Datenbank selbst: Schemafassung (`schema_version`), Rolle
     (`role`, `hub`, `node` oder `replica`), Anlagezeit (`created_at`), am Hub die Revision
-    (`revision`, siehe unten), in der Replica die `hub_id`. Wer eine Datenbank öffnet, prüft
+    (`revision`, siehe unten), in der Replica die `hub_id` und die `entry_id` des Hub-Eintrags.
+    Wer eine Datenbank öffnet, prüft
     Rolle und Schemafassung; eine Hub-Datenbank als Node zu öffnen oder umgekehrt ist ein
     Fehler. Die Rolle `replica` ist keine Rolle der config — eine Replica gehört zum Node —,
     sie hält nur Replica und `node.db` auseinander.
@@ -1261,7 +1298,7 @@ darauf ab.
 | `read` | ein Dokument lesen | per Name oder `id`; wahlweise ein Abschnitt; mit `content: false` nur die Angaben dazu, siehe unten |
 | `list` | Inhalt eines Verzeichnisses | siehe unten |
 | `changes` | was sich seit einer Revision oder einem Zeitpunkt geändert hat | siehe unten; neu am 2026-09-26 |
-| `whoami` | Version, Hubs, Anmeldung, eigener Account, lesbare Collections, Stand des Abgleichs | siehe unten; kein eigenes `status`. Gebaut (Task 005): je Hub mit Header-Paar angemeldet ja/nein, bei ja Account, Collections und Rechte |
+| `whoami` | Version, Hubs, Anmeldung, eigener Account, lesbare Collections, Stand des Abgleichs | siehe unten; kein eigenes `status`. Gebaut wie unten (Task 008) |
 
 **`list` — neu aufgenommen am 2026-09-25**, um etwa das Neueste zu finden:
 
@@ -1317,6 +1354,16 @@ Node“; ein eigenes `status` brächte kaum mehr. Die Antwort:
 | `sync` | letzter erfolgreicher Abgleich (Zeit), Revision der Replica, letzter Fehler mit Zeit — leer, wenn der letzte Versuch gelang | ja |
 | `account`, `user` | Account und User | nein |
 | `collections` | Collection, Adresse (`<hub>:<collection>`), Rechte | nein |
+| `unknown_hubs` | Aliase aus Headern, zu denen der Node keinen Hub-Eintrag hat — nur der Alias | ja |
+
+Gebaut in Task 008. `sync` trägt `last_success`, `revision`, `last_error` und
+`last_error_at` (Zeiten in RFC 3339, UTC); `revision` ist der Stand, bis zu dem alle
+Collections der Replica abgeglichen sind. Ohne Replica fehlt `revision`, und
+`never_synced` ist gesetzt. `last_error` ist die Art des Fehlers als kurzer Satz („Hub nicht
+erreichbar“), nicht die Meldung — die kann die Adresse nennen. Fehlt die Replica und kam ein
+Header-Paar, ist `login` `invalid`, auch mit richtigen Zugangsdaten; den Grund erkennen Client
+und Erweiterung an `sync`. Ein halbes Header-Paar ist `invalid`. Der Textteil nennt die
+Version und je Hub eine Zeile.
 
 Nie in der Antwort: Token, Hash, Adresse und Transport des Hubs, `hub_id`. Dass alle Hubs
 erscheinen, ist unbedenklich: Der Node lauscht nur auf Loopback, die Prüfung von Host und
@@ -1326,7 +1373,11 @@ Account, falschem Token und gesperrt.
 **Dasselbe auf der Kommandozeile:** `kephalaion node whoami` listet die Accounts, die der
 Node aus seinen Replicas kennt; `kephalaion node whoami <account>` zeigt, was `whoami` diesem
 Account antworten würde. Ohne Token — wer die CLI aufruft, kann die Datenbanken des Nodes
-ohnehin lesen. Ob ein Token gilt, prüft weiterhin `node account check`.
+ohnehin lesen. Ob ein Token gilt, prüft weiterhin `node account check`. Gebaut in Task 008:
+Ohne Account nennt es Version, je Hub Node-Name und Stand und die Accounts aus den lebenden
+`SYSTEM:A:`-Zeilen mit User, Collections und Rechten; mit Account ist `login` `ok`, wo er
+lebende Zeilen hat, sonst `missing`. `--hub <alias>` grenzt ein, `--json` gibt die Struktur
+des Werkzeugs aus — aus derselben Funktion.
 
 **Keine Werkzeuge eigens für VS Code** (2026-09-26): Was die Erweiterung braucht —
 `whoami`, `list`, `read`, `changes`, zum Schreiben die Werkzeuge unten —, taugt auch für

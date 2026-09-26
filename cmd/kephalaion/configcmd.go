@@ -16,11 +16,15 @@ import (
 
 const configUsage = `Aufruf:
   kephalaion config show   [--config pfad]
+  kephalaion config set    [--config pfad] <rolle> <schlüssel> <wert>
+  kephalaion config unset  [--config pfad] <rolle> <schlüssel>
   kephalaion config export [--config pfad] [--output datei]
   kephalaion config import [--config pfad] <datei>
 
 Kommandos:
   show     zeigt Ort und Inhalt der config und die settings je Rolle
+  set      setzt einen bekannten Schlüssel in den settings einer Rolle
+  unset    entfernt ihn wieder; dann gilt sein Standard
   export   schreibt config und settings je Rolle als YAML — keine Inhalte
   import   schreibt die settings eines Exports in die eingerichteten Rollen
 `
@@ -37,6 +41,10 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "show":
 		return runConfigShow(args[1:], stdout, stderr)
+	case "set":
+		return runConfigSet(args[1:], stdout, stderr, false)
+	case "unset":
+		return runConfigSet(args[1:], stdout, stderr, true)
 	case "export":
 		return runConfigExport(args[1:], stdout, stderr)
 	case "import":
@@ -136,6 +144,78 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 	if failed {
 		return 1
 	}
+	return 0
+}
+
+const configSetUsage = `Aufruf:
+  kephalaion config set   [--config pfad] <rolle> <schlüssel> <wert>
+  kephalaion config unset [--config pfad] <rolle> <schlüssel>
+
+Setzt bzw. entfernt einen Schlüssel in den settings einer eingerichteten
+Rolle. Nur bekannte Schlüssel, und der Wert wird geprüft; ohne Eintrag gilt
+der Standard. Ein laufender serve liest die settings je Runde, ein Neustart
+ist nicht nötig. config show zeigt sie.
+
+Schlüssel am Node:
+  sync_interval   Abstand des Abgleichs im Hintergrund (serve), eine Dauer
+                  wie 30s oder 2m, mindestens 1s; 0 schaltet ihn ab.
+                  Standard 30s.
+Am Hub gibt es noch keine.
+
+Optionen:
+  --config pfad   Ort der config (siehe kephalaion hub init --help)
+`
+
+// runConfigSet setzt einen Schlüssel der settings, mit unset entfernt es ihn.
+func runConfigSet(args []string, stdout, stderr io.Writer, unset bool) int {
+	name := "config set"
+	want := 3
+	if unset {
+		name, want = "config unset", 2
+	}
+	c := newCommand(name, configSetUsage, stdout, stderr, []string{"<rolle>", "<schlüssel>", "<wert>"}[:want]...)
+	pos, code, ok := c.parse(args)
+	if !ok {
+		return code
+	}
+	r := config.Role(pos[0])
+	if r != config.Hub && r != config.Node {
+		return c.fail(fmt.Errorf("unbekannte Rolle %q; erwartet hub oder node", pos[0]))
+	}
+	key := pos[1]
+	if r == config.Hub {
+		return c.fail(fmt.Errorf("unbekannter Schlüssel %q; die Rolle hub kennt noch keine", key))
+	}
+	// Erst prüfen, dann die Datenbank öffnen.
+	if !unset {
+		if err := nodestore.CheckSetting(key, pos[2]); err != nil {
+			return c.fail(err)
+		}
+	} else if err := nodestore.CheckSetting(key, ""); errors.Is(err, nodestore.ErrUnknownSetting) {
+		return c.fail(err)
+	}
+	ctx := context.Background()
+	s, _, err := c.openNode(ctx)
+	if err != nil {
+		return c.fail(err)
+	}
+	defer s.Close()
+	if unset {
+		removed, err := s.UnsetSetting(ctx, key)
+		if err != nil {
+			return c.fail(err)
+		}
+		if !removed {
+			fmt.Fprintf(stdout, "%s %s war nicht gesetzt; es gilt der Standard.\n", r, key)
+			return 0
+		}
+		fmt.Fprintf(stdout, "%s %s entfernt; es gilt der Standard.\n", r, key)
+		return 0
+	}
+	if err := s.SetSetting(ctx, key, pos[2]); err != nil {
+		return c.fail(err)
+	}
+	fmt.Fprintf(stdout, "%s %s = %s\n", r, key, pos[2])
 	return 0
 }
 

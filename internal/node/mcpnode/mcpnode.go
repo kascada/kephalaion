@@ -4,17 +4,17 @@
 // Node prüft es bei jeder Anfrage gegen die Account-Zeilen (SYSTEM:A:) der
 // Replica dieses Hubs — ohne Cache, die Datenbank ist die einzige Wahrheit.
 //
-// Werkzeuge: whoami (Account, User, Collections je Hub). Transport und
-// initialize gehen ohne Anmeldung; spätere
-// Werkzeuge verlangen eine gültige. Kein Token und kein Hash steht je in einer
-// Antwort.
+// Werkzeuge: whoami (Version, alle Hubs mit Anmeldung, Node-Name und Stand
+// des Abgleichs; bei gültiger Anmeldung Account, User, Collections).
+// Transport und initialize gehen ohne Anmeldung; spätere Werkzeuge verlangen
+// eine gültige. Die Anmeldung über alle Hubs prüft Authenticate, einmal je
+// Anfrage. Kein Token und kein Hash steht je in einer Antwort, auch nicht
+// Adresse, Transport oder hub_id eines Hubs.
 //
 // Wie jedes Paket unter internal/node kennt es den Hub nicht.
 package mcpnode
 
 import (
-	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
@@ -24,13 +24,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/kephalaion/kephalaion/internal/contract"
 	"github.com/kephalaion/kephalaion/internal/ident"
 	"github.com/kephalaion/kephalaion/internal/loopback"
-	"github.com/kephalaion/kephalaion/internal/node/replica"
 	"github.com/kephalaion/kephalaion/internal/node/store"
 	"github.com/kephalaion/kephalaion/internal/reqlog"
-	"github.com/kephalaion/kephalaion/internal/sqlitedb"
 )
 
 // Path ist der Pfad des MCP-Eingangs.
@@ -43,25 +40,22 @@ const (
 	tokenHeaderPrefix   = "x-keph-token-"
 )
 
-// dummyHash wird verglichen, wenn es zum Account keine Zeile gibt: So kostet
-// ein unbekannter Account dieselbe Arbeit wie ein falsches Token.
-var dummyHash = ident.HashToken("keph_unbekannter-account")
-
 // Node ist der MCP-Eingang über der Datenbank des Nodes.
 type Node struct {
-	nodes store.Store
+	nodes   store.Store
+	version string
 }
 
 // NewHandler liefert den Handler des Nodes: /mcp mit Prüfung von Host und
 // Origin, alles andere 404. version steht in der Antwort auf initialize.
 func NewHandler(nodes store.Store, version string) http.Handler {
-	n := &Node{nodes: nodes}
+	n := &Node{nodes: nodes, version: version}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "kephalaion", Version: version}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "whoami",
-		Description: "Zeigt je Hub, für den dieser Client Zugangsdaten mitschickt, ob die Anmeldung gilt, " +
-			"und wenn ja den Account, seinen User und seine Collections mit Rechten (read, write, supersede). " +
-			"Ohne Argumente.",
+		Description: "Zeigt die Version des Nodes und je Hub die Anmeldung (ok, invalid, missing) und den Stand " +
+			"des Abgleichs; bei ok Account, User und Collections mit Adresse und Rechten (read, write, " +
+			"supersede). Ohne Argumente.",
 	}, n.whoami)
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
@@ -160,150 +154,4 @@ func HubHeaders(h http.Header) []HubHeader {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Alias < out[j].Alias })
 	return out
-}
-
-// Login ist das Ergebnis der Prüfung für einen Hub.
-type Login struct {
-	Hub           string
-	Authenticated bool
-	Account       string
-	// User ist, wem der Account gehört, aus der Account-Zeile; nur wenn
-	// Authenticated gilt.
-	User string
-	// Rights sind die Rechte je Collection, nach Collection; nur wenn
-	// Authenticated gilt.
-	Rights []Right
-}
-
-// Right ist das Recht eines Accounts in einer Collection.
-type Right struct {
-	Collection string
-	contract.Rights
-}
-
-// Check prüft ein Header-Paar gegen die Replica seines Hubs: die lebenden
-// Zeilen des Accounts über den Index, sha256 des Tokens, Vergleich in
-// konstanter Zeit; ohne Zeile gegen einen Ersatz-Hash. Unbekannter Alias,
-// unbekannter Account, falsches Token und eine unvollständige Angabe ergeben
-// dasselbe: nicht angemeldet. Eine Zeile, die sich nicht lesen lässt — etwa
-// ohne user, von einem Hub vor Task 006 —, zählt nicht. Der User ist der der
-// ersten passenden Zeile; der Hub schreibt ihn in alle Zeilen eines Accounts
-// unter einer Revision. Fehler sind nur Fehler der Datenbank.
-func (n *Node) Check(ctx context.Context, p HubHeader) (Login, error) {
-	out := Login{Hub: p.Alias}
-	hash := ident.HashToken(p.Token)
-	rows, err := n.accountRows(ctx, p)
-	if err != nil {
-		return out, err
-	}
-	if len(rows) == 0 {
-		subtle.ConstantTimeCompare([]byte(hash), []byte(dummyHash))
-		return out, nil
-	}
-	var rights []Right
-	user := ""
-	for _, row := range rows {
-		if row.Content == nil {
-			continue
-		}
-		c, err := contract.DecodeAccountContent(*row.Content)
-		if err != nil {
-			continue
-		}
-		if subtle.ConstantTimeCompare([]byte(hash), []byte(c.Hash)) == 1 {
-			rights = append(rights, Right{Collection: row.Collection, Rights: c.Rights})
-			if user == "" {
-				user = c.User
-			}
-		}
-	}
-	if !p.Complete || len(rights) == 0 {
-		return out, nil
-	}
-	out.Authenticated, out.Account, out.User, out.Rights = true, p.Account, user, rights
-	return out, nil
-}
-
-// accountRows liest die Zeilen des Accounts aus der Replica des Hubs. Die
-// Replica wird je Anfrage geöffnet: Der Abgleich kann sie verwerfen und neu
-// anlegen, node hub rm entfernt sie; eine offen gehaltene Datei zeigte dann
-// den alten Stand.
-func (n *Node) accountRows(ctx context.Context, p HubHeader) ([]replica.Document, error) {
-	if !p.Complete || ident.CheckPrincipalName("Account", p.Account) != nil {
-		return nil, nil
-	}
-	if _, err := n.nodes.Hub(ctx, p.Alias); errors.Is(err, store.ErrNotFound) {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	rep, err := replica.Open(ctx, n.nodes.ReplicaPath(p.Alias))
-	if errors.Is(err, sqlitedb.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rep.Close()
-	return rep.AccountRows(ctx, p.Account)
-}
-
-// WhoamiOutput ist die Antwort des Werkzeugs whoami.
-type WhoamiOutput struct {
-	// Hubs nennt je Hub mit Header-Paar das Ergebnis, nach Alias.
-	Hubs []HubLogin `json:"hubs"`
-}
-
-// HubLogin ist die Anmeldung an einem Hub, wie whoami sie zeigt.
-type HubLogin struct {
-	Hub           string `json:"hub"`
-	Authenticated bool   `json:"authenticated"`
-	Account       string `json:"account,omitempty"`
-	// User nur bei gültiger Anmeldung.
-	User string `json:"user,omitempty"`
-	// Collections nur bei gültiger Anmeldung.
-	Collections []CollectionRights `json:"collections,omitempty"`
-}
-
-// CollectionRights ist eine Collection mit Adresse und Rechten.
-type CollectionRights struct {
-	Collection string   `json:"collection"`
-	Address    string   `json:"address"`
-	Rights     []string `json:"rights"`
-}
-
-func (n *Node) whoami(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, WhoamiOutput, error) {
-	out := WhoamiOutput{Hubs: []HubLogin{}}
-	var header http.Header
-	if req != nil && req.Extra != nil {
-		header = req.Extra.Header
-	}
-	var lines []string
-	for _, p := range HubHeaders(header) {
-		login, err := n.Check(ctx, p)
-		if err != nil {
-			return nil, WhoamiOutput{}, fmt.Errorf("Hub %s: Replica nicht lesbar", p.Alias)
-		}
-		hl := HubLogin{Hub: login.Hub, Authenticated: login.Authenticated, Account: login.Account, User: login.User}
-		if !login.Authenticated {
-			lines = append(lines, fmt.Sprintf("%s: nicht angemeldet", login.Hub))
-			out.Hubs = append(out.Hubs, hl)
-			continue
-		}
-		var parts []string
-		for _, r := range login.Rights {
-			rights := strings.Split(r.Rights.String(), ", ")
-			hl.Collections = append(hl.Collections, CollectionRights{Collection: r.Collection,
-				Address: ident.Address(login.Hub, r.Collection), Rights: rights})
-			parts = append(parts, fmt.Sprintf("%s (%s)", ident.Address(login.Hub, r.Collection), r.Rights))
-		}
-		lines = append(lines, fmt.Sprintf("%s: angemeldet als %s (User %s); %s", login.Hub, login.Account, login.User,
-			strings.Join(parts, ", ")))
-		out.Hubs = append(out.Hubs, hl)
-	}
-	text := "Keine Zugangsdaten: Der Client schickt für keinen Hub X-Keph-Account-<hub> und X-Keph-Token-<hub>."
-	if len(lines) > 0 {
-		text = strings.Join(lines, "\n")
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, out, nil
 }

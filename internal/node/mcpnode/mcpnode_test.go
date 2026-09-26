@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/oklog/ulid/v2"
@@ -160,11 +161,31 @@ func merge(hs ...http.Header) http.Header {
 	return out
 }
 
+// hub liefert den Eintrag alias aus der Antwort.
+func hubOf(t *testing.T, out WhoamiOutput, alias string) HubInfo {
+	t.Helper()
+	for _, h := range out.Hubs {
+		if h.Hub == alias {
+			return h
+		}
+	}
+	t.Fatalf("Hub %s fehlt: %+v", alias, out.Hubs)
+	return HubInfo{}
+}
+
 func TestWhoamiWithoutHeaders(t *testing.T) {
 	e := newEnv(t)
 	out, raw := e.whoami(t, nil)
-	if len(out.Hubs) != 0 || !strings.Contains(raw, "Keine Zugangsdaten") {
-		t.Errorf("ohne Header: %+v\n%s", out, raw)
+	zero := int64(0)
+	want := WhoamiOutput{Version: "test", UnknownHubs: []string{}, Hubs: []HubInfo{
+		{Hub: "keph", Login: LoginMissing, Node: "laptop", Sync: SyncInfo{Revision: &zero}},
+		{Hub: "team.x_y", Login: LoginMissing, Node: "laptop", Sync: SyncInfo{Revision: &zero}},
+	}}
+	if !reflect.DeepEqual(out, want) {
+		t.Errorf("ohne Header: %+v", out)
+	}
+	if !strings.Contains(raw, "kephalaion test") || !strings.Contains(raw, "keph (Node laptop): keine Zugangsdaten; Revision 0") {
+		t.Errorf("Text:\n%s", raw)
 	}
 }
 
@@ -172,58 +193,147 @@ func TestWhoami(t *testing.T) {
 	e := newEnv(t)
 	bob := e.tokens["keph/bob"]
 	out, raw := e.whoami(t, pair("keph", "bob", bob))
-	want := []HubLogin{{Hub: "keph", Authenticated: true, Account: "bob", User: "kleist", Collections: []CollectionRights{
-		{Collection: "privat", Address: "keph:privat", Rights: []string{"read"}},
-		{Collection: "team-x", Address: "keph:team-x", Rights: []string{"read", "write"}},
-	}}}
-	if !reflect.DeepEqual(out.Hubs, want) {
-		t.Errorf("bob: %+v", out.Hubs)
+	want := HubInfo{Hub: "keph", Login: LoginOK, Node: "laptop", Sync: hubOf(t, out, "keph").Sync, Account: "bob",
+		User: "kleist", Collections: []CollectionRights{
+			{Collection: "privat", Address: "keph:privat", Rights: []string{"read"}},
+			{Collection: "team-x", Address: "keph:team-x", Rights: []string{"read", "write"}},
+		}}
+	if got := hubOf(t, out, "keph"); !reflect.DeepEqual(got, want) {
+		t.Errorf("bob: %+v", got)
 	}
-	if !strings.Contains(raw, "angemeldet als bob (User kleist)") {
+	if got := hubOf(t, out, "team.x_y"); got.Login != LoginMissing || got.Account != "" {
+		t.Errorf("anderer Hub ohne Header: %+v", got)
+	}
+	if !strings.Contains(raw, "keph (Node laptop): angemeldet als bob (User kleist): keph:privat (read), keph:team-x (read, write)") {
 		t.Errorf("Text ohne User:\n%s", raw)
 	}
-	for _, secret := range []string{bob, ident.HashToken(bob), "keph_", `"hash"`} {
-		if strings.Contains(raw, secret) {
-			t.Errorf("Antwort enthält %q:\n%s", secret, raw)
-		}
-	}
+	e.noSecrets(t, raw, bob)
 
-	// Falsches Token und unbekannter Account: dieselbe Antwort.
+	// Falsches Token und unbekannter Account: dieselbe Antwort, invalid.
 	wrong, rawWrong := e.whoami(t, pair("keph", "bob", e.tokens["keph/alice"]))
 	unknown, rawUnknown := e.whoami(t, pair("keph", "dave", bob))
-	no := []HubLogin{{Hub: "keph"}}
-	if !reflect.DeepEqual(wrong.Hubs, no) || !reflect.DeepEqual(unknown.Hubs, no) || rawWrong != rawUnknown {
+	if hubOf(t, wrong, "keph").Login != LoginInvalid || !reflect.DeepEqual(wrong, unknown) || rawWrong != rawUnknown {
 		t.Errorf("falsch %+v, unbekannt %+v", wrong.Hubs, unknown.Hubs)
 	}
 	if strings.Contains(rawWrong, "bob") || strings.Contains(rawWrong, "dave") || strings.Contains(rawWrong, "kleist") ||
-		strings.Contains(rawWrong, `"user"`) {
+		strings.Contains(rawWrong, `"user"`) || strings.Contains(rawWrong, `"account"`) {
 		t.Errorf("Antwort nennt den vorgelegten Account oder einen User:\n%s", rawWrong)
 	}
+	if !strings.Contains(rawWrong, "keph (Node laptop): Anmeldung ungültig") {
+		t.Errorf("Text:\n%s", rawWrong)
+	}
 
-	// Unbekannter Alias: nein für diesen Alias, kein Fehler; die anderen
-	// gelten getrennt. Groß- und Kleinschreibung der Header zählt nicht, ein
-	// Alias mit '.' und '_' geht.
+	// Unbekannter Alias: gemeldet, nur der Alias, die anderen gelten
+	// getrennt. Groß- und Kleinschreibung der Header zählt nicht, ein Alias
+	// mit '.' und '_' geht.
 	h := merge(pair("keph", "alice", e.tokens["keph/alice"]), pair("fremd", "bob", bob))
 	h["X-KEPH-ACCOUNT-TEAM.X_Y"] = []string{"bob"}
 	h["x-keph-token-team.x_y"] = []string{e.tokens["team.x_y/bob"]}
-	out, _ = e.whoami(t, h)
-	if len(out.Hubs) != 3 || out.Hubs[0].Hub != "fremd" || out.Hubs[0].Authenticated ||
-		out.Hubs[1].Hub != "keph" || out.Hubs[1].Account != "alice" || out.Hubs[1].User != "alice" || len(out.Hubs[1].Collections) != 1 ||
-		out.Hubs[2].Hub != "team.x_y" || !out.Hubs[2].Authenticated || out.Hubs[2].User != "bob" ||
-		!reflect.DeepEqual(out.Hubs[2].Collections[0].Rights, []string{"read", "supersede"}) {
-		t.Errorf("drei Hubs: %+v", out.Hubs)
+	out, raw = e.whoami(t, h)
+	if len(out.Hubs) != 2 || !reflect.DeepEqual(out.UnknownHubs, []string{"fremd"}) {
+		t.Errorf("unbekannter Alias: %+v", out)
+	}
+	if k := hubOf(t, out, "keph"); k.Login != LoginOK || k.Account != "alice" || k.User != "alice" || len(k.Collections) != 1 {
+		t.Errorf("keph: %+v", k)
+	}
+	if x := hubOf(t, out, "team.x_y"); x.Login != LoginOK || x.User != "bob" ||
+		!reflect.DeepEqual(x.Collections[0].Rights, []string{"read", "supersede"}) {
+		t.Errorf("team.x_y: %+v", x)
+	}
+	if !strings.Contains(raw, "Zugangsdaten für Hubs, die dieser Node nicht kennt: fremd") {
+		t.Errorf("Text:\n%s", raw)
 	}
 	// Das Token eines Hubs gilt nicht am anderen.
 	out, _ = e.whoami(t, pair("team.x_y", "bob", bob))
-	if out.Hubs[0].Authenticated {
+	if hubOf(t, out, "team.x_y").Login != LoginInvalid {
 		t.Error("Token von keph gilt an team.x_y")
 	}
-	// Nur ein Header des Paars: nein.
+	// Nur ein Header des Paars: invalid.
 	half := http.Header{}
 	half.Set("X-Keph-Account-keph", "bob")
 	out, _ = e.whoami(t, half)
-	if !reflect.DeepEqual(out.Hubs, no) {
+	if hubOf(t, out, "keph").Login != LoginInvalid {
 		t.Errorf("halbes Paar: %+v", out.Hubs)
+	}
+}
+
+// Ein Hub-Eintrag ohne Replica: login invalid, auch mit richtigen
+// Zugangsdaten — den Grund zeigt sync („noch nie abgeglichen“).
+func TestWhoamiWithoutReplica(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if err := e.nodes.AddHub(ctx, store.Hub{Name: "neu", NodeName: "rechner", Transport: store.TransportHTTPS,
+		Address: "https://neu.example.org", Token: token(t)}, false); err != nil {
+		t.Fatal(err)
+	}
+	out, raw := e.whoami(t, pair("neu", "bob", e.tokens["keph/bob"]))
+	got := hubOf(t, out, "neu")
+	if got.Login != LoginInvalid || got.Node != "rechner" || !reflect.DeepEqual(got.Sync, SyncInfo{NeverSynced: true}) {
+		t.Errorf("ohne Replica: %+v", got)
+	}
+	if !strings.Contains(raw, "neu (Node rechner): Anmeldung ungültig; noch nie abgeglichen") ||
+		!strings.Contains(raw, `"never_synced":true`) {
+		t.Errorf("Text:\n%s", raw)
+	}
+}
+
+// Der Stand des Abgleichs aus hub_sync und der Replica: letzter Erfolg,
+// Revision, letzter Fehler als Art — ohne die Meldung, die die Adresse
+// nennt.
+func TestWhoamiSyncState(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	h, err := e.nodes.Hub(ctx, "keph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC).UnixMilli()
+	if err := e.nodes.RecordSync(ctx, "keph", h.EntryID, store.SyncRecord{At: ok}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.nodes.RecordSync(ctx, "keph", h.EntryID, store.SyncRecord{At: ok + 60000,
+		Err: "Hub http://127.0.0.1:9: dial tcp: connection refused", ErrKind: string(replica.KindUnreachable)}); err != nil {
+		t.Fatal(err)
+	}
+	out, raw := e.whoami(t, pair("keph", "bob", e.tokens["keph/bob"]))
+	zero := int64(0)
+	want := SyncInfo{LastSuccess: "2026-09-26T10:00:00Z", Revision: &zero, LastError: "Hub nicht erreichbar",
+		LastErrorAt: "2026-09-26T10:01:00Z"}
+	if got := hubOf(t, out, "keph").Sync; !reflect.DeepEqual(got, want) {
+		t.Errorf("sync: %+v", got)
+	}
+	if !strings.Contains(raw, "abgeglichen 2026-09-26T10:00:00Z, Revision 0; letzter Fehler 2026-09-26T10:01:00Z: Hub nicht erreichbar") {
+		t.Errorf("Text:\n%s", raw)
+	}
+	for _, not := range []string{"127.0.0.1", "connection refused", "dial"} {
+		if strings.Contains(raw, not) {
+			t.Errorf("Antwort enthält %q:\n%s", not, raw)
+		}
+	}
+	e.noSecrets(t, raw, e.tokens["keph/bob"])
+}
+
+// noSecrets prüft die rohe Antwort: kein Token, kein Hash, keine Adresse,
+// kein Transport, keine hub_id.
+func (e *env) noSecrets(t *testing.T, raw, tok string) {
+	t.Helper()
+	ctx := context.Background()
+	secrets := []string{tok, ident.HashToken(tok), "keph_", `"hash"`, "hub.example.org", "https", "hub_id", "transport"}
+	hubs, err := e.nodes.Hubs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hubs {
+		secrets = append(secrets, h.Token, h.EntryID)
+		if rep, err := replica.Open(ctx, e.nodes.ReplicaPath(h.Name)); err == nil {
+			secrets = append(secrets, rep.HubID())
+			_ = rep.Close()
+		}
+	}
+	for _, secret := range secrets {
+		if strings.Contains(raw, secret) {
+			t.Errorf("Antwort enthält %q:\n%s", secret, raw)
+		}
 	}
 }
 
@@ -318,12 +428,13 @@ func TestWhoamiRowWithoutUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, raw := e.whoami(t, pair("keph", "carl", tok))
-	if !reflect.DeepEqual(out.Hubs, []HubLogin{{Hub: "keph"}}) || !strings.Contains(raw, "keph: nicht angemeldet") {
-		t.Errorf("Zeile ohne user: %+v\n%s", out.Hubs, raw)
+	if got := hubOf(t, out, "keph"); got.Login != LoginInvalid || got.Account != "" ||
+		!strings.Contains(raw, "keph (Node laptop): Anmeldung ungültig") {
+		t.Errorf("Zeile ohne user: %+v\n%s", got, raw)
 	}
 	out, _ = e.whoami(t, pair("keph", "dora", tok))
-	if len(out.Hubs) != 1 || !out.Hubs[0].Authenticated || out.Hubs[0].User != "carl" || len(out.Hubs[0].Collections) != 1 ||
-		out.Hubs[0].Collections[0].Collection != "privat" {
-		t.Errorf("gültige Zeile neben einer ohne user: %+v", out.Hubs)
+	if got := hubOf(t, out, "keph"); got.Login != LoginOK || got.User != "carl" || len(got.Collections) != 1 ||
+		got.Collections[0].Collection != "privat" {
+		t.Errorf("gültige Zeile neben einer ohne user: %+v", got)
 	}
 }

@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
+Stand: 2026-09-26 (Task 008, Etappen 1–5, nicht committet)
 
 ## So wird diese Datei aktualisiert
 
@@ -41,6 +41,20 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
   `rotate` schreibt `updated_by` = User; `whoami` (`/v1/`, `local`, MCP) nennt ihn nur bei
   gültiger Anmeldung; Export Format 5 mit `user` (Pflicht), Format 4 → User = Name
   (`konzept.md`, „Account und User“).
+- **Task 008 — Abgleich im Hintergrund, whoami, node whoami** (2026-09-26, Etappen 1–5; der
+  Task liegt noch in `tasks/`):
+  - `serve` gleicht als Node selbst ab: beim Start, dann je `sync_interval` (Standard 30 s,
+    `0` aus), je Eintrag eine Goroutine, `https`/`ssh` übergangen; Log nur bei Zeilen, beim
+    ersten Fehler, bei Wechsel der Art des Fehlers und bei Erholung;
+  - `config set|unset <rolle> <schlüssel> [<wert>]`, erster Schlüssel `sync_interval`;
+  - Stand je Hub in `hub_sync` (Node-Schema 4), geschrieben von `serve` und `node sync`,
+    gezeigt von `status` und `whoami`; nicht im Export;
+  - Nebenläufigkeit: `hubs.entry_id` (ULID, nie wiederkehrend) auch in `db_info` der Replica
+    (Replica-Schema 3); jede schreibende Transaktion prüft Eintrag, `hub_id` und Stand, Zeilen
+    und Stände nur vorwärts (Task 008, Etappe 2);
+  - MCP `whoami` nach Konzept: `version`, alle Hubs mit `login`, `node`, `sync`,
+    `unknown_hubs`; Anmeldung über alle Hubs als `mcpnode.Authenticate` (Grundlage für Task 009);
+  - `kephalaion node whoami [<account>] [--hub] [--json]` aus derselben Funktion.
 
 ## In Arbeit
 
@@ -74,8 +88,9 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
   Zusammenspiel gleich bei der Einrichtung. Kommt erst, wenn `rotate` gebaut ist. Grundsatz: Nodes werden wie Accounts behandelt, außer wo es anders sinnvoll
   ist (`konzept.md`, „Offene Punkte“, Token-Rotation).
 - **Danach (Konzept, „Stufen“):**
-  - Stufe 1: Zerlegung in Abschnitte, FTS5-Index, MCP-Werkzeuge `search`, `read`, `list`;
-    Abgleich im Hintergrund, Ereignisstrom (SSE/Long-Polling);
+  - Stufe 1: Zerlegung in Abschnitte, FTS5-Index, MCP-Werkzeuge `search`, `read`, `list`
+    (Task 009); Ereignisstrom (SSE/Long-Polling, Todo #10); Abgleich unmittelbar nach eigenem
+    Schreiben;
   - Stufe 2: Schreiben über den Node mit Rechten (`create`, `write`, `delete`,
     `create_numbered`), Fehlercodes „Name vergeben“, Revision als Vorbedingung;
   - Stufe 3: `append`, `replace_section`, `rename`, `supersede`, `replace_directory`;
@@ -94,6 +109,11 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
   - Index für `CollectionCountDocs`/`AccountRows` prüfen, jetzt wo es Dokumente gibt.
 
 ## Zu testen
+
+- **Task 008:** Schemafassung +1 für `node.db` (4) und Replica (3): Vor dem Update
+  `config export` mit dem alten Binary, danach `node init` neu und `config import` (Task 008,
+  Review-Punkt 9, offen). Abgleich im Hintergrund mit einem echten Client über längere Zeit;
+  Der Race-Detector lief über `cmd/kephalaion` und `internal/node/...` sauber.
 
 - **Task 004, Etappe 5:** Durchlauf Hub + Node in einer config über `local`.
 - **Task 005, Etappe 6:** Durchlauf `rotate` über `local` und `http`, `whoami` per MCP aus

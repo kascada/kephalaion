@@ -34,13 +34,15 @@ Kommandos:
               Accounts und spielt Dokumente ein (init, collection, node,
               account, doc, import)
   node        richtet den Node ein, pflegt seine Hubs und gewünschten
-              Collections, tauscht Tokens von Accounts, gleicht ab und zeigt
-              Dokumente der Replica (init, hub, collection, account, sync, doc)
+              Collections, tauscht Tokens von Accounts, gleicht ab, zeigt
+              Dokumente der Replica und wer wer ist (init, hub, collection,
+              account, sync, doc, whoami)
   serve       der Dienst: lauscht je eingerichteter Rolle auf ihrem listen
-              (Hub: Vertrag für Nodes, Node: MCP für Clients)
+              (Hub: Vertrag für Nodes, Node: MCP für Clients) und gleicht
+              als Node im Hintergrund ab
   status      zeigt, welche Rollen eingerichtet sind und wo ihre Datenbank liegt
-  config      zeigt, sichert und stellt die Einstellungen wieder her
-              (show, export, import)
+  config      zeigt, setzt, sichert und stellt die Einstellungen wieder her
+              (show, set, unset, export, import)
 
 Hilfe zu einem Kommando: kephalaion <kommando> --help
 

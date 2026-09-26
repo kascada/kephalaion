@@ -124,6 +124,16 @@ einer Stelle, wer sie sind und wie der Node steht.
   unbekannten Alias unter „Zustandslos“), `docs/vscode.md` (Stand), `k-playbook-local/k-playbook.md`
   (Satz „kein Abgleich im Hintergrund“ ersetzen), `docs/fortschritt.md`.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — Stand des Abgleichs und `sync_interval` | erledigt | 2026-09-26 | Tabelle `hub_sync`, `hubs.entry_id`, Node-Schema 4, Replica-Schema 3; `config set/unset`; make check grün |
+| 2 — Abgleich im Hintergrund | erledigt | 2026-09-26 | `backgroundSync` in serve (local/http, eigene Goroutine je Eintrag), Schreiben an `entry_id` gebunden; Tests local/http/Fehler/0/rm+add/Beenden; make check grün |
+| 3 — `whoami` | erledigt | 2026-09-26 | `Authenticate` (Anmeldung über alle Hubs), `Whoami` für MCP und CLI, Feld `unknown_hubs`; Tests über MCP; make check grün |
+| 4 — `kephalaion node whoami` | erledigt | 2026-09-26 | Liste, Einzelansicht, `--hub`, `--json` (gleich der MCP-Antwort); make check grün |
+| 5 — Doku | erledigt | 2026-09-26 | README, begriffe, konzept (Stand, Nebenläufigkeit, `unknown_hubs`, „Zustandslos“), vscode, k-playbook-local/k-playbook.md, fortschritt; make check grün |
+
 ---
 ## Review-Log (2026-09-26)
 

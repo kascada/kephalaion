@@ -13,9 +13,9 @@ Ausführlich: [`konzept.md`](konzept.md).
   stehen: `hub:`, `node:` oder beide in einem Prozess. Keine eigene Rolle und kein eigener
   Eintrag in der config, sondern der eine Aufruf, der nicht endet: Er lauscht je Rolle auf
   ihrem `listen` (MCP für Clients unter `/mcp`, der Vertrag für Nodes unter `/v1/`), bisher
-  nur auf Loopback; später gleicht er im Hintergrund ab und hält den Index warm. Alle anderen
-  Kommandos sind kurze Aufrufe und arbeiten neben ihm direkt auf der Datenbank. Beendet durch
-  SIGINT/SIGTERM, mit Frist.
+  nur auf Loopback. Als Node gleicht er im Hintergrund ab (`sync_interval`); später hält er
+  den Index warm. Alle anderen Kommandos sind kurze Aufrufe und arbeiten neben ihm direkt auf
+  der Datenbank. Beendet durch SIGINT/SIGTERM, mit Frist; ein laufender Abgleich bricht ab.
 - **lock file** (Sperrdatei) — `<db>.lock` neben der Datenbank einer Rolle. `serve` hält darauf
   eine exklusive Sperre (`flock`), solange es läuft; ein zweiter `serve` auf derselben Rolle
   scheitert daran. `status` prüft sie, ohne zu warten, und zeigt, ob `serve` läuft. CLI-Kommandos
@@ -24,6 +24,10 @@ Ausführlich: [`konzept.md`](konzept.md).
   wo ihre Datenbank liegt (`db:`) und wo ihr Dienst lauscht (`listen:`). Alles andere steht
   in der Datenbank der Rolle.
   `kephalaion config show` zeigt sie samt den `settings` je Rolle.
+  - **config set** / **config unset** — `kephalaion config set <rolle> <schlüssel> <wert>`
+    setzt einen bekannten Schlüssel der `settings` einer Rolle, nach Prüfung des Werts;
+    `config unset <rolle> <schlüssel>` entfernt ihn, dann gilt sein Standard. Unbekannte
+    Schlüssel werden abgewiesen. Bisher kennt nur der Node einen: `sync_interval`.
   - **export** — `kephalaion config export`: sichert config, `settings` und lokale Tabellen
     je Rolle als YAML mit einer Fassung des Formats (`format: 4`, darin `tables:`; am Hub
     auch die Accounts samt Rechten), getrennt von den Inhalten; ohne `db_info` und `actions`.
@@ -35,23 +39,28 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **db address** (db-Adresse) — der Wert von `db:` in der config: `sqlite:///<absoluter
   Pfad>`; `postgres://…` ist vorgesehen.
 - **settings** (Einstellungen) — Tabelle `settings (key, value)` in der Datenbank jeder Rolle:
-  alles, was nicht in der config steht. Wird mit `config export` gesichert.
+  alles, was nicht in der config steht. Wird mit `config export` gesichert, mit `config set`
+  gesetzt.
+- **sync_interval** — Schlüssel der `settings` des Nodes: Abstand des Abgleichs im
+  Hintergrund, eine Go-Dauer (`30s`, `2m`), mindestens `1s`; `0` schaltet ihn ab, auch den
+  beim Start. Standard 30 s. `serve` liest ihn je Runde, ein Neustart ist nicht nötig.
 - **db_info** — Tabelle `db_info (key, value)` in der Datenbank jeder Rolle und in jeder
   Replica. Hält die Schemafassung (`schema_version`), die Rolle (`role`: `hub`, `node` oder
   `replica`), die Anlagezeit (`created_at`), am Hub auch die Revision (`revision`), in der
-  Replica die `hub_id`. Passt Fassung oder Rolle nicht, wird die Datenbank nicht benutzt.
+  Replica die `hub_id` und die `entry_id` des Hub-Eintrags. Passt Fassung oder Rolle nicht, wird die Datenbank nicht benutzt.
 - **init** — `kephalaion hub init`, `kephalaion node init`: richtet eine Rolle ein — Datenbank,
   Schema, Abschnitt in der config. Nur `init` legt eine Datenbank an; einzige Ausnahme ist die
   Replica, die der erste `sync` anlegt.
 - **status** — `kephalaion status`: welche Rollen eingerichtet sind, wo ihre Datenbank liegt,
-  welche Verbindungen bestehen.
+  welche Verbindungen bestehen; am Node je Hub der Stand des Abgleichs aus `hub_sync`.
 - **client** (MCP-Client) — was per MCP mit dem Node redet: Claude Code, Cursor, OpenCode,
   k-playbook. Für ihn ist der Node der MCP-Server. Die KI im Client sieht Name und Token nicht.
 - **header** (Header-Paar) — wie ein Client sich am Node anmeldet, je Hub ein Paar:
   `X-Keph-Account-<alias>` und `X-Keph-Token-<alias>`, eingetragen in seiner MCP-Konfiguration.
   Header-Namen zählen ohne Groß- und Kleinschreibung; der Alias ist der Rest des Namens nach
   dem Präfix, klein geschrieben. Der Node prüft das Paar bei jeder Anfrage gegen die
-  `SYSTEM:A:`-Zeilen der Replica dieses Hubs, ohne Cache. Zum Hub meldet sich der Node selbst
+  `SYSTEM:A:`-Zeilen der Replica dieses Hubs, ohne Cache — über alle Hubs in einem Schritt
+  (`mcpnode.Authenticate`), auf dem jedes Werkzeug aufsetzt. Zum Hub meldet sich der Node selbst
   mit `X-Keph-Node` und `Authorization: Bearer <token>`.
 - **node** (Knoten) — Rolle, Abschnitt `node:`. Einmal je Rechner. MCP-Server über HTTP
   für Clients, Client eines oder mehrerer Hubs. Hält Replica, Index, Suche,
@@ -104,7 +113,7 @@ Ausführlich: [`konzept.md`](konzept.md).
   Schreiben. Der Node merkt sich je Collection die letzte und fragt „alles seit Revision X“.
 - **replica** (Kopie) — der Ausschnitt des Stores auf einem Node: je Hub-Eintrag eine eigene
   SQLite-Datei `replicas/<alias>.db` neben `node.db` (Verzeichnis `0700`), in `db_info` mit
-  der Rolle `replica` und der `hub_id`. Darin `documents` wie am Hub, aber ohne eindeutigen
+  der Rolle `replica`, der `hub_id` und der `entry_id`. Darin `documents` wie am Hub, aber ohne eindeutigen
   Index auf den Namen — auf dem Node zählt die `id` —, und `sync_state`. Abgeleitet, nie
   selbst beschrieben: Sie enthält genau die Zeilen, die der Hub geliefert hat, und lässt sich
   jederzeit neu abgleichen. Der erste `sync` eines Hub-Eintrags legt sie an; `node hub rm`
@@ -120,7 +129,14 @@ Ausführlich: [`konzept.md`](konzept.md).
   die der Hub nicht erlaubt oder der Node nicht mehr will, entfernt er aus der Replica; bei
   anderer `hub_id` oder einem Stand über der Revision des Hubs gleicht er von vorn ab.
   Kommando: `kephalaion node sync [<alias>]`, über `transport local` oder `http`; scheitert ein
-  Hub-Eintrag, laufen die übrigen weiter, der Exit-Code ist 1.
+  Hub-Eintrag, laufen die übrigen weiter, der Exit-Code ist 1. **Im Hintergrund** gleicht
+  `serve` selbst ab: beim Start je Hub-Eintrag, danach je `sync_interval`, jeder Eintrag für
+  sich, `https`/`ssh` übergangen. Beide halten das Ergebnis in `hub_sync` fest.
+- **hub_sync** (Stand des Abgleichs) — Tabelle in `node.db`: je Hub-Eintrag letzter Erfolg und
+  letzter Fehler mit Zeit und Art (`error_kind`: `connect`, `unreachable`,
+  `unauthenticated`, `unsupported_version`, `hub`, `protocol`, `replica`); ein Erfolg leert
+  den Fehler. Geschrieben von `serve` und `node sync`, gezeigt von `status` und `whoami`.
+  Abgeleitet: nicht im Export; `node hub rm` und `config import` räumen mit ab.
 - **page** (Seite) — eine Antwort des Abgleichs: ganze Revisionen, bis die **page size**
   (Seitengröße, Zeilen je Seite, Standard 500, am Hub höchstens 5000) erreicht ist; eine
   einzelne größere Revision kommt ganz. **until** (`bis`) ist die Revision, bis zu der der
@@ -168,7 +184,13 @@ Ausführlich: [`konzept.md`](konzept.md).
   Export, `config import` baut sie neu auf.
 - **hub entry** (Hub-Eintrag) — ein Hub am Node: Zeile in `hubs` in `node.db`, Alias vom
   Node, Name des Nodes am Hub (`node_name`, `--node`), Transport, Adresse, Token, `hub_id`
-  (Kopie aus der Replica).
+  (Kopie aus der Replica), `entry_id`.
+- **entry_id** — Kennung eines Hub-Eintrags, eine ULID, beim Anlegen vergeben und nie wieder
+  vergeben: `node hub rm` und `add` unter demselben Alias ergeben eine neue. Steht in `hubs`
+  und in `db_info` der Replica, nicht im Export; `config import` behält sie für Aliase, die
+  bleiben. An sie ist jedes Schreiben des Abgleichs gebunden — Seiten der Replica, `hub_id`,
+  `hub_sync` —, damit ein Abgleich, der neben `node hub rm|add` oder `config import` läuft,
+  nie in einen neuen Eintrag schreibt.
 - **hub_id** — Kennung des Hubs, eine ULID, von `hub init` vergeben und in `db_info`
   gehalten; `status` zeigt sie. Am Node ist `db_info.hub_id` der Replica maßgeblich,
   `hubs.hub_id` in `node.db` nur Kopie für Anzeige und Export. Weicht sie ab, gleicht der Node
@@ -212,7 +234,14 @@ Ausführlich: [`konzept.md`](konzept.md).
   --token-stdin)` — ein CLI-Kommando, kein MCP-Werkzeug.
 - **whoami** — Vorgang des Vertrags: bestätigt den Node, nennt die `hub_id` und seine
   erlaubten Collections und prüft wahlweise einen Account (`valid`). Am Node auch ein
-  MCP-Werkzeug für Clients.
+  MCP-Werkzeug für Clients: Version, je Hub-Eintrag `login` (`ok`, `invalid`, `missing`),
+  Node-Name und Stand des Abgleichs (`sync`), bei `ok` Account, User und Collections; dazu
+  `unknown_hubs`, die Aliase aus Headern ohne Eintrag. Nie Token, Hash, Adresse, Transport
+  oder `hub_id`.
+- **node whoami** — `kephalaion node whoami [<account>] [--hub <alias>] [--json]`: ohne
+  Account Version, je Hub Node-Name und Stand und die Accounts, die der Node aus seinen
+  Replicas kennt; mit Account die Antwort des Werkzeugs `whoami` für ihn (`login: ok`, wo er
+  lebende `SYSTEM:A:`-Zeilen hat, sonst `missing`), aus derselben Funktion. Ohne Token.
 
 ## Auslieferung
 

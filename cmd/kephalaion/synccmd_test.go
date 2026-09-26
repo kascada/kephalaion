@@ -159,3 +159,78 @@ func TestNodeSyncUsage(t *testing.T) {
 	runT(t, "help").want(t, 0, "sync, doc")
 	runT(t, "node", "sync").want(t, 1, "der Node ist nicht eingerichtet")
 }
+
+// node sync hält Erfolg und Fehler je Hub fest; status zeigt beides, ein
+// Erfolg leert den Fehler. Der Stand steht nicht im Export.
+func TestNodeSyncRecordsStatus(t *testing.T) {
+	dir := isolate(t)
+	c, _ := syncSetup(t, dir)
+	cfgPath := strings.TrimPrefix(c, "--config=")
+	runT(t, "status", c).want(t, 0, "  Abgleich:      im Hintergrund alle 30s (Standard)",
+		"      Abgleich:    noch keiner festgehalten")
+
+	runT(t, "node", "sync", c).want(t, 0)
+	r := runT(t, "status", c)
+	r.want(t, 0, "      Abgleich:    zuletzt gelungen ")
+	if strings.Contains(r.out, "gescheitert") {
+		t.Errorf("status nach Erfolg:\n%s", r.out)
+	}
+
+	runT(t, "hub", "node", "lock", "laptop", c).want(t, 0)
+	runT(t, "node", "sync", c).want(t, 1)
+	runT(t, "status", c).want(t, 0, "      Abgleich:    zuletzt gelungen ", "; gescheitert ", ": nicht angemeldet")
+	st, err := nodeStore(t, cfgPath).SyncStatus(context.Background())
+	if err != nil || st["eigen"].ErrKind != "unauthenticated" || st["eigen"].OKAt == 0 || st["eigen"].ErrAt == 0 {
+		t.Errorf("hub_sync: %+v, %v", st, err)
+	}
+
+	runT(t, "hub", "node", "unlock", "laptop", c).want(t, 0)
+	runT(t, "node", "sync", c).want(t, 0)
+	st, _ = nodeStore(t, cfgPath).SyncStatus(context.Background())
+	if st["eigen"].Err != "" || st["eigen"].ErrKind != "" || st["eigen"].ErrAt != 0 {
+		t.Errorf("Fehler nach Erfolg: %+v", st["eigen"])
+	}
+
+	exp := runT(t, "config", "export", c)
+	exp.want(t, 0)
+	for _, not := range []string{"hub_sync", "ok_at", "error", "entry_id"} {
+		if strings.Contains(exp.out, not) {
+			t.Errorf("Export enthält %q:\n%s", not, exp.out)
+		}
+	}
+}
+
+func TestConfigSetUnset(t *testing.T) {
+	dir := isolate(t)
+	cfgPath := setup(t, dir)
+	c := "--config=" + cfgPath
+	runT(t, "config", "set", "node", "sync_interval", "5s", c).want(t, 0, "node sync_interval = 5s")
+	runT(t, "config", "show", c).want(t, 0, "settings node:\n  sync_interval = 5s")
+	runT(t, "status", c).want(t, 0, "Abgleich:      im Hintergrund alle 5s")
+	runT(t, "config", "set", "node", "sync_interval", "0", c).want(t, 0)
+	runT(t, "status", c).want(t, 0, "Abgleich:      im Hintergrund aus (sync_interval 0)")
+
+	for _, bad := range []struct {
+		args []string
+		msg  string
+	}{
+		{[]string{"node", "sync_intervall", "5s"}, `unbekannter Schlüssel "sync_intervall"`},
+		{[]string{"node", "sync_interval", "bald"}, `"bald" ist keine Dauer`},
+		{[]string{"node", "sync_interval", "500ms"}, "kürzer als 1s"},
+		{[]string{"hub", "sync_interval", "5s"}, "die Rolle hub kennt noch keine"},
+		{[]string{"beide", "sync_interval", "5s"}, `unbekannte Rolle "beide"`},
+	} {
+		runT(t, append(append([]string{"config", "set"}, bad.args...), c)...).want(t, 1, bad.msg)
+	}
+	runT(t, "config", "set", "node", "sync_interval", c).want(t, 2, "Es fehlt: <wert>")
+	runT(t, "config", "unset", "node", "fremd", c).want(t, 1, "unbekannter Schlüssel")
+	if got := getSettings(t, cfgPath, config.Node); got["sync_interval"] != "0" || len(got) != 1 {
+		t.Errorf("settings nach Fehlgriffen: %v", got)
+	}
+
+	runT(t, "config", "unset", "node", "sync_interval", c).want(t, 0, "entfernt; es gilt der Standard")
+	runT(t, "config", "unset", "node", "sync_interval", c).want(t, 0, "war nicht gesetzt")
+	runT(t, "status", c).want(t, 0, "Abgleich:      im Hintergrund alle 30s (Standard)")
+	runT(t, "config", "--help").want(t, 0, "config set", "config unset")
+	runT(t, "config", "set", "--help").want(t, 0, "sync_interval", "0 schaltet ihn ab")
+}

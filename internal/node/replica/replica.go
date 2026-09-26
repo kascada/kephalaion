@@ -18,8 +18,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/oklog/ulid/v2"
 
 	"github.com/kephalaion/kephalaion/internal/contract"
 	"github.com/kephalaion/kephalaion/internal/ident"
@@ -32,15 +35,28 @@ const Role = "replica"
 
 // SchemaVersion ist die Schemafassung der Replica. Passt sie nicht, verwirft
 // der Abgleich die Replica und legt sie neu an; sie ist abgeleitet.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // KeyHubID ist der Schlüssel der hub_id in db_info. Sie ist maßgeblich; die
 // Spalte hubs.hub_id in node.db ist nur Kopie.
 const KeyHubID = "hub_id"
 
+// KeyEntryID ist der Schlüssel der entry_id in db_info: der Hub-Eintrag, für
+// den die Replica angelegt wurde. Jede Transaktion, die schreibt, prüft ihn
+// zuerst — ein Abgleich für einen entfernten oder neu angelegten Eintrag
+// schreibt so nie in die Replica des neuen.
+const KeyEntryID = "entry_id"
+
 // ErrNotFound meldet eine Collection oder ein Dokument, das es in der
 // Replica nicht gibt.
 var ErrNotFound = errors.New("gibt es in der Replica nicht")
+
+// ErrChanged meldet, dass sich die Replica während eines Abgleichs unter ihm
+// geändert hat: ein anderer Abgleich hat sie geleert, node hub rm oder
+// config import hat sie entfernt, oder sie gehört inzwischen zu einem neuen
+// Eintrag. Geschrieben ist dann nichts von der Seite; der nächste Abgleich
+// setzt neu auf.
+var ErrChanged = errors.New("die Replica hat sich während des Abgleichs geändert")
 
 // schema ist das DDL der Replica über den Unterbau hinaus: documents wie am
 // Hub, aber ohne eindeutigen Index auf den Namen — auf dem Node zählt die
@@ -79,8 +95,16 @@ const documentColumns = `id, collection, name, content, meta, deleted, revision,
 
 // Abfragen der Replica.
 const (
-	qDocUpsert = `INSERT OR REPLACE INTO documents (` + documentColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	// qDocUpsert fügt eine Zeile ein oder ersetzt sie per id — nie durch eine
+	// ältere Revision: Laufen zwei Abgleiche derselben Replica nebeneinander
+	// (serve und node sync), bleibt die jüngste.
+	qDocUpsert = `INSERT INTO documents (` + documentColumns + `)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET collection = excluded.collection, name = excluded.name,
+			content = excluded.content, meta = excluded.meta, deleted = excluded.deleted,
+			revision = excluded.revision, created_at = excluded.created_at, created_by = excluded.created_by,
+			updated_at = excluded.updated_at, updated_by = excluded.updated_by
+		WHERE excluded.revision >= documents.revision`
 	qDocsDeleteOf  = `DELETE FROM documents WHERE collection = ?`
 	qDocsDeleteAll = `DELETE FROM documents`
 	// qDocLive liest das lebende Dokument eines Namens. Ohne eindeutigen
@@ -98,18 +122,27 @@ const (
 	qCollectionsAll = `SELECT collection FROM sync_state
 		UNION SELECT DISTINCT collection FROM documents ORDER BY 1`
 
-	qStateAll    = `SELECT collection, revision, synced_at FROM sync_state ORDER BY collection`
-	qStateGet    = `SELECT COUNT(*) FROM sync_state WHERE collection = ?`
+	qStateAll = `SELECT collection, revision, synced_at FROM sync_state ORDER BY collection`
+	qStateGet = `SELECT COUNT(*) FROM sync_state WHERE collection = ?`
+	// qStateRev liest den Stand einer Collection; ohne Zeile -1.
+	qStateRev = `SELECT COALESCE((SELECT revision FROM sync_state WHERE collection = ?), -1)`
+	// qStateUpsert schreibt den Stand fort, nie zurück — auch nicht, wenn ein
+	// zweiter Abgleich schon weiter ist.
 	qStateUpsert = `INSERT INTO sync_state (collection, revision, synced_at) VALUES (?, ?, ?)
-		ON CONFLICT(collection) DO UPDATE SET revision = excluded.revision, synced_at = excluded.synced_at`
+		ON CONFLICT(collection) DO UPDATE SET revision = max(sync_state.revision, excluded.revision),
+			synced_at = excluded.synced_at`
+	// qStateMin ist die Revision der Replica: der Stand, bis zu dem alle ihre
+	// Collections abgeglichen sind.
+	qStateMin       = `SELECT COUNT(*), COALESCE(MIN(revision), 0) FROM sync_state`
 	qStateDeleteOf  = `DELETE FROM sync_state WHERE collection = ?`
 	qStateDeleteAll = `DELETE FROM sync_state`
 )
 
 // Replica ist eine geöffnete Replica.
 type Replica struct {
-	db    *sql.DB
-	hubID string
+	db      *sql.DB
+	hubID   string
+	entryID string
 }
 
 // State ist der Stand des Abgleichs einer Collection: bis zu welcher
@@ -136,31 +169,46 @@ func Open(ctx context.Context, path string) (*Replica, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("Replica %s: %w", path, err)
 	}
-	id := info[KeyHubID]
-	if id == "" {
+	id, entry := info[KeyHubID], info[KeyEntryID]
+	if id == "" || entry == "" {
 		_ = db.Close()
-		return nil, fmt.Errorf("Replica %s: db_info ohne hub_id", path)
+		return nil, fmt.Errorf("Replica %s: db_info ohne hub_id oder entry_id", path)
 	}
-	return &Replica{db: db, hubID: id}, nil
+	return &Replica{db: db, hubID: id, entryID: entry}, nil
 }
 
-// Create legt eine neue Replica für den Hub hubID an, samt Verzeichnis
-// (0700). Existiert die Datei schon, bricht Create ab. Scheitert das Anlegen,
-// bleibt keine Datei zurück.
-func Create(ctx context.Context, path, hubID string) (*Replica, error) {
+// Create legt eine neue Replica für den Hub hubID und den Hub-Eintrag
+// entryID an, samt Verzeichnis (0700). Sie entsteht unter einem eigenen Namen
+// daneben und wird erst fertig an ihren Ort gelinkt: Wer sie dort öffnet,
+// findet nie eine halb angelegte. Existiert die Datei schon — etwa weil ein
+// zweiter Abgleich schneller war —, bricht Create mit sqlitedb.ErrExists ab.
+// Scheitert das Anlegen, bleibt keine Datei zurück.
+func Create(ctx context.Context, path, hubID, entryID string) (*Replica, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("Verzeichnis der Replicas: %w", err)
 	}
-	db, err := sqlitedb.Create(ctx, path)
+	tmp := path + ".new-" + ulid.Make().String()
+	db, err := sqlitedb.Create(ctx, tmp)
 	if err != nil {
 		return nil, err
 	}
-	if err := sqlitedb.CreateSchema(ctx, db, schema, Role, SchemaVersion, map[string]string{KeyHubID: hubID}); err != nil {
-		_ = db.Close()
-		_ = sqlitedb.Remove(path)
+	err = sqlitedb.CreateSchema(ctx, db, schema, Role, SchemaVersion, map[string]string{KeyHubID: hubID, KeyEntryID: entryID})
+	if cerr := db.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Link(tmp, path)
+		if errors.Is(err, fs.ErrExist) {
+			err = fmt.Errorf("%w: %s", sqlitedb.ErrExists, path)
+		}
+	}
+	if rmErr := sqlitedb.Remove(tmp); err == nil && rmErr != nil {
+		err = rmErr
+	}
+	if err != nil {
 		return nil, err
 	}
-	return &Replica{db: db, hubID: hubID}, nil
+	return Open(ctx, path)
 }
 
 // Remove entfernt die Replica-Datei samt -wal und -shm; eine fehlende Datei
@@ -172,6 +220,23 @@ func (r *Replica) Close() error { return r.db.Close() }
 
 // HubID ist die hub_id aus db_info — die maßgebliche.
 func (r *Replica) HubID() string { return r.hubID }
+
+// EntryID ist der Hub-Eintrag, für den die Replica angelegt wurde.
+func (r *Replica) EntryID() string { return r.entryID }
+
+// checkOwner prüft in einer Transaktion, die schreiben will, dass die Datei
+// noch die ist, die der Aufrufer meint: gleicher Eintrag, gleiche hub_id.
+// Sonst ErrChanged, und die Transaktion schreibt nichts.
+func (r *Replica) checkOwner(ctx context.Context, tx *sql.Tx) error {
+	info, err := sqlitedb.ReadInfo(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("db_info lesen: %w", err)
+	}
+	if info[KeyEntryID] != r.entryID || info[KeyHubID] != r.hubID {
+		return ErrChanged
+	}
+	return nil
+}
 
 // inTx führt fn in einer Transaktion aus.
 func (r *Replica) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
@@ -204,6 +269,16 @@ func (r *Replica) States(ctx context.Context) ([]State, error) {
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// Revision ist die Revision der Replica: der Stand, bis zu dem alle ihre
+// Collections abgeglichen sind. Ohne Collection 0.
+func (r *Replica) Revision(ctx context.Context) (int64, error) {
+	var n, rev int64
+	if err := r.db.QueryRowContext(ctx, qStateMin).Scan(&n, &rev); err != nil {
+		return 0, fmt.Errorf("sync_state lesen: %w", err)
+	}
+	return rev, nil
 }
 
 // Collections liest alle Collections, von denen die Replica etwas hat: einen
@@ -332,9 +407,30 @@ type dropped struct {
 
 // apply wendet eine Seite in einer Transaktion an: Collections entfernen,
 // Zeilen per id einfügen oder ersetzen, Stände fortschreiben — nie zurück.
+//
+// Zuerst prüft sie, dass die Seite noch passt: Die Replica gehört noch zum
+// selben Eintrag und Hub (checkOwner), und keine Collection steht unter dem
+// Stand, ab dem der Aufrufer gefragt hat — sonst hat sie ein anderer
+// inzwischen geleert oder entfernt, und die Seite ließe eine Lücke. Dann
+// ErrChanged; geschrieben ist nichts.
 func (r *Replica) apply(ctx context.Context, p page) (map[string]dropped, error) {
 	out := map[string]dropped{}
 	err := r.inTx(ctx, func(tx *sql.Tx) error {
+		if err := r.checkOwner(ctx, tx); err != nil {
+			return err
+		}
+		for c, since := range p.advance {
+			if since == 0 {
+				continue
+			}
+			var cur int64
+			if err := tx.QueryRowContext(ctx, qStateRev, c).Scan(&cur); err != nil {
+				return fmt.Errorf("sync_state lesen: %w", err)
+			}
+			if cur < since {
+				return ErrChanged
+			}
+		}
 		for _, c := range p.drop {
 			d, err := dropCollection(ctx, tx, c)
 			if err != nil {
@@ -384,6 +480,13 @@ func dropCollection(ctx context.Context, tx *sql.Tx, collection string) (dropped
 // Transaktion.
 func (r *Replica) reset(ctx context.Context, hubID string) error {
 	err := r.inTx(ctx, func(tx *sql.Tx) error {
+		info, err := sqlitedb.ReadInfo(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("db_info lesen: %w", err)
+		}
+		if info[KeyEntryID] != r.entryID {
+			return ErrChanged
+		}
 		for _, del := range []string{qDocsDeleteAll, qStateDeleteAll} {
 			if _, err := tx.ExecContext(ctx, del); err != nil {
 				return err
@@ -391,6 +494,9 @@ func (r *Replica) reset(ctx context.Context, hubID string) error {
 		}
 		return sqlitedb.SetInfo(ctx, tx, KeyHubID, hubID)
 	})
+	if errors.Is(err, ErrChanged) {
+		return err
+	}
 	if err != nil {
 		return fmt.Errorf("Replica leeren: %w", err)
 	}
