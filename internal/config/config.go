@@ -194,7 +194,7 @@ func Locate(flagValue string) (Location, error) {
 	userPath, userErr := UserPath()
 	if userErr == nil {
 		loc.UserPath = userPath
-		loc.UserExists = fileExists(userPath)
+		loc.UserExists = userFileExists(userPath)
 	}
 	loc.SystemExists = fileExists(SystemPath)
 	switch {
@@ -228,6 +228,15 @@ func Locate(flagValue string) (Location, error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return !errors.Is(err, fs.ErrNotExist)
+}
+
+// userFileExists sagt, ob es die config des Users gibt. Anders als bei der
+// globalen zählt eine, auf die der Aufrufer nicht zugreifen darf, als nicht
+// vorhanden: Sie gehört einem anderen User — etwa unter sudo -u kephalaion
+// mit dem HOME des Aufrufers.
+func userFileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, fs.ErrPermission)
 }
 
 // Path ermittelt den Ort der config wie Locate.

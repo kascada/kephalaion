@@ -337,3 +337,29 @@ func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// Eine config des Users, auf die der Aufrufer nicht zugreifen darf, gehört
+// einem anderen User (sudo -u mit fremdem HOME): Es gilt die globale, und es
+// sind nicht zwei Arten.
+func TestLocateForeignHome(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("als root greifen Dateirechte nicht")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv(EnvConfig, "")
+	system := systemAt(t)
+	touch(t, system)
+	user := filepath.Join(home, ".config", "kephalaion", "config.yaml")
+	touch(t, user)
+	dir := filepath.Dir(user)
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	loc, err := Locate("")
+	if err != nil || loc.Source != FromSystem || loc.UserExists || loc.BothKinds() {
+		t.Fatalf("fremdes HOME: %+v, %v", loc, err)
+	}
+}
