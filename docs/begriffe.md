@@ -20,9 +20,12 @@ Ausführlich: [`konzept.md`](konzept.md).
   eine exklusive Sperre (`flock`), solange es läuft; ein zweiter `serve` auf derselben Rolle
   scheitert daran. `status` prüft sie, ohne zu warten, und zeigt, ob `serve` läuft. CLI-Kommandos
   kümmern sich nicht darum.
-- **config** — `~/.config/kephalaion/config.yaml`. Sagt nur, welche Rollen eingerichtet sind,
-  wo ihre Datenbank liegt (`db:`) und wo ihr Dienst lauscht (`listen:`). Alles andere steht
-  in der Datenbank der Rolle.
+- **config** — `~/.config/kephalaion/config.yaml` pro User, `/etc/kephalaion/config.yaml`
+  global. Sagt nur, welche Rollen eingerichtet sind, wo ihre Datenbank liegt (`db:`) und wo
+  ihr Dienst lauscht (`listen:`). Alles andere steht in der Datenbank der Rolle. Gefunden wird
+  sie ohne Angabe: `--config` > `KEPHALAION_CONFIG` > die des Users, wenn es sie gibt > die
+  globale, wenn es sie gibt > der Ort des Users (dort legt `init` an); `status` nennt Ort und
+  **Quelle** (`--config`, `KEPHALAION_CONFIG`, pro User, global).
   `kephalaion config show` zeigt sie samt den `settings` je Rolle.
   - **config set** / **config unset** — `kephalaion config set <rolle> <schlüssel> <wert>`
     setzt einen bekannten Schlüssel der `settings` einer Rolle, nach Prüfung des Werts;
@@ -51,9 +54,15 @@ Ausführlich: [`konzept.md`](konzept.md).
   Rolle nicht, wird die Datenbank nicht benutzt.
 - **init** — `kephalaion hub init`, `kephalaion node init`: richtet eine Rolle ein — Datenbank,
   Schema, Abschnitt in der config. Nur `init` legt eine Datenbank an; einzige Ausnahme ist die
-  Replica, die der erste `sync` anlegt.
-- **status** — `kephalaion status`: welche Rollen eingerichtet sind, wo ihre Datenbank liegt,
-  welche Verbindungen bestehen; am Node je Hub der Stand des Abgleichs aus `hub_sync`.
+  Replica, die der erste `sync` anlegt. Ohne `--config` und `KEPHALAION_CONFIG` nur pro User:
+  Gibt es die globale config, bricht es ab. Nennt am Ende den nächsten Schritt, den Dienst;
+  einrichten tut es ihn nicht.
+- **status** — `kephalaion status`: welche config gilt und woher, ob der Dienst eingerichtet
+  ist und läuft (Zeile `Dienst:`), welche Rollen eingerichtet sind, wo ihre Datenbank liegt,
+  welche Verbindungen bestehen; am Node je Hub der Stand des Abgleichs aus `hub_sync`. Exit 1,
+  wenn eine Datenbank fehlt oder nicht passt oder es die config des Users und die globale
+  nebeneinander gibt (zwei Arten auf einem Rechner); bei der globalen config ohne Leserecht
+  auf die Datenbanken nur ein Hinweis, Exit 0.
 - **client** (MCP-Client) — was per MCP mit dem Node redet: Claude Code, Cursor, OpenCode,
   k-playbook. Für ihn ist der Node der MCP-Server. Die KI im Client sieht Name und Token nicht.
 - **header** (Header-Paar) — wie ein Client sich am Node anmeldet, je Hub ein Paar:
@@ -261,7 +270,8 @@ Ausführlich: [`konzept.md`](konzept.md).
   --token-stdin)` — ein CLI-Kommando, kein MCP-Werkzeug.
 - **whoami** — Vorgang des Vertrags: bestätigt den Node, nennt die `hub_id` und seine
   erlaubten Collections und prüft wahlweise einen Account (`valid`). Am Node auch ein
-  MCP-Werkzeug für Clients: Version, je Hub-Eintrag `login` (`ok`, `invalid`, `missing`),
+  MCP-Werkzeug für Clients: Version, `update` (neueste Version und Weg, aus der Antwort, die
+  `serve` höchstens einmal am Tag bei GitHub holt), je Hub-Eintrag `login` (`ok`, `invalid`, `missing`),
   Node-Name und Stand des Abgleichs (`sync`), bei `ok` Account, User und Collections; dazu
   `unknown_hubs`, die Aliase aus Headern ohne Eintrag. Nie Token, Hash, Adresse, Transport
   oder `hub_id`.
@@ -286,19 +296,29 @@ Ausführlich: [`konzept.md`](konzept.md).
   die Version `dev`, dazu den Commit aus `git describe`.
 - **version** — `kephalaion version`: zeigt Version, Commit, Go-Version und Plattform.
 - **upgrade** — `kephalaion upgrade`: ersetzt das laufende Binary durch das Binary eines
-  Releases, nach Prüfung gegen `SHA256SUMS`, atomar. Stuft nie von selbst zurück.
-  `--check` sagt nur, ob es eine neuere Version gibt — *geplant:* auch, ob dieses Binary sich
-  selbst ersetzen kann und wie das Upgrade sonst geht, mit `--json` für k-playbook.
+  Releases, nach Prüfung gegen `SHA256SUMS`, atomar. Stuft nie von selbst zurück. Ohne
+  Schreibrecht bricht es vor dem Download mit dem Weg ab; nach Erfolg startet es einen
+  laufenden Dienst pro User neu. `--check` sagt, ob es eine neuere Version gibt, ob sich dieses
+  Binary selbst ersetzen kann (**self upgrade**, Schreibrecht in seinem Verzeichnis) und den
+  Weg (**method**: `self`, `explicit` für einen dev build, `admin` global, `manual`);
+  `--check --json` dasselbe als JSON, dieselbe Struktur wie das Feld `update` in `whoami`.
 - **install.sh** — Installationsskript für die Erstinstallation pro User nach
-  `~/.local/bin/kephalaion`; liegt im Repo und hängt an jedem Release.
+  `~/.local/bin/kephalaion`; liegt im Repo und hängt an jedem Release. Nennt am Ende die
+  nächsten Schritte (Rollen, `service install`).
 - **user installation** (Installation pro User) — Binary, config, Daten und Dienst gehören
   einem User: `~/.local/bin`, `~/.config/kephalaion/`, `~/.local/share/kephalaion/`, systemd
-  `--user` bzw. LaunchAgent. Linux und macOS.
-- **system installation** (globale Installation) — *entschieden, nicht gebaut.* Ein Dienst für
-  alle User eines Rechners, nur Linux: `/usr/local/bin/kephalaion`, Systembenutzer
-  `kephalaion`, `/etc/kephalaion/config.yaml`, `/var/lib/kephalaion/`, System-Unit;
-  eingerichtet per Ansible. Die User sind nur Clients. Je Rechner gibt es genau eine der
-  beiden Arten (`konzept.md`, „Installation und Betrieb“).
+  `--user` bzw. LaunchAgent (`service install`). Linux und macOS.
+- **linger** — systemd-Einstellung je User (`loginctl enable-linger`): Seine Dienste laufen auch
+  ohne Anmeldung. `service install` schaltet es nicht ein; ist ein Hub eingerichtet, nennt es
+  den Befehl.
+- **system installation** (globale Installation) — ein Dienst für alle User eines Rechners,
+  nur Linux mit systemd: `/usr/local/bin/kephalaion`, Systembenutzer `kephalaion`,
+  `/etc/kephalaion/config.yaml` (Verzeichnis gehört `kephalaion`, `0755`; config `0644`),
+  `/var/lib/kephalaion/` (`0700`), System-Unit aus `service unit --system`; eingerichtet per
+  Ansible oder von Hand nach [`installation.md`](installation.md). Die User sind nur Clients.
+  Gebaut für User auf dem Rechner selbst, über Loopback; für Devcontainer fehlt das Lauschen
+  auf der Docker-Bridge. Je Rechner gibt es genau eine der beiden Arten (`konzept.md`,
+  „Installation und Betrieb“).
 - **service** (Dienst) — `kephalaion service install|uninstall|status`: richtet den Dienst pro
   User ein, der `serve` startet, entfernt und zeigt ihn — unter Linux die Benutzer-Unit
   `~/.config/systemd/user/kephalaion.service` (systemd `--user`), auf macOS den LaunchAgent

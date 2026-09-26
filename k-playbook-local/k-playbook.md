@@ -18,8 +18,22 @@ in `docs/begriffe.md` und werden dort eingetragen, bevor sie benutzt werden.
 
 Pakete unter `internal/`:
 
-- `config` — die config (`config.yaml`): Ort auflösen, strikt lesen, atomar schreiben,
-  Rolle eintragen, db-Adressen zerlegen.
+- `config` — die config (`config.yaml`): Ort suchen (`Locate`: `--config` >
+  `KEPHALAION_CONFIG` > die des Users, wenn es sie gibt > `/etc/kephalaion/config.yaml`, wenn es
+  sie gibt > Ort des Users; mit Quelle und Erkennung zweier Arten), strikt lesen, atomar
+  schreiben, Rolle eintragen, db-Adressen zerlegen; die festen Orte der globalen Installation
+  (`SystemConfig`, `SystemUser`, `SystemDataDir`, `SystemBinary`). `SystemPath` lenken Tests um
+  — in `cmd/kephalaion` für alle Tests über `TestMain`.
+- `service` — neutral, der Dienst: erzeugt Benutzer-Unit, System-Unit und LaunchAgent (golden
+  getestet unter `testdata/`, `go test ./internal/service -update` schreibt neu) und richtet
+  den Dienst pro User ein (`Manager`: `systemctl --user` bzw. `launchctl` hinter einem
+  `Runner`, alle Orte überschreibbar). Kein Test ruft `systemctl` oder `launchctl`; in
+  `cmd/kephalaion` ersetzt `TestMain` den Manager (`newServiceManager`).
+- `upgrade` — neutral, das Binary aus einem Release ersetzen (`Upgrader`), dazu `Report` (was
+  `upgrade --check --json` und das Feld `update` in `whoami` melden: neueste Version,
+  Schreibrecht per Probedatei, Weg) und `Watcher` (die Frage im Hintergrund von `serve`,
+  höchstens einmal am Tag, nach Fehler nach einer Stunde, nur im Speicher). Kein Test fragt
+  GitHub: `httptest`, in `cmd/kephalaion` über `newUpgrader` in `TestMain`.
 - `sqlitedb` — gemeinsamer Unterbau beider Datenbanken, kennt weder Hub noch Node: SQLite
   öffnen (`foreign_keys`, `busy_timeout`; eine fehlende Datei wird nie angelegt, nur
   `Create` legt an), `db_info` prüfen (Schemafassung, Rolle), `settings` lesen und schreiben.
@@ -179,7 +193,7 @@ Regeln dazu:
 - Über das `Makefile` im Wurzelverzeichnis, lokal und in CI gleich: `make build` bzw.
   `make dist-host` für diese Plattform, `make dist` für alle vier (linux/darwin ×
   amd64/arm64) plus `SHA256SUMS` nach `dist/` (gitignored), `make dev-install` ersetzt
-  `~/.local/bin/kephalaion`.
+  `~/.local/bin/kephalaion` und startet einen laufenden Dienst pro User neu.
 - Flags stehen nur im Makefile: `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, Version
   und Commit per `-ldflags -X` in `internal/buildinfo`. Ohne `VERSION=` entsteht ein
   dev build.
@@ -191,7 +205,16 @@ Regeln dazu:
 ## Testen
 
 - Vor jedem Commit mit Code: `make check` (gofmt, `go vet`, `go test`, `sh -n install.sh`).
-- `shellcheck` über `install.sh` läuft nur in CI; lokal ist es nicht installiert.
+- `shellcheck` über `install.sh` läuft nur in CI; lokal ist es nicht installiert (zur Not:
+  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable install.sh`). Keine
+  typografischen Anführungszeichen in `install.sh` (SC1111).
+- CI hat zwei Jobs: `check` auf Ubuntu (`make check`, `make dist`, shellcheck) und `macos` auf
+  `macos-latest` (`make check`, `make dist-host`, der LaunchAgent des gebauten Binarys mit
+  `plutil -lint`, `install.sh` mit dem neuesten Release in leerem `HOME`, der Tag aus der
+  Weiterleitung von `releases/latest` — keine Anfrage an die GitHub-API ohne Token). Tests
+  vergleichen Pfade des Binarys aufgelöst (`filepath.EvalSymlinks`): Auf macOS liegt das
+  temporäre Verzeichnis hinter einem Link. `TestBackgroundSync` scheitert auf macOS öfter an
+  der bekannten Race-Condition (Task 013); bis dahin `gh run rerun --failed`.
 - Von Hand, weder in `make check` noch in CI: `make race` (Race-Detector, braucht cgo und
   einen C-Compiler), `make cover` (Abdeckung je Paket einschließlich der Tests anderer Pakete,
   Bericht nach `coverage/`) und `make mutate` (Mutationstests mit gremlins, per `go run` in

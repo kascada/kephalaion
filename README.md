@@ -13,7 +13,9 @@ dem Hub für Store, Journal und Accounts und dem Node als lokalem MCP-Server mit
 Was geplant ist und warum, steht in [`docs/konzept.md`](docs/konzept.md), die Begriffe in
 [`docs/begriffe.md`](docs/begriffe.md).
 
-**Stand:** Gebaut sind das Gerüst (`version`, `upgrade`) und das Einrichten der Rollen:
+**Stand:** Gebaut sind das Gerüst (`version`, `upgrade` mit `--check --json`), die Installation
+pro User und global samt Dienst (`service`, [`docs/installation.md`](docs/installation.md))
+und das Einrichten der Rollen:
 `hub init`, `node init`, `status`, `config show|set|unset|export|import`, dazu am Hub Collections,
 Nodes und Accounts mit Rechten je Collection, am Node seine Hubs und die gewünschten
 Collections. Der Hub nimmt Dokumente auf (`hub doc`, `hub import`), der Node gleicht sie in
@@ -51,32 +53,57 @@ im Konzept.
 
 ## Installation
 
-Linux und macOS, jeweils amd64 und arm64:
+Zwei Arten, je Rechner genau eine — beide ohne Git und Go, Binary und `SHA256SUMS` kommen aus
+dem Release. Alles Weitere, auch für Ansible und KI, steht in
+[`docs/installation.md`](docs/installation.md).
+
+**Pro User** (Linux und macOS, amd64 und arm64):
 
 ```sh
 curl -fsSL https://github.com/kephalaion/kephalaion/releases/latest/download/install.sh | sh
+kephalaion node init          # Rollen einrichten, siehe „Einrichten“
+kephalaion service install    # Dienst: systemd --user bzw. LaunchAgent, startet serve
 ```
 
 Das Skript lädt das Binary der Plattform und `SHA256SUMS` aus dem neuesten Release, prüft die
 Prüfsumme und legt das Binary nach `~/.local/bin/kephalaion`. Liegt `~/.local/bin` nicht im
 `PATH`, nennt es die Zeile fürs Shell-Profil. Eine bestimmte Version:
+`… | KEPHALAION_VERSION=v0.1.0 sh`. `service install` schreibt die Unit
+`~/.config/systemd/user/kephalaion.service` (auf macOS den LaunchAgent
+`io.github.kephalaion`), startet den Dienst und bricht ab, solange `serve` von Hand läuft;
+`kephalaion service status` bzw. die Zeile `Dienst:` in `kephalaion status` zeigt ihn,
+`kephalaion service uninstall` entfernt ihn. Log: `journalctl --user -u kephalaion`. Ohne
+systemd startet ein eigener Supervisor `kephalaion serve`.
 
-```sh
-curl -fsSL https://github.com/kephalaion/kephalaion/releases/latest/download/install.sh | KEPHALAION_VERSION=v0.1.0 sh
-```
+**Global** (nur Linux mit systemd, für alle User eines Rechners): Binary
+`/usr/local/bin/kephalaion`, Systembenutzer `kephalaion`, config
+`/etc/kephalaion/config.yaml`, Daten `/var/lib/kephalaion/`, System-Unit aus
+`kephalaion service unit --system` — von Hand oder per Ansible nach
+[`docs/installation.md`](docs/installation.md), „Global“. Die User sind Clients über Loopback;
+verwaltet wird als Systembenutzer (`sudo -u kephalaion kephalaion …`). Devcontainer erreichen
+den globalen Node noch nicht.
+
+Die config wird ohne Angabe gefunden: `--config`, `KEPHALAION_CONFIG`, die des Users, wenn es
+sie gibt, sonst `/etc/kephalaion/config.yaml`, wenn es sie gibt. `kephalaion status` nennt,
+welche gilt und woher.
 
 ## Upgrade
 
 ```sh
-kephalaion upgrade            # auf das neueste Release
-kephalaion upgrade --check    # nur nachsehen
+kephalaion upgrade --check    # nachsehen: neueste Version, selbst ersetzbar?, Weg
+kephalaion upgrade --check --json   # dasselbe als JSON (für k-playbook)
+kephalaion upgrade            # auf das neueste Release; startet den Dienst pro User neu
 kephalaion upgrade --version v0.1.0   # genau diese Version, auch zurück
 ```
 
 `upgrade` prüft die Prüfsumme und ersetzt das Binary atomar; scheitert etwas, bleibt das alte
 unverändert. Vorabversionen (`v0.2.0-rc1`) und ältere Versionen gibt es nur mit `--version`,
-ebenso das Ersetzen eines selbst gebauten `dev`-Binarys. Ohne Anmeldung erlaubt die GitHub-API
-60 Anfragen je Stunde.
+ebenso das Ersetzen eines selbst gebauten `dev`-Binarys. Darf der Aufrufer das Binary nicht
+ersetzen, bricht `upgrade` vor dem Download ab und nennt den Weg — global macht das Upgrade
+der Verwalter: Ansible oder `sudo kephalaion upgrade && sudo systemctl restart kephalaion`.
+Ob es eine neue Version gibt, meldet auch das MCP-Werkzeug `whoami` (Feld `update`); `serve`
+fragt GitHub dafür höchstens einmal am Tag. Ohne Anmeldung erlaubt die GitHub-API 60
+Anfragen je Stunde.
 
 ## Einrichten
 
@@ -90,7 +117,8 @@ kephalaion hub init --listen 127.0.0.1:7500        # anderer Port
 ```
 
 `init` legt die Datenbank samt Schema an und trägt die Rolle in die config
-`~/.config/kephalaion/config.yaml` ein, mit `db:` und `listen:` — wo `kephalaion serve` für
+`~/.config/kephalaion/config.yaml` ein (ohne `--config` nur pro User: Ist der Rechner global
+eingerichtet, bricht es ab), mit `db:` und `listen:` — wo `kephalaion serve` für
 die Rolle lauscht; Standard Node `127.0.0.1:7433`, Hub `127.0.0.1:7434`. `serve` lauscht
 bisher nur auf `127.0.0.1`, `::1` oder `localhost`: Klartext-HTTP verlässt den Rechner nicht,
 bis `https` und `ssh` kommen. Steht die Rolle schon dort oder gibt es die
@@ -224,7 +252,8 @@ gibt das neue einmal aus. `rotate` wird nie wiederholt: Danach gilt das alte Tok
 
 `kephalaion serve` startet je eingerichteter Rolle einen Listener auf ihrem `listen`: den Hub
 für Nodes (`POST /v1/whoami|rotate|sync`, siehe [`docs/vertrag.md`](docs/vertrag.md)), den
-Node als MCP-Server für Clients unter `/mcp`. Er läuft im Vordergrund, schreibt je Anfrage
+Node als MCP-Server für Clients unter `/mcp`. Als Dienst startet ihn
+`kephalaion service install` (siehe „Installation“); von Hand läuft er im Vordergrund, schreibt je Anfrage
 eine Zeile nach stderr (Methode, Pfad, Status, Dauer, Node- und Account-Namen, nie ein Token)
 und endet mit SIGINT oder SIGTERM. Eine Sperre auf `<db>.lock` neben jeder Datenbank verhindert
 einen zweiten `serve` auf derselben Rolle; alle anderen Kommandos laufen daneben, auch
@@ -233,6 +262,7 @@ Anfragen, deren `Host` dieser Rechner mit dem eigenen Port ist, sonst 403; ein S
 Hub geht deshalb nur mit gleichem Port (`ssh -L 7434:localhost:7434 …`).
 
 ```sh
+kephalaion service install         # als Dienst; oder von Hand, etwa zum Testen:
 kephalaion serve 2>> ~/.local/state/kephalaion/serve.log &
 kephalaion status | grep serve     # serve: läuft
 ```
@@ -469,9 +499,12 @@ nach.
 ```sh
 make check        # gofmt, go vet, Tests, Syntax von install.sh
 make dist         # alle vier Plattformen und SHA256SUMS nach dist/
-make dev-install  # diese Plattform bauen und ~/.local/bin/kephalaion ersetzen
+make dev-install  # diese Plattform bauen, ~/.local/bin/kephalaion ersetzen, laufenden Dienst neu starten
 make              # alle Targets
 ```
+
+CI prüft jeden Push auf `dev` und `main` auf Linux (samt Cross-Build aller vier Plattformen
+und shellcheck) und auf macOS (Tests, LaunchAgent mit `plutil -lint`, `install.sh`).
 
 `main` ist der Standard-Branch und trägt nur veröffentlichte Stände; ein Clone bekommt den
 Release-Stand. Gearbeitet wird auf `dev` — nach dem Klonen `git switch dev`.

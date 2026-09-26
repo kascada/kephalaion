@@ -1,0 +1,468 @@
+---
+title: Kephalaion — Installation und Betrieb
+description: Wie Kephalaion ohne Clone installiert, als Dienst betrieben und aktualisiert wird — pro User (Linux, macOS) und global für alle User eines Linux-Rechners, von Hand, mit Ansible oder durch eine KI.
+---
+
+# Installation und Betrieb
+
+Diese Anleitung gilt für Menschen, für Ansible und für eine KI gleichermaßen: Jeder Schritt
+steht mit seinem Befehl da, die festen Angaben für eine Automatisierung stehen gesammelt im
+letzten Abschnitt. Die Entscheidungen dahinter stehen in [`konzept.md`](konzept.md),
+„Installation und Betrieb“, die Begriffe in [`begriffe.md`](begriffe.md).
+
+Diese Datei beschreibt immer das Release, zu dem sie gehört:
+`https://raw.githubusercontent.com/kephalaion/kephalaion/main/docs/installation.md` ist die
+Anleitung zum neuesten Release (`main` trägt nur veröffentlichte Stände), mit einem Tag statt
+`main` die zu genau dieser Version, etwa `…/kephalaion/v0.2.0/docs/installation.md`.
+
+## Überblick
+
+Es gibt zwei Arten, Kephalaion zu betreiben, und **je Rechner genau eine**: Beide wollten
+dieselben Ports, und ein Client wüsste nicht, welchen Node er meint. Keine braucht Git oder Go;
+Binary und `SHA256SUMS` kommen aus dem Release.
+
+| | pro User | global |
+|---|---|---|
+| Für | einen Menschen auf seinem Rechner | alle User eines Rechners |
+| Plattform | Linux, macOS | nur Linux, mit systemd |
+| Binary | `~/.local/bin/kephalaion`, gehört dem User | `/usr/local/bin/kephalaion`, root, `0755` |
+| Installiert durch | `install.sh` | Ansible oder der Verwalter, nach dieser Anleitung |
+| Läuft als | der User | Systembenutzer `kephalaion` |
+| config | `~/.config/kephalaion/config.yaml` | `/etc/kephalaion/config.yaml`, `0644` |
+| Verzeichnis der config | gehört dem User | `/etc/kephalaion/`, gehört `kephalaion`, `0755` |
+| Daten | `~/.local/share/kephalaion/`, `0700` | `/var/lib/kephalaion/`, gehört `kephalaion`, `0700` |
+| Dienst | `kephalaion service install`: systemd `--user` bzw. LaunchAgent | System-Unit aus `kephalaion service unit --system` |
+| Log | `journalctl --user -u kephalaion`, auf macOS `~/.local/state/kephalaion/serve.log` | `journalctl -u kephalaion` |
+| Upgrade | der User: `kephalaion upgrade` | der Verwalter: Ansible oder `sudo kephalaion upgrade && sudo systemctl restart kephalaion` |
+
+Pro User folgen die Orte `XDG_CONFIG_HOME`, `XDG_DATA_HOME` und `XDG_STATE_HOME`, auf macOS
+ebenso. Global sind die Orte fest.
+
+**Die config wird ohne Angabe gefunden**, in dieser Reihenfolge: `--config`,
+`KEPHALAION_CONFIG`, die config des Users (wenn es sie gibt), `/etc/kephalaion/config.yaml`
+(wenn es sie gibt), sonst der Ort des Users — dort legt `init` sie an. `kephalaion status`
+zeigt, welche gilt und woher (`Quelle:`). Gibt es die config des Users und die globale
+nebeneinander, meldet `status` zwei Arten auf einem Rechner als Fehler; der Weg ist, die
+Installation pro User zu entfernen (unten).
+
+**Global ist bisher nur für User auf dem Rechner selbst gebaut:** Der Node lauscht auf
+Loopback (`127.0.0.1:7433`), das teilen alle User eines Rechners. Devcontainer erreichen ihn
+noch nicht; dafür fehlt das Lauschen auf der Docker-Bridge (`konzept.md`, „Kommunikation“).
+
+## Pro User
+
+### Installieren
+
+```sh
+curl -fsSL https://github.com/kephalaion/kephalaion/releases/latest/download/install.sh | sh
+```
+
+Das Skript lädt das Binary der Plattform und `SHA256SUMS` aus dem neuesten Release, prüft die
+Prüfsumme und legt das Binary atomar nach `~/.local/bin/kephalaion`. Liegt `~/.local/bin`
+nicht im `PATH`, nennt es die Zeile fürs Shell-Profil. Eine bestimmte Version, ohne Frage an
+die GitHub-API:
+
+```sh
+curl -fsSL https://github.com/kephalaion/kephalaion/releases/latest/download/install.sh | KEPHALAION_VERSION=v0.2.0 sh
+```
+
+**macOS:** Nur über `curl` bzw. `install.sh` laden, nicht über den Browser — eine im Browser
+geladene Datei trägt die Quarantäne-Markierung, und macOS verweigert das nicht notarisierte
+Binary. `~/.local/bin` steht auf macOS meist nicht im `PATH`; `install.sh` nennt die Zeile
+für `~/.zshrc`.
+
+### Rollen einrichten
+
+Hub und Node werden je mit einem Aufruf eingerichtet, ohne Rückfragen und nie überschreibend
+— Einzelheiten im [README](../README.md), „Einrichten“:
+
+```sh
+kephalaion node init
+kephalaion hub init     # nur, wenn dieser Rechner auch den Hub trägt
+```
+
+Gibt es auf dem Rechner die globale config, bricht `init` ohne `--config` ab: Kephalaion ist
+dann global eingerichtet.
+
+### Dienst
+
+```sh
+kephalaion service install
+kephalaion service status
+kephalaion status          # Zeile „Dienst:“
+```
+
+`service install` schreibt unter Linux die Benutzer-Unit
+`~/.config/systemd/user/kephalaion.service` (bzw. unter `$XDG_CONFIG_HOME`) und ruft
+`systemctl --user daemon-reload` und `systemctl --user enable --now kephalaion.service`. Die
+Unit startet genau dieses Binary mit `serve` (absoluter Pfad), dazu `--config`, wenn die config
+nicht unter `~/.config/kephalaion/config.yaml` liegt; `Restart=on-failure`, `RestartSec=5s`,
+`WantedBy=default.target`. Auf macOS schreibt es den LaunchAgent
+`~/Library/LaunchAgents/io.github.kephalaion.plist` (`RunAtLoad`, `KeepAlive` bei erfolglosem
+Ende, Log nach `~/.local/state/kephalaion/serve.log`) und lädt ihn mit `launchctl bootstrap
+gui/<uid>`. Läuft der Dienst schon, schreibt `install` neu und startet ihn neu.
+`kephalaion service unit` zeigt, was `install` schreiben würde, ohne etwas zu schreiben.
+
+`service install` bricht ab,
+
+- wenn Kephalaion auf dem Rechner global eingerichtet ist;
+- ohne systemd (siehe unten);
+- wenn keine Rolle eingerichtet ist;
+- wenn `kephalaion serve` schon von Hand läuft (Sperre `<db>.lock`) — erst dieses `serve`
+  beenden, sonst startete der Dienst immer wieder und scheiterte an der Sperre.
+
+`init` richtet keinen Dienst ein; es nennt am Ende den nächsten Schritt.
+
+**Linger:** Ohne Linger laufen die Dienste eines Users nur, solange er angemeldet ist. Für
+den Node reicht das. Für einen Hub, den andere Rechner erreichen sollen, nicht — dann
+einmal `loginctl enable-linger` (braucht auf manchen Systemen `sudo`). `service install`
+schaltet es nicht selbst ein, nennt es aber, wenn ein Hub eingerichtet ist.
+
+**WSL:** Der Dienst braucht systemd in der WSL (`[boot]` `systemd=true` in `/etc/wsl.conf`).
+Die WSL fährt ohne offenes Terminal bzw. VS Code herunter; ein laufender Dienst hält sie
+nicht wach.
+
+Log: `journalctl --user -u kephalaion` (Linux), `~/.local/state/kephalaion/serve.log` (macOS).
+
+Exit-Code von `service install`: 0, wenn der Dienst eingerichtet ist und läuft; 1, wenn er
+abbricht oder der Dienst danach nicht läuft (dann steht der Zustand da, etwa `activating`,
+und der Verweis aufs Log); 2 bei falschem Aufruf. `service status`: 0, wenn die Abfrage
+gelang — ob eingerichtet und laufend, steht in der Ausgabe —, 1 ohne systemd oder bei einem
+Fehler von `systemctl` bzw. `launchctl`.
+
+### Upgrade
+
+```sh
+kephalaion upgrade --check          # nachsehen
+kephalaion upgrade                  # auf das neueste Release
+kephalaion upgrade --version v0.2.0 # genau diese Version, auch zurück; nötig für einen dev build
+```
+
+`upgrade` prüft die Prüfsumme gegen `SHA256SUMS` und ersetzt das Binary atomar; scheitert
+etwas, bleibt das alte unverändert. Danach startet es einen laufenden Dienst pro User neu
+(`systemctl --user restart kephalaion.service` bzw. `launchctl kickstart -k
+gui/<uid>/io.github.kephalaion`). Was `--check` meldet, steht unten unter „Upgrade: was
+Kephalaion meldet“.
+
+### Installation pro User entfernen
+
+Nötig auch, bevor der Rechner global eingerichtet wird:
+
+```sh
+kephalaion service uninstall                       # Dienst anhalten und entfernen
+kephalaion config export --output ~/keph-config.yaml   # wahlweise: Einstellungen sichern (enthält Tokens, 0600)
+rm ~/.config/kephalaion/config.yaml                # die config — danach gilt sie nicht mehr
+rm -r ~/.local/share/kephalaion                    # Datenbanken und Replicas, wenn sie weg sollen
+rm ~/.local/bin/kephalaion                         # das Binary
+```
+
+Die Token-Dateien unter `~/.config/kephalaion/tokens/` gehören dem User als Client; sie
+können bleiben — auch bei einer globalen Installation meldet sich der User mit seinen Tokens an.
+
+## Global (Linux)
+
+Ein Dienst für alle User eines Rechners, unter dem Systembenutzer `kephalaion`. Die User
+betreiben nichts; sie sind Clients mit je einem Account und seinem Token.
+
+**Voraussetzungen:** Linux mit systemd. Eine Installation pro User auf dem Rechner vorher
+entfernen (oben) — Kephalaion prüft das bei der globalen Einrichtung nicht; `kephalaion
+status` meldet es danach als Fehler.
+
+### Schritte von Hand, in dieser Reihenfolge
+
+```sh
+# 1. Binary mit Prüfsumme
+VERSION=v0.2.0                                   # das gewünschte Release
+case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
+BASE="https://github.com/kephalaion/kephalaion/releases/download/$VERSION"
+cd "$(mktemp -d)"
+curl -fsSLO "$BASE/kephalaion-linux-$ARCH"
+curl -fsSLO "$BASE/SHA256SUMS"
+sha256sum --check --ignore-missing SHA256SUMS    # muss „OK“ melden
+sudo install -o root -g root -m 0755 "kephalaion-linux-$ARCH" /usr/local/bin/kephalaion
+
+# 2. Systembenutzer
+sudo useradd --system --user-group --home-dir /var/lib/kephalaion --no-create-home \
+  --shell /usr/sbin/nologin kephalaion
+
+# 3. Verzeichnisse und Rechte
+sudo install -d -o kephalaion -g kephalaion -m 0755 /etc/kephalaion
+sudo install -d -o kephalaion -g kephalaion -m 0700 /var/lib/kephalaion
+
+# 4. Rollen einrichten, als Systembenutzer, immer mit --config und --db
+sudo -u kephalaion kephalaion node init --config /etc/kephalaion/config.yaml \
+  --db sqlite:///var/lib/kephalaion/node.db
+sudo -u kephalaion kephalaion hub init --config /etc/kephalaion/config.yaml \
+  --db sqlite:///var/lib/kephalaion/hub.db       # nur, wenn dieser Rechner auch den Hub trägt
+
+# 5. System-Unit aus dem Binary, einschalten, starten
+kephalaion service unit --system | sudo tee /etc/systemd/system/kephalaion.service >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable --now kephalaion
+systemctl status kephalaion
+```
+
+**Rechte:** `/etc/kephalaion/` gehört `kephalaion` (`0755`), die config darin ist `0644` —
+für alle lesbar, sie enthält kein Geheimnis und sagt, wo der Node lauscht. So schreibt `init`
+sie als Systembenutzer. Der laufende Dienst schreibt dort nie: Die System-Unit hat
+`ProtectSystem=strict`, schreibbar ist für ihn nur `/var/lib/kephalaion`. Die config ändert
+nur, wer als Systembenutzer ein Kommando aufruft (`sudo -u kephalaion kephalaion …`).
+`/var/lib/kephalaion/` ist `0700` und gehört `kephalaion`; die System-Unit hält das mit
+`StateDirectory=kephalaion` und `StateDirectoryMode=0700`.
+
+**Die System-Unit** (`kephalaion service unit --system`) startet `/usr/local/bin/kephalaion
+serve` als `User=`/`Group=kephalaion` mit `KEPHALAION_CONFIG=/etc/kephalaion/config.yaml`,
+`Restart=on-failure`, gehärtet mit `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`
+und `PrivateTmp`, `WantedBy=multi-user.target`. Das Binary erzeugt sie, damit sie zu seiner
+Version passt; `service unit --system` schreibt nichts.
+
+### Hub-Einträge und Accounts, von Hand
+
+Tokens gehen nie durch Ansible. Die Hub-Einträge des Nodes und das erste `rotate` jedes
+Accounts richtet der Verwalter von Hand ein, als Systembenutzer. Ohne `--config` findet
+`sudo -u kephalaion kephalaion …` die globale config selbst.
+
+```sh
+K="sudo -u kephalaion kephalaion"
+
+# Trägt dieser Rechner auch den Hub: Transport local, der Node legt sich am Hub selbst an.
+$K node hub add team --node server --transport local --create
+$K hub collection add wissen
+$K hub node grant server wissen
+$K node collection add team:wissen
+
+# Je User ein Account; das Einrichtungstoken zeigt der Hub genau einmal.
+$K hub account add alice --user alice
+$K hub account grant alice wissen --write
+
+# Erstes rotate als Systembenutzer, über eine Datei nur für ihn …
+DIR="$(sudo -u kephalaion mktemp -d)"
+sudo -u kephalaion sh -c "umask 077; cat > $DIR/alice.token"   # Einrichtungstoken einfügen, Enter, Strg-D
+$K node account rotate team alice --token-file "$DIR/alice.token"
+# … und das neue Token dem User übergeben, am üblichen Ort.
+sudo -u alice install -d -m 0700 ~alice/.config/kephalaion/tokens/team
+sudo install -o alice -g alice -m 0600 "$DIR/alice.token" ~alice/.config/kephalaion/tokens/team/alice.token
+sudo rm -r "$DIR"
+```
+
+Liegt der Hub auf einem anderen Rechner, trägt `node hub add` ihn mit Transport und Token des
+Nodes ein (README, „Hub und Node auf einem Rechner“); das Token kommt über
+`--token-stdin`, nie als Argument.
+
+### Verwalten
+
+Verwaltet wird als Systembenutzer: `sudo -u kephalaion kephalaion status`, `… hub account
+…`, `… config set node sync_interval 1m` usw. Ein anderer User sieht mit `kephalaion
+status` die globale config (`Quelle: global`), den Zustand der System-Unit und, statt eines
+Fehlers an der Datenbank, den Hinweis auf die globale Installation (Exit-Code 0).
+`kephalaion init` und `kephalaion service install` brechen für ihn ab.
+
+Die User melden sich am Node wie pro User an: je Hub ein Header-Paar
+(`X-Keph-Account-<hub>`, `X-Keph-Token-<hub>`) an `http://127.0.0.1:7433/mcp`, siehe README,
+„serve und MCP“.
+
+## Upgrade: was Kephalaion meldet
+
+`kephalaion upgrade --check` fragt GitHub nach dem neuesten Release und meldet, ob es eine
+neuere Version gibt, ob sich **dieses** Binary selbst ersetzen kann (Schreibrecht im
+Verzeichnis, geprüft mit einer Probedatei wie beim Ersetzen) und den Weg:
+
+| `method` | wann | Weg (`command`) |
+|---|---|---|
+| `self` | Schreibrecht | `kephalaion upgrade` |
+| `explicit` | Schreibrecht, dev build | `kephalaion upgrade --version vX.Y.Z` |
+| `admin` | kein Schreibrecht, die globale config gilt | `sudo kephalaion upgrade && sudo systemctl restart kephalaion` — oder über Ansible (Version anheben) |
+| `manual` | kein Schreibrecht, sonst | — (wer im Verzeichnis schreiben darf) |
+
+`kephalaion upgrade --check --json` gibt dasselbe als JSON aus, für k-playbook und Skripte:
+
+```json
+{
+  "state": "ok",
+  "checked_at": "2026-09-26T08:00:00Z",
+  "version": "v0.1.1",
+  "dev_build": false,
+  "latest": "v0.2.0",
+  "update_available": true,
+  "self_upgrade": false,
+  "method": "admin",
+  "command": "sudo kephalaion upgrade && sudo systemctl restart kephalaion",
+  "hint": "globale Installation — das Upgrade macht der Verwalter: über Ansible (Version anheben) oder sudo kephalaion upgrade && sudo systemctl restart kephalaion"
+}
+```
+
+| Feld | Bedeutung |
+|---|---|
+| `state` | `ok` (GitHub hat geantwortet), `failed` (Frage gescheitert, Grund in `error`), `unchecked` (noch nicht gefragt; nur in `whoami` von `serve`) |
+| `error` | Grund, wenn `state` nicht `ok` ist |
+| `checked_at` | Zeitpunkt der Frage, RFC 3339, UTC |
+| `version`, `dev_build` | installierte Version; `dev_build` für ein selbst gebautes Binary |
+| `latest`, `update_available` | neuestes Release ohne Suffix und ob es neuer ist — nur bei `ok`; bei einem dev build ist `update_available` nie gesetzt |
+| `self_upgrade` | ob dieses Binary sich selbst ersetzen kann |
+| `method`, `command`, `hint` | der Weg (Tabelle oben), als Befehl und als Satz |
+
+Exit-Code von `upgrade --check` (mit und ohne `--json`): 0, wenn GitHub geantwortet hat —
+gleich, ob es eine neue Version gibt —; 1, wenn die Frage scheitert (kein Netz, Rate-Limit,
+kein Release; mit `--json` steht der Grund auch im JSON); 2 bei falschem Aufruf. `upgrade`
+ohne `--check`: 0 erledigt, 1 gescheitert (das Binary bleibt unverändert), 2 falscher Aufruf.
+Ohne Schreibrecht bricht `upgrade` vor dem Download ab und nennt den Weg.
+
+**Über MCP:** Das Werkzeug `whoami` des Nodes trägt dieselben Angaben im Feld `update`, aus
+Sicht des `serve`-Prozesses — global also der Weg des Verwalters. `serve` fragt GitHub beim
+Start und danach höchstens einmal am Tag, nach einem Fehler frühestens nach einer Stunde, und
+merkt sich die Antwort; `whoami` fragt GitHub nie. Ohne Anmeldung erlaubt die GitHub-API 60
+Anfragen je Stunde und Adresse, geteilt von allen Usern eines Rechners. Ersetzen kann das
+Binary über MCP niemand.
+
+**Global** kann ein User nicht upgraden. Der Verwalter hebt die Version in Ansible an (das
+Playbook lädt das neue Binary und startet den Dienst neu) oder ruft
+`sudo kephalaion upgrade && sudo systemctl restart kephalaion`.
+
+## Ohne systemd
+
+Auf Systemen ohne systemd (Alpine mit OpenRC, schlanke Container, WSL ohne `systemd=true`)
+richtet Kephalaion keinen Dienst ein; `service install` bricht mit dem Hinweis ab. Ein eigener
+Supervisor startet dann
+
+```sh
+kephalaion serve                                   # pro User
+KEPHALAION_CONFIG=/etc/kephalaion/config.yaml kephalaion serve   # global, als Systembenutzer kephalaion
+```
+
+`serve` läuft im Vordergrund, schreibt sein Log nach stderr und endet mit SIGINT oder SIGTERM;
+eigene Dateien für andere Supervisoren gibt es nicht. `kephalaion status` zeigt dann
+`Dienst: ohne systemd` — kein Fehler.
+
+## Für Automatisierung (Ansible, KI)
+
+Feste Angaben, die sich nicht ohne Hinweis im Release ändern:
+
+| Angabe | Wert |
+|---|---|
+| Binary eines Releases | `https://github.com/kephalaion/kephalaion/releases/download/<tag>/kephalaion-<os>-<arch>` |
+| Prüfsummen | `https://github.com/kephalaion/kephalaion/releases/download/<tag>/SHA256SUMS` (Format von `sha256sum`) |
+| neuestes Release | `https://github.com/kephalaion/kephalaion/releases/latest` (Weiterleitung auf `…/tag/<tag>`), API `https://api.github.com/repos/kephalaion/kephalaion/releases/latest` |
+| `<tag>` | `vX.Y.Z`; mit Suffix (`-rc1`) eine Vorabversion, nie `latest` |
+| `<os>` | `linux` (global nur `linux`), `darwin` |
+| `<arch>` | `amd64` (aus `x86_64`), `arm64` (aus `aarch64`) — `ansible_architecture` bzw. `uname -m` |
+| Binary | `/usr/local/bin/kephalaion`, `root:root`, `0755` |
+| Systembenutzer | `kephalaion`, `--system`, eigene Gruppe, Home `/var/lib/kephalaion`, Shell `/usr/sbin/nologin` |
+| config | `/etc/kephalaion/config.yaml`, `0644`; Verzeichnis `/etc/kephalaion/`, `kephalaion:kephalaion`, `0755` |
+| Daten | `/var/lib/kephalaion/` (`node.db`, `hub.db`, `replicas/`), `kephalaion:kephalaion`, `0700` |
+| Unit | `/etc/systemd/system/kephalaion.service`, Inhalt aus `kephalaion service unit --system`, `0644` |
+| Ports | Node `127.0.0.1:7433` (MCP unter `/mcp`), Hub `127.0.0.1:7434` |
+
+Reihenfolge und Regeln:
+
+1. Binary laden, gegen `SHA256SUMS` prüfen, ablegen. Ändert sich das Binary, danach den Dienst
+   neu starten.
+2. Systembenutzer, dann die Verzeichnisse mit ihren Rechten.
+3. `init` als Systembenutzer, **nur wenn die Datenbank fehlt** (`creates:`); immer mit
+   `--config /etc/kephalaion/config.yaml` und `--db sqlite:///var/lib/kephalaion/<rolle>.db`.
+   `init` überschreibt nie und bricht ab, wenn es die Rolle schon gibt.
+4. Unit aus `kephalaion service unit --system` ablegen, `daemon-reload`, einschalten und
+   starten. Ändert sich die Unit, neu starten.
+5. **Kein Token.** Hub-Einträge des Nodes und das erste `rotate` der Accounts richtet der
+   Verwalter von Hand ein (oben); die Tokens der User gehören den Usern bzw. k-playbook.
+
+Alle Schritte sind wiederholbar: Ein zweiter Lauf ändert nichts, solange Version und Unit
+gleich bleiben.
+
+### Beispiel mit Ansible
+
+```yaml
+- name: Kephalaion global installieren
+  hosts: kephalaion
+  become: true
+  vars:
+    kephalaion_version: v0.2.0
+    kephalaion_hub: false          # true, wenn dieser Rechner auch den Hub trägt
+    kephalaion_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
+    kephalaion_base: "https://github.com/kephalaion/kephalaion/releases/download/{{ kephalaion_version }}"
+  tasks:
+    - name: Binary laden und gegen SHA256SUMS prüfen
+      ansible.builtin.get_url:
+        url: "{{ kephalaion_base }}/kephalaion-linux-{{ kephalaion_arch }}"
+        checksum: "sha256:{{ kephalaion_base }}/SHA256SUMS"
+        dest: /usr/local/bin/kephalaion
+        owner: root
+        group: root
+        mode: "0755"
+      notify: kephalaion neu starten
+
+    - name: Systembenutzer
+      ansible.builtin.user:
+        name: kephalaion
+        system: true
+        home: /var/lib/kephalaion
+        create_home: false
+        shell: /usr/sbin/nologin
+
+    - name: Verzeichnis der config
+      ansible.builtin.file:
+        path: /etc/kephalaion
+        state: directory
+        owner: kephalaion
+        group: kephalaion
+        mode: "0755"
+
+    - name: Datenverzeichnis
+      ansible.builtin.file:
+        path: /var/lib/kephalaion
+        state: directory
+        owner: kephalaion
+        group: kephalaion
+        mode: "0700"
+
+    - name: Node einrichten, wenn die Datenbank fehlt
+      ansible.builtin.command:
+        argv: [/usr/local/bin/kephalaion, node, init, --config, /etc/kephalaion/config.yaml,
+               --db, "sqlite:///var/lib/kephalaion/node.db"]
+        creates: /var/lib/kephalaion/node.db
+      become_user: kephalaion
+
+    - name: Hub einrichten, wenn gewünscht und die Datenbank fehlt
+      ansible.builtin.command:
+        argv: [/usr/local/bin/kephalaion, hub, init, --config, /etc/kephalaion/config.yaml,
+               --db, "sqlite:///var/lib/kephalaion/hub.db"]
+        creates: /var/lib/kephalaion/hub.db
+      become_user: kephalaion
+      when: kephalaion_hub | bool
+
+    - name: System-Unit aus dem Binary erzeugen
+      ansible.builtin.command:
+        argv: [/usr/local/bin/kephalaion, service, unit, --system]
+      register: kephalaion_unit
+      changed_when: false
+
+    - name: System-Unit ablegen
+      ansible.builtin.copy:
+        content: "{{ kephalaion_unit.stdout }}\n"
+        dest: /etc/systemd/system/kephalaion.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: kephalaion neu starten
+
+    - name: Dienst einschalten und starten
+      ansible.builtin.systemd:
+        name: kephalaion
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: service
+
+  handlers:
+    - name: kephalaion neu starten
+      ansible.builtin.systemd:
+        name: kephalaion
+        state: restarted
+        daemon_reload: true
+      tags: service
+```
+
+`get_url` lädt nur, wenn sich die Prüfsumme ändert; mit einer URL als `checksum` sucht das
+Modul die Zeile zum Namen des Assets in `SHA256SUMS` selbst heraus. `become_user` braucht auf
+dem Rechner `sudo`. Die Aufgaben mit systemd tragen das Tag `service`; ohne systemd (etwa in
+einem Test-Container) lassen sie sich mit `--skip-tags service` übergehen. Ein Upgrade ist
+ein Lauf mit neuer `kephalaion_version`: neues Binary, der Handler startet den Dienst neu.

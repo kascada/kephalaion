@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt; Task 009 Etappen 1–5 erledigt)
+Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt; Task 009 Etappen 1–5 erledigt; Task 011 Etappen 1–6 erledigt)
 
 ## So wird diese Datei aktualisiert
 
@@ -84,6 +84,19 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   `changes`. „Collection einbinden“ (0.0.2) im echten VS Code geprüft, Inhalte (0.0.3) nur
   gegen den Node mit Ersatz für `vscode` (`docs/vscode.md`, „Umsetzung“; README „VS Code“).
 
+- **Task 011 — Installation pro User und global** (2026-09-26, Etappen 1–6):
+  - config-Suche `--config` > `KEPHALAION_CONFIG` > User > `/etc/kephalaion/config.yaml` > Ort
+    des Users; `status` zeigt Quelle und Dienst, meldet zwei Arten (Exit 1), global ohne
+    Leserecht nur Hinweis (Exit 0); `init` bricht neben der globalen config ab;
+  - `service install|uninstall|status|unit [--system]` (`internal/service`): Benutzer-Unit
+    bzw. LaunchAgent `io.github.kephalaion`, System-Unit gehärtet mit `StateDirectoryMode=0700`;
+    Abbruch bei `serve` von Hand, ohne systemd, neben globaler config; Hinweise Linger, WSL;
+  - `upgrade --check [--json]` mit Schreibrecht und Weg (`self`, `explicit`, `admin`,
+    `manual`), Abbruch vor dem Download, Neustart des Dienstes; `make dev-install` ebenso;
+  - `serve` fragt höchstens einmal am Tag, `whoami` zeigt `update`;
+  - CI-Job auf macOS (LaunchAgent mit `plutil`, `install.sh`); `docs/installation.md` mit
+    Ansible-Beispiel (`konzept.md`, „Installation und Betrieb“).
+
 ## In Arbeit
 
 - **Task 004, Etappe 5 — CLI und status am Node** (uncommittete Änderungen im Arbeitsbaum):
@@ -129,8 +142,8 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     `create_numbered`), Fehlercodes „Name vergeben“, Revision als Vorbedingung;
   - Stufe 3: `append`, `replace_section`, `rename`, `supersede`, `replace_directory`;
   - Transporte `https` und `ssh`; Hub außerhalb von Loopback;
-  - Einrichtung als Dienst (systemd `--user`, launchd), Neustart nach `upgrade`;
-  - Lauschen auf der Docker-Bridge für Devcontainer;
+  - Lauschen auf der Docker-Bridge für Devcontainer — die globale Installation erreichen bis
+    dahin nur User auf dem Rechner selbst (Task 011);
   - PostgreSQL-Umsetzung des Hub-Stores (DDL, `BIGINT`);
   - Migrationsrahmen, sobald Daten bleiben müssen;
   - Kommando für eine neue `hub_id` nach Wiederherstellung aus einer Sicherung;
@@ -157,7 +170,8 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     besprechen (Ausführung, Restrisiken).
 - **`TestBackgroundSync` wackelt in CI:** scheiterte auf `dev` (a92d9e1, nur Task-Dateien
   geändert) mit „wartet vergeblich auf: Logzeilen“; `release` verlangt grüne CI auf `dev`
-  (Task 010, Etappe 2).
+  (Task 010, Etappe 2). Auf macOS öfter: im Lauf 36259254294 zwei von drei Versuchen rot
+  (Befund `material/befunde/ci-macos.md`); behebt Task 013.
 - **Kleinere Punkte aus Reviews (Task 003):**
   - `node hub add` prüft Transportregeln erst nach der Token-Eingabe;
   - `parseFlags`: Flag-Wert `--` gilt als Ende der Optionen;
@@ -178,7 +192,9 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
 - **Erster Security-PR von Dependabot** gegen `main`: lokal nach `dev` holen und prüfen, ob
   GitHub ihn nach dem Release als gemergt markiert — auch wenn Dependabot den Branch rebased
   (Task 010, Review-Punkt 5, vertagt).
-- **macOS:** Installation und `upgrade` nie echt getestet (Task 001, Intent-Alignment).
+- **macOS:** `install.sh` und der LaunchAgent (`plutil -lint`) laufen in CI (Task 011);
+  `service install` mit `launchctl` und `upgrade` nie echt auf einem Mac getestet (Task 001,
+  Intent-Alignment; Task 011).
 - **`upgrade`-Abbruch:** nur per httptest belegt, nicht durch einen echten Abbruch.
 - **PostgreSQL:** Tauglichkeit der Hub-Abfragen nur per Check auf verbotene Konstrukte;
   Eindeutigkeit bei gleichzeitigen Schreibern liefert dort rohe Treiberfehler (Task 003).
@@ -188,6 +204,8 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
 
 ## Zu besprechen
 
+- **Tägliche Frage nach einem Update abschaltbar?** (ohne Netz, Datenschutz; `konzept.md`,
+  „Offene Punkte“, Node als Dienst).
 - **Name:** TMview-Recherche (griechische nationale Marken, wegen Kefalaio). Marke erst bei Entscheidung zur Vermarktung (siehe Konzept, „Der Name“).
 - **Release-Signatur** statt nur `SHA256SUMS` (cosign/minisign/Attestations) — wann?
 - **Welcher entfernte Transport zuerst:** `https` oder `ssh`?
