@@ -194,7 +194,7 @@ path_hint() {
 next_steps() {
 	say ""
 	say "Nächste Schritte (docs/installation.md):"
-	say "  kephalaion node init          Rollen einrichten, siehe README, „Einrichten“"
+	say "  kephalaion node init          Rollen einrichten, siehe README (Einrichten)"
 	say "  kephalaion service install    den Dienst einrichten, der kephalaion serve startet"
 	say "                                (systemd --user bzw. LaunchAgent)"
 }
