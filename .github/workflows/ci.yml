@@ -5,21 +5,54 @@ name: CI
 # Make-Targets wie lokal —, dazu dieselben Prüfungen auf macOS samt
 # LaunchAgent und install.sh (derzeit abgeschaltet, siehe Job macos). Der Lauf
 # ändert nichts und veröffentlicht nichts.
+#
+# Zwei Suiten: quick (make check-quick, ohne die langsamen Tests) nur für
+# einen Push auf dev — dev ist Zwischenspeicher und soll schnell durch —,
+# full (make check) für einen Push auf main und jeden Pull Request. Von Hand
+# wählt der Input suite, Vorgabe full. Der Name des Laufs (run-name) nennt die
+# Suite, von Hand auch die Kennung: release sucht darüber den vollständigen
+# Lauf auf dev für HEAD und stößt ihn bei Bedarf selbst an.
 
 on:
   # Push nur für main und dev: andere Branches kommen als Pull Request. Mit
   # "**" liefen Dependabot-Branches bisher doppelt, einmal für den Push und
   # einmal für den PR. Tags laufen nicht hier, sondern durch release.yml, das
-  # selbst prüft; release verlangt einen grünen Lauf auf dev.
+  # selbst prüft; release verlangt einen grünen vollständigen Lauf auf dev.
   push:
     branches:
       - main
       - dev
   pull_request:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: "quick (make check-quick) oder full (make check)"
+        type: choice
+        options:
+          - full
+          - quick
+        default: full
+      kennung:
+        description: "Frei, erscheint im Namen des Laufs; release setzt sie, um seinen Lauf wiederzufinden"
+        type: string
+        required: false
+        default: ""
+
+# Etwa "CI full, push main", "CI quick, push dev" oder
+# "CI full, workflow_dispatch dev, kennung release-…". Der Ausdruck für die
+# Suite steht hier und in env gleich: run-name kennt kein env.
+run-name: >-
+  ${{ format('CI {0}, {1} {2}{3}',
+  (github.event_name == 'workflow_dispatch' && inputs.suite) || (github.event_name == 'push' && github.ref == 'refs/heads/dev' && 'quick') || 'full',
+  github.event_name,
+  github.head_ref || github.ref_name,
+  inputs.kennung && format(', kennung {0}', inputs.kennung) || '') }}
 
 permissions:
   contents: read
+
+env:
+  SUITE: ${{ (github.event_name == 'workflow_dispatch' && inputs.suite) || (github.event_name == 'push' && github.ref == 'refs/heads/dev' && 'quick') || 'full' }}
 
 jobs:
   check:
@@ -53,8 +86,15 @@ jobs:
       - name: Toolchain prüfen
         run: make check-toolchain
 
-      - name: make check
-        run: make check
+      # full: make check, quick: make check-quick (go test -short).
+      - name: Prüfen (${{ env.SUITE }})
+        run: |
+          set -eu
+          case "$SUITE" in
+            full) make check ;;
+            quick) make check-quick ;;
+            *) echo "Unbekannte Suite: $SUITE (erwartet full oder quick)" >&2; exit 1 ;;
+          esac
 
       - name: make dist
         run: make dist
@@ -74,11 +114,12 @@ jobs:
   # Runner teilen sich Adressen und damit das Rate-Limit ohne Anmeldung.
   #
   # ABGESCHALTET seit 2026-09-26, auf Wunsch des Nutzers: Auf dem macOS-Runner
-  # scheitert TestBackgroundSync fast immer an der bekannten Race-Condition
-  # (Task 013); der Job wird so schnell nicht gebraucht. Er lief, einzig dieser
-  # Test scheiterte (Läufe 36260080975, 36260519391). Die Definition bleibt,
-  # damit Dependabot die gepinnten Actions weiter pflegt; ein übersprungener
-  # Job lässt den Lauf grün. Später wieder einschalten: if: false entfernen.
+  # scheiterte TestBackgroundSync fast immer an einer Race-Condition im Test
+  # (Läufe 36260080975, 36260519391). Task 013 hat sie behoben; der Job bleibt
+  # trotzdem vorerst aus, er wird so schnell nicht gebraucht. Die Definition
+  # bleibt, damit Dependabot die gepinnten Actions weiter pflegt; ein
+  # übersprungener Job lässt den Lauf grün. Er prüft mit derselben Suite wie
+  # der Job check. Wieder einschalten: if: false entfernen.
   macos:
     if: false
     runs-on: macos-latest
@@ -106,8 +147,14 @@ jobs:
       - name: Toolchain prüfen
         run: make check-toolchain
 
-      - name: make check
-        run: make check
+      - name: Prüfen (${{ env.SUITE }})
+        run: |
+          set -eu
+          case "$SUITE" in
+            full) make check ;;
+            quick) make check-quick ;;
+            *) echo "Unbekannte Suite: $SUITE (erwartet full oder quick)" >&2; exit 1 ;;
+          esac
 
       - name: make dist-host
         run: make dist-host
