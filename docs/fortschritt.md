@@ -78,6 +78,10 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     (`generation`) und Collection, `reset`, `dropped`, `since`;
   - `generation` in `db_info` der Replica (Replica-Schema 4); Durchlauf über `serve`
     (`konzept.md`, „Allgemein — lesen“).
+- **VS-Code-Erweiterung, Stufe `whoami`** (2026-09-26, ohne Task): `vscode/`, reines
+  JavaScript; Statusleiste und Menü aus `whoami`, Adresse aus `listen`, Tokens aus
+  `tokens/<hub>/<account>.token`; „Collection einbinden“ im echten VS Code geprüft. Inhalte
+  über `list`/`read` fehlen noch (`docs/vscode.md`, README „VS Code“).
 
 ## In Arbeit
 
@@ -89,6 +93,12 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     `run()` (import → sync → list/get → rm → sync).
 
 ## Zu tun
+
+- **VS-Code-Erweiterung in die Installation:** heute nur aus `vscode/` von Hand gebaut und
+  mit `code --install-extension` installiert. Gehört ins gemeinsame Release und in die
+  Installation — als Asset `.vsix` oder ins Binary eingebettet (`kephalaion vscode install`),
+  dazu `upgrade`; Node.js und `vsce` in der CI (`docs/vscode.md`, „Ein Repository, ein
+  Release“; Task 011).
 
 - **Task 004, Etappe 6 — Doku:** README (einspielen, abgleichen), `begriffe.md`,
   `k-playbook-local/k-playbook.md` (Vertrag, Replica), `konzept.md` nachziehen: Rolle

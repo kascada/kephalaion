@@ -21,7 +21,8 @@ seine Replica ab (`node sync`) und zeigt sie an (`node doc`), über `transport l
 `http` auf diesem Rechner. `kephalaion serve` lauscht je Rolle: der Hub für Nodes, der Node als
 MCP-Server für Clients mit den Werkzeugen `whoami`, `list`, `read` und `changes` — gelesen
 wird aus der Replica, ohne Netz —, und gleicht als Node im Hintergrund ab. Accounts tauschen
-ihr Token am Node (`node account rotate`); `node whoami` zeigt, wen der Node kennt. Noch nicht
+ihr Token am Node (`node account rotate`); `node whoami` zeigt, wen der Node kennt. Eine
+Erweiterung für VS Code zeigt den Stand des Nodes und bindet Collections als Ordner ein. Noch nicht
 gebaut: `https` und `ssh`, Suche, Schreiben über MCP, weitere Werkzeuge.
 
 ## Was gebraucht wird (grob)
@@ -428,6 +429,36 @@ Aliase, die im Export fehlen. Die Regeln des Abgleichs stehen in
 rm|add` und `config import`: Jede Seite prüft in ihrer Transaktion, dass die Replica noch zu
 Eintrag (`entry_id`), `hub_id` und Stand passt, und schreibt sonst nichts. Ein Abgleich für
 einen inzwischen entfernten oder neu angelegten Eintrag schreibt nie in den neuen.
+
+## VS Code
+
+Die Erweiterung unter [`vscode/`](vscode/) zeigt Collections als Ordner im Explorer
+(`keph://<hub>/<collection>/…`) und den Stand des Nodes in der Statusleiste. Sie spricht mit
+dem Node über MCP wie jeder andere Client. Hintergrund: [`docs/vscode.md`](docs/vscode.md).
+
+Noch nicht Teil der Installation; bis dahin aus dem Repository bauen, ohne Marketplace. Unter
+WSL aus einem Terminal der WSL — dann landet sie im VS-Code-Server der WSL, wo sie laufen
+muss (`extensionKind: workspace`):
+
+```sh
+cd vscode && npx --yes @vscode/vsce package --skip-license
+code --install-extension kephalaion-0.0.2.vsix
+```
+
+Danach „Developer: Reload Window“.
+
+- **Einrichtung braucht sie keine.** Die Adresse des Nodes liest sie aus `listen` im
+  Abschnitt `node:` der config (Einstellung `kephalaion.nodeUrl` zum Überschreiben), Account
+  und Token aus `~/.config/kephalaion/tokens/<hub>/<account>.token` — das Verzeichnis ist der
+  Alias des Hubs, der Dateiname der Account.
+- **Statusleiste:** `Keph <hub>`, der Tooltip zeigt, was `whoami` liefert — Version, je Hub
+  Anmeldung, Account, User, Collections mit Rechten und Stand des Abgleichs. Gelb, wenn der
+  Node nicht erreichbar ist oder eine Anmeldung nicht gilt; abgefragt alle 30 s.
+- **Menü** per Klick auf die Statusleiste: neu verbinden, Collection einbinden, Log (Output
+  „Kephalaion“).
+- **„Kephalaion: Collection einbinden“** bietet die lesbaren Collections zur Auswahl an und
+  fügt die gewählte als Ordner in den Workspace ein. Nur lesen; der Inhalt der Ordner kommt
+  mit `list` und `read`.
 
 ## Bauen
 
