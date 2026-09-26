@@ -140,6 +140,16 @@ was veröffentlicht wird, ist trotzdem vollständig geprüft, bevor `main` sich 
   (langsame Log-Tests laufen nur noch im vollständigen Lauf); der Unit-Test der
   Log-Zustandsmaschine mit gefälschtem Connector bleibt als offener Rest stehen.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — Race-Condition in TestBackgroundSync | offen | | |
+| 2 — Aufteilung über -short | offen | | |
+| 3 — CI je Branch | offen | | |
+| 4 — release verlangt den vollständigen Lauf | offen | | |
+| 5 — Doku | offen | | |
+
 ---
 ## Review-Log (2026-09-26)
 
