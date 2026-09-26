@@ -285,6 +285,18 @@ Ansible, und erfährt jederzeit, ob es eine neue Version gibt und wie er sie bek
 - **macOS:** Job in CI grün.
 - Container danach entfernen.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — config finden, nie zwei Arten | erledigt | 2026-09-26 | `config.Locate` (Flag > Umgebung > User, wenn vorhanden > global, wenn vorhanden > Ort des Users) mit Quelle; `init` ohne ausdrücklichen Ort bricht neben der globalen config ab; `status` zeigt Quelle, meldet zwei Arten (Exit 1), bei globaler config ohne Leserecht Hinweis statt Fehler (Exit 0) |
+| 2 — Dienst | offen | | |
+| 3 — Upgrade: prüfen, melden, neu starten | offen | | |
+| 4 — Update-Hinweis über MCP | offen | | |
+| 5 — macOS in CI | offen | | |
+| 6 — Doku | offen | | |
+| 7 — Durchlauf | offen | | |
+
 ---
 ## Review-Log (2026-09-26)
 

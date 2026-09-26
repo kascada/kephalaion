@@ -2,9 +2,27 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kephalaion/kephalaion/internal/config"
 )
+
+// TestMain hält die Tests vom Rechner fern: Die globale config liegt in einem
+// leeren temporären Verzeichnis, damit eine echte /etc/kephalaion/config.yaml
+// keinen Test verändert.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "kephalaion-test-")
+	if err != nil {
+		panic(err)
+	}
+	config.SystemPath = filepath.Join(dir, "etc", "kephalaion", "config.yaml")
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestRunHelpAndVersion(t *testing.T) {
 	cases := []struct {

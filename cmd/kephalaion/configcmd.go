@@ -93,17 +93,18 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 	if _, code, ok := parseFlags(fs, args, configShowUsage, 0, stderr); !ok {
 		return code
 	}
-	cfgPath, err := config.Path(*cfgFlag)
+	loc, err := config.Locate(*cfgFlag)
 	if err != nil {
 		fmt.Fprintf(stderr, "config show: %v\n", err)
 		return 1
 	}
+	cfgPath := loc.Path
 	cfg, exists, err := config.Load(cfgPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "config show: %v\n", err)
 		return 1
 	}
-	printConfigLine(stdout, cfgPath, exists)
+	printConfigLine(stdout, loc, exists)
 	if exists {
 		data, err := os.ReadFile(cfgPath)
 		if err != nil {

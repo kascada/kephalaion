@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -247,7 +248,22 @@ Optionen:
   --config pfad       Ort der config; sonst $KEPHALAION_CONFIG,
                       $XDG_CONFIG_HOME/kephalaion/config.yaml bzw.
                       ~/.config/kephalaion/config.yaml
-`, r, config.DefaultListen(r))
+
+Ohne --config und ohne KEPHALAION_CONFIG richtet init nur pro User ein: Gibt
+es die globale config %[3]s, bricht es ab — Kephalaion ist
+dann global eingerichtet und wird als Systembenutzer %[4]s verwaltet.
+
+Gefunden wird die config sonst in dieser Reihenfolge: --config,
+KEPHALAION_CONFIG, die config des Users, wenn es sie gibt, die globale, wenn es
+sie gibt, sonst der Ort des Users (dort legt init sie an).
+`, r, config.DefaultListen(r), config.SystemPath, config.SystemUser)
+}
+
+// systemInitHint ist der Weg, eine Rolle der globalen Installation
+// einzurichten: als Systembenutzer, mit --config und --db.
+func systemInitHint(r config.Role) string {
+	return fmt.Sprintf("sudo -u %s kephalaion %s init --config %s --db sqlite://%s/%s.db", config.SystemUser,
+		r, config.SystemPath, config.SystemDataDir, r)
 }
 
 func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
@@ -267,10 +283,19 @@ func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
 		return fail("%v", err)
 	}
 
-	cfgPath, err := config.Path(*cfgFlag)
+	loc, err := config.Locate(*cfgFlag)
 	if err != nil {
 		return fail("%v", err)
 	}
+	// Ohne ausdrücklichen Ort richtet init nur pro User ein: Neben einer
+	// globalen Installation gibt es keine zweite (dieselben Ports, und ein
+	// Client wüsste nicht, welchen Node er meint).
+	if !loc.Explicit() && loc.SystemExists {
+		return fail("Kephalaion ist auf diesem Rechner global eingerichtet (%s); eine Installation pro User gibt es "+
+			"daneben nicht. Verwaltet wird als Systembenutzer %s, etwa:\n  %s", config.SystemPath, config.SystemUser,
+			systemInitHint(r))
+	}
+	cfgPath := loc.Path
 	cfg, _, err := config.Load(cfgPath)
 	if err != nil {
 		return fail("%v", err)
@@ -314,21 +339,45 @@ func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "  Datenbank: %s (Schemafassung %d)\n", addr.Path, version)
 	fmt.Fprintf(stdout, "  config:    %s (Abschnitt %s:)\n", cfgPath, r)
 	fmt.Fprintf(stdout, "  listen:    %s (kephalaion serve lauscht dort)\n", *listenFlag)
+	fmt.Fprintf(stdout, "Nächster Schritt: %s\n", nextStepAfterInit(loc))
 	return 0
+}
+
+// nextStepAfterInit nennt nach init den Dienst: pro User service install,
+// global die System-Unit.
+func nextStepAfterInit(loc config.Location) string {
+	if loc.System() {
+		return "System-Unit ablegen: kephalaion service unit --system (siehe docs/installation.md)"
+	}
+	step := "Dienst einrichten: kephalaion service install"
+	if loc.Source == config.FromFlag {
+		step += " --config " + loc.Path
+	}
+	return step
 }
 
 const statusUsage = `Aufruf:
   kephalaion status [--config pfad]
 
-Zeigt, welche Rollen auf diesem Rechner eingerichtet sind, wo ihre Datenbank
+Zeigt, welche config gilt und woher (--config, KEPHALAION_CONFIG, pro User oder
+global), welche Rollen auf diesem Rechner eingerichtet sind, wo ihre Datenbank
 liegt, wo ihr Dienst lauscht, ob kephalaion serve für sie läuft (geprüft an
 der Sperrdatei <db>.lock, ohne zu warten), und ihre Kennzahlen. Am Node steht je Hub
 der Stand des Abgleichs (letzter Erfolg, letzter Fehler — von serve und node
 sync), die hub_id aus seiner Replica und je gewünschter Collection der Stand
 (Revision) und der letzte Abgleich; ohne Replica „noch kein Abgleich“.
-Öffnet die Datenbanken nur, legt nichts an. Der Exit-Code ist nur dann
-ungleich 0, wenn die Datenbank einer eingerichteten Rolle fehlt oder nicht
-passt.
+Öffnet die Datenbanken nur, legt nichts an.
+
+Gilt die globale config und darf der Aufrufer die Datenbanken nicht lesen
+(sie gehören dem Systembenutzer kephalaion), nennt status die globale
+Installation und den Weg, sie zu verwalten, statt eines Fehlers.
+
+Exit-Code:
+  0   alles geprüft; auch bei einer globalen Installation, deren Datenbanken
+      der Aufrufer nicht lesen darf
+  1   die config ist nicht lesbar, die Datenbank einer eingerichteten Rolle
+      fehlt oder passt nicht, oder es gibt die config des Users und die
+      globale nebeneinander (zwei Arten der Installation auf einem Rechner)
 
 Optionen:
   --config pfad   Ort der config (siehe kephalaion hub init --help)
@@ -340,20 +389,26 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if _, code, ok := parseFlags(fs, args, statusUsage, 0, stderr); !ok {
 		return code
 	}
-	cfgPath, err := config.Path(*cfgFlag)
+	loc, err := config.Locate(*cfgFlag)
 	if err != nil {
 		fmt.Fprintf(stderr, "status: %v\n", err)
 		return 1
 	}
-	cfg, exists, err := config.Load(cfgPath)
+	cfg, exists, err := config.Load(loc.Path)
 	if err != nil {
 		fmt.Fprintf(stderr, "status: %v\n", err)
 		return 1
 	}
-	printConfigLine(stdout, cfgPath, exists)
+	printConfigLine(stdout, loc, exists)
 
 	ctx := context.Background()
 	failed := false
+	if loc.BothKinds() {
+		fmt.Fprintf(stdout, "Fehler: zwei Arten der Installation auf diesem Rechner — es gibt die config pro User (%s) "+
+			"und die globale (%s). Weg: die Installation pro User entfernen (docs/installation.md, "+
+			"„Installation pro User entfernen“).\n", loc.UserPath, config.SystemPath)
+		failed = true
+	}
 	for _, r := range config.Roles {
 		fmt.Fprintln(stdout)
 		sec := cfg.Section(r)
@@ -368,6 +423,14 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 			listen += " (Standard, nicht in der config)"
 		}
 		fmt.Fprintf(stdout, "  listen:        %s\n", listen)
+		if loc.System() && systemDBUnreadable(sec) {
+			// Ein anderer User als der Systembenutzer: kein Fehler der
+			// Installation, nur nicht von hier aus prüfbar.
+			fmt.Fprintf(stdout, "  serve:         nicht prüfbar (siehe Dienst)\n")
+			fmt.Fprintf(stdout, "  Hinweis:       globale Installation; die Datenbank gehört dem Systembenutzer %s. "+
+				"Verwaltet wird als dieser, etwa: sudo -u %s kephalaion status\n", config.SystemUser, config.SystemUser)
+			continue
+		}
 		fmt.Fprintf(stdout, "  serve:         %s\n", serveState(sec))
 		if err := printRoleStatus(ctx, stdout, r, sec); err != nil {
 			fmt.Fprintf(stdout, "  Fehler:        %v\n", err)
@@ -384,6 +447,22 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// systemDBUnreadable sagt, ob die Datenbank einer Rolle mangels Rechten nicht
+// erreichbar ist — der Fall eines anderen Users bei einer globalen
+// Installation (/var/lib/kephalaion ist 0700).
+func systemDBUnreadable(sec *config.Section) bool {
+	addr, err := config.ParseDB(sec.DB)
+	if err != nil || addr.Kind != config.SQLite {
+		return false
+	}
+	f, err := os.Open(addr.Path)
+	if err != nil {
+		return errors.Is(err, fs.ErrPermission)
+	}
+	_ = f.Close()
+	return false
 }
 
 // serveState sagt, ob ein serve die Sperre der Rolle hält — geprüft ohne zu
@@ -403,12 +482,33 @@ func serveState(sec *config.Section) string {
 	return "läuft nicht"
 }
 
-func printConfigLine(w io.Writer, path string, exists bool) {
+// printConfigLine zeigt Ort und Quelle der config.
+func printConfigLine(w io.Writer, loc config.Location, exists bool) {
 	state := "vorhanden"
 	if !exists {
 		state = "fehlt"
 	}
-	fmt.Fprintf(w, "config: %s (%s)\n", path, state)
+	fmt.Fprintf(w, "config: %s (%s)\n", loc.Path, state)
+	fmt.Fprintf(w, "Quelle: %s\n", describeSource(loc))
+}
+
+// describeSource sagt, woher der Ort der config kommt.
+func describeSource(loc config.Location) string {
+	var s string
+	switch loc.Source {
+	case config.FromFlag:
+		s = "--config"
+	case config.FromEnv:
+		s = config.EnvConfig
+	case config.FromUser:
+		s = "pro User"
+	case config.FromSystem:
+		s = "global (Installation für alle User, verwaltet als Systembenutzer " + config.SystemUser + ")"
+	}
+	if loc.System() && loc.Source != config.FromSystem {
+		s += ", die globale config"
+	}
+	return s
 }
 
 // printRoleStatus öffnet die Datenbank einer Rolle und gibt ihre Kennzahlen

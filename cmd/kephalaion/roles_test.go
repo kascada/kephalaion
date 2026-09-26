@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kephalaion/kephalaion/internal/config"
 	hubstore "github.com/kephalaion/kephalaion/internal/hub/store"
 )
 
@@ -21,6 +22,9 @@ func isolate(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	t.Setenv("KEPHALAION_CONFIG", "")
+	old := config.SystemPath
+	config.SystemPath = filepath.Join(dir, "etc", "kephalaion", "config.yaml")
+	t.Cleanup(func() { config.SystemPath = old })
 	return dir
 }
 

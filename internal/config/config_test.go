@@ -7,11 +7,32 @@ import (
 	"testing"
 )
 
+// systemAt lenkt die globale config in ein temporäres Verzeichnis und liefert
+// ihren Ort; die Datei gibt es noch nicht.
+func systemAt(t *testing.T) string {
+	t.Helper()
+	old := SystemPath
+	SystemPath = filepath.Join(t.TempDir(), "etc", "kephalaion", "config.yaml")
+	t.Cleanup(func() { SystemPath = old })
+	return SystemPath
+}
+
+func touch(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPathOrder(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(EnvConfig, "")
 	t.Setenv("XDG_CONFIG_HOME", "")
+	systemAt(t)
 
 	check := func(flagValue, want string) {
 		t.Helper()
@@ -41,6 +62,92 @@ func TestPathOrder(t *testing.T) {
 
 	flagPath := filepath.Join(home, "flag.yaml")
 	check(flagPath, flagPath)
+}
+
+// Die Suche Stufe für Stufe, mit Quelle: --config > KEPHALAION_CONFIG > config
+// des Users, wenn es sie gibt > globale, wenn es sie gibt > Ort des Users.
+func TestLocate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(EnvConfig, "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	system := systemAt(t)
+	user := filepath.Join(home, ".config", "kephalaion", "config.yaml")
+
+	check := func(name, flagValue, wantPath string, wantSource Source, wantUser, wantSystem bool) Location {
+		t.Helper()
+		loc, err := Locate(flagValue)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if loc.Path != wantPath || loc.Source != wantSource || loc.UserPath != user ||
+			loc.UserExists != wantUser || loc.SystemExists != wantSystem {
+			t.Fatalf("%s: %+v, erwartet %s aus %s, User %v, global %v", name, loc, wantPath, wantSource, wantUser, wantSystem)
+		}
+		return loc
+	}
+
+	// Beide fehlen: der Ort des Users, dort legt init an.
+	loc := check("beide fehlen", "", user, FromUser, false, false)
+	if loc.System() || loc.Explicit() || loc.BothKinds() {
+		t.Errorf("beide fehlen: %+v", loc)
+	}
+
+	// Nur die globale: sie gilt.
+	touch(t, system)
+	loc = check("nur global", "", system, FromSystem, false, true)
+	if !loc.System() || loc.Explicit() || loc.BothKinds() {
+		t.Errorf("nur global: System %v, Explicit %v, BothKinds %v", loc.System(), loc.Explicit(), loc.BothKinds())
+	}
+
+	// Beide: die des Users gewinnt, zwei Arten sind erkannt.
+	touch(t, user)
+	loc = check("beide", "", user, FromUser, true, true)
+	if loc.System() || !loc.BothKinds() {
+		t.Errorf("beide: System %v, BothKinds %v", loc.System(), loc.BothKinds())
+	}
+
+	// Nur die des Users.
+	if err := os.Remove(system); err != nil {
+		t.Fatal(err)
+	}
+	check("nur User", "", user, FromUser, true, false)
+
+	// KEPHALAION_CONFIG vor der des Users, auch wenn sie auf die globale zeigt.
+	touch(t, system)
+	t.Setenv(EnvConfig, system)
+	loc = check("Umgebung", "", system, FromEnv, true, true)
+	if !loc.System() || !loc.Explicit() {
+		t.Errorf("Umgebung: System %v, Explicit %v", loc.System(), loc.Explicit())
+	}
+
+	// --config vor allem.
+	flagPath := filepath.Join(home, "anders.yaml")
+	loc = check("Flag", flagPath, flagPath, FromFlag, true, true)
+	if loc.System() || !loc.Explicit() {
+		t.Errorf("Flag: System %v, Explicit %v", loc.System(), loc.Explicit())
+	}
+}
+
+// Ohne Heimatverzeichnis findet die Suche die globale config weiter, und
+// --config bzw. KEPHALAION_CONFIG gehen ohne es.
+func TestLocateWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv(EnvConfig, "")
+	system := systemAt(t)
+	if _, err := Locate(""); err == nil {
+		t.Fatal("ohne HOME und ohne globale config hätte Locate scheitern sollen")
+	}
+	touch(t, system)
+	loc, err := Locate("")
+	if err != nil || loc.Source != FromSystem || loc.UserPath != "" {
+		t.Fatalf("globale ohne HOME: %+v, %v", loc, err)
+	}
+	t.Setenv(EnvConfig, system)
+	if loc, err := Locate(""); err != nil || loc.Source != FromEnv {
+		t.Fatalf("Umgebung ohne HOME: %+v, %v", loc, err)
+	}
 }
 
 func TestDataDir(t *testing.T) {

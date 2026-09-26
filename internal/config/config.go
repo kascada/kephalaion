@@ -117,18 +117,142 @@ func (c *Config) Empty() bool {
 	return c.Hub == nil && c.Node == nil
 }
 
-// Path ermittelt den Ort der config: flag > KEPHALAION_CONFIG >
-// $XDG_CONFIG_HOME/kephalaion/config.yaml > ~/.config/kephalaion/config.yaml.
+// SystemPath ist der Ort der globalen config (system installation). Tests
+// lenken ihn in ein temporäres Verzeichnis.
+var SystemPath = "/etc/kephalaion/config.yaml"
+
+// Die festen Angaben der globalen Installation (docs/installation.md).
+const (
+	// SystemUser ist der Systembenutzer, unter dem serve global läuft und als
+	// der verwaltet wird.
+	SystemUser = "kephalaion"
+	// SystemDataDir ist das Verzeichnis der Datenbanken, 0700, gehört
+	// SystemUser.
+	SystemDataDir = "/var/lib/kephalaion"
+	// SystemBinary ist der Ort des Binarys, root, 0755.
+	SystemBinary = "/usr/local/bin/kephalaion"
+)
+
+// Source sagt, woher der Ort der config kommt.
+type Source string
+
+// Die Quellen, in der Reihenfolge der Suche.
+const (
+	// FromFlag: --config.
+	FromFlag Source = "flag"
+	// FromEnv: KEPHALAION_CONFIG.
+	FromEnv Source = "env"
+	// FromUser: die config des Users — weil es sie gibt, oder als Ort, an
+	// dem init sie anlegt, wenn es weder sie noch die globale gibt.
+	FromUser Source = "user"
+	// FromSystem: die globale config, weil es die des Users nicht gibt.
+	FromSystem Source = "system"
+)
+
+// Location ist das Ergebnis der Suche nach der config.
+type Location struct {
+	// Path ist die config, die gilt, als absoluter Pfad.
+	Path   string
+	Source Source
+	// UserPath ist der Ort der config des Users; leer, wenn das
+	// Heimatverzeichnis unbekannt ist.
+	UserPath string
+	// UserExists und SystemExists sagen, ob es die config des Users bzw. die
+	// globale gibt — unabhängig davon, welche gilt.
+	UserExists   bool
+	SystemExists bool
+}
+
+// System sagt, ob die globale config gilt — über die Suche, --config oder
+// KEPHALAION_CONFIG.
+func (l Location) System() bool {
+	return l.Path == filepath.Clean(SystemPath)
+}
+
+// Explicit sagt, ob der Ort ausdrücklich angegeben ist (--config oder
+// KEPHALAION_CONFIG).
+func (l Location) Explicit() bool {
+	return l.Source == FromFlag || l.Source == FromEnv
+}
+
+// BothKinds sagt, ob es die config des Users und die globale nebeneinander
+// gibt: zwei Arten der Installation auf einem Rechner.
+func (l Location) BothKinds() bool {
+	return l.UserExists && l.SystemExists
+}
+
+// Locate sucht die config: --config > KEPHALAION_CONFIG > die config des
+// Users ($XDG_CONFIG_HOME/kephalaion/config.yaml bzw.
+// ~/.config/kephalaion/config.yaml), wenn es sie gibt > die globale
+// (/etc/kephalaion/config.yaml), wenn es sie gibt > der Ort des Users, an dem
+// init sie anlegt. Ob es die beiden Dateien gibt, prüft es in jedem Fall.
+func Locate(flagValue string) (Location, error) {
+	var loc Location
+	userPath, userErr := UserPath()
+	if userErr == nil {
+		loc.UserPath = userPath
+		loc.UserExists = fileExists(userPath)
+	}
+	loc.SystemExists = fileExists(SystemPath)
+	switch {
+	case flagValue != "":
+		p, err := filepath.Abs(flagValue)
+		if err != nil {
+			return Location{}, err
+		}
+		loc.Path, loc.Source = p, FromFlag
+	case os.Getenv(EnvConfig) != "":
+		p, err := filepath.Abs(os.Getenv(EnvConfig))
+		if err != nil {
+			return Location{}, err
+		}
+		loc.Path, loc.Source = p, FromEnv
+	case loc.UserExists:
+		loc.Path, loc.Source = userPath, FromUser
+	case loc.SystemExists:
+		loc.Path, loc.Source = filepath.Clean(SystemPath), FromSystem
+	case userErr != nil:
+		return Location{}, userErr
+	default:
+		loc.Path, loc.Source = userPath, FromUser
+	}
+	return loc, nil
+}
+
+// fileExists sagt, ob es path gibt. Lässt sich das nicht feststellen, etwa
+// mangels Rechten, zählt die Datei als vorhanden: Dann meldet das Lesen den
+// Fehler, statt dass still eine andere config gilt.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !errors.Is(err, fs.ErrNotExist)
+}
+
+// Path ermittelt den Ort der config wie Locate.
 func Path(flagValue string) (string, error) {
-	if flagValue != "" {
-		return filepath.Abs(flagValue)
+	loc, err := Locate(flagValue)
+	if err != nil {
+		return "", err
 	}
-	if v := os.Getenv(EnvConfig); v != "" {
-		return filepath.Abs(v)
-	}
+	return loc.Path, nil
+}
+
+// UserPath ist der Ort der config des Users:
+// $XDG_CONFIG_HOME/kephalaion/config.yaml bzw. ~/.config/kephalaion/config.yaml.
+func UserPath() (string, error) {
 	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" && filepath.IsAbs(v) {
 		return filepath.Join(v, "kephalaion", "config.yaml"), nil
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("Heimatverzeichnis unbekannt: %w", err)
+	}
+	return filepath.Join(home, ".config", "kephalaion", "config.yaml"), nil
+}
+
+// DefaultUserPath ist der Standardort der config des Users ohne
+// XDG_CONFIG_HOME: ~/.config/kephalaion/config.yaml. Dort findet auch ein
+// Dienst sie, dessen Umgebung XDG_CONFIG_HOME nicht kennt.
+func DefaultUserPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("Heimatverzeichnis unbekannt: %w", err)
