@@ -19,3 +19,14 @@ Was der zweite CI-Job auf `macos-latest` (Task 011, Etappe 5) zeigt, das unter L
 **Sackgassen:** Kein anderer Test scheiterte auf macOS; die übrigen Tests der Task 011 laufen dort grün (Pfade des Binarys werden in den Tests aufgelöst, weil macOS `/var` auf `/private/var` verlinkt). Bis Task 013 die Race-Condition behebt, hilft nur `gh run rerun --failed`.
 
 <!-- sitzung: 262d4cab-642d-4b5d-9cf8-ff3d1768a0ab -->
+
+## 2026-09-26 — Auf macOS scheitert TestBackgroundSync in den meisten Versuchen
+
+**Befund:** Über alle Läufe der Task 011 scheiterte der macOS-Job in 13 von 15 Versuchen, jedes Mal nur an `TestBackgroundSync` (`bgsync_test.go:116`); `plutil -lint` und `install.sh` liefen in beiden grünen Versuchen durch, alle übrigen Tests waren in jedem Versuch grün.
+**Beleg:** Läufe 36259139097 (1 Versuch rot), 36259254294 (2 rot, 3. grün), 36260080975 (2 rot), 36260519391 (2 rot), 36260759843 (6 rot); grün 36260980326 (Commit 76b70e0, erster Versuch). `gh run view <id> --log-failed` zeigt jeweils nur `--- FAIL: TestBackgroundSync … wartet vergeblich auf: Logzeilen`.
+**Sicherheit:** bestaetigt
+**Frage:** Ist das noch ein Wackler, den `gh run rerun --failed` überbrückt?
+**Warum es so ist:** Die Race-Condition aus Task 013 (erste Runde gegen `hub doc put`) — auf dem macOS-Runner ist die erste Runde offenbar fast immer langsamer als das `put`. Nicht gemessen.
+**Sackgassen:** Wiederholen hilft auf macOS kaum (2 von 15). Die Änderungen der Task 011 an `serve` (Frage nach Updates beim Start) laufen vor dem `ready` bzw. nebenher; der grüne Versuch in 36259254294 enthielt sie schon — sie sind also nicht die Ursache. Nutzervorgabe (Koordinator, 2026-09-26): CI-Fehler an `TestBackgroundSync` bis Task 013 ignorieren, nicht wiederholen, den Test nicht ändern.
+
+<!-- sitzung: 262d4cab-642d-4b5d-9cf8-ff3d1768a0ab -->
