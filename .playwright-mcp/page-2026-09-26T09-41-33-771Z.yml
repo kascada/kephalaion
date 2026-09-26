@@ -1,4 +1,0 @@
-- generic [ref=f59e6]:
-  - heading "Your connection was interrupted" [level=1] [ref=f59e7]
-  - paragraph [ref=f59e8]: A network change was detected.
-  - generic [ref=f59e9]: ERR_NETWORK_CHANGED

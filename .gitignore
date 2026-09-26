@@ -7,3 +7,6 @@
 
 # Build-Ausgabe von make dist
 /dist/
+
+# Protokolle und Seiten-Snapshots des Playwright-MCP-Servers
+/.playwright-mcp/
