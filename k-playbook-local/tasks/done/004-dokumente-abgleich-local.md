@@ -264,3 +264,100 @@ erlaubter Collections, Anmeldeprüfung auch über local, `listen` ohne `serve`).
 
 ### Offen (nicht gefixt)
 - —
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** Der Hub nimmt Dokumente auf (`hub doc put|get|list|rm`, `hub import`, eine Transaktion und höchstens eine Revision je Schreibvorgang), `listen` steht in der config, der Node meldet sich mit `hubs.node_name` an. Der Abgleich-Vertrag (Fassung 1) steht in `docs/vertrag.md` und im neutralen `internal/contract`, umgesetzt am Hub in `internal/hub/replication` (Seiten an Revisionsgrenzen, H zuerst, Anmeldung in konstanter Zeit); der Node gleicht über `transport local` in `replicas/<alias>.db` ab (`internal/node/replica`, `node sync`, `node doc list|get`, `status`). Doku (README, begriffe, konzept, k-playbook.md) nachgezogen; Commits 7490df8, d469012, 442bacc, ae1b4b7, b30fc00, cb0f731, ffbac30 (Hinweis von `hub node add` nennt `--node`).
+
+**Hinweis:** Während Etappe 1 hat eine parallele Sitzung (Task 005) mit Commit f3ba8c4 einen Zwischenstand von Etappe 1 mitgenommen; erst 7490df8 macht den Stand wieder grün. Der Diff unten ist ohne die Dateien von Task 005 und `docs/fortschritt.md`.
+
+**Geänderte Dateien:**
+```
+ README.md                                    | 139 +++++-
+ cmd/kephalaion/admin_test.go                 |  35 +-
+ cmd/kephalaion/command.go                    |  42 +-
+ cmd/kephalaion/configcmd.go                  |   3 +-
+ cmd/kephalaion/configcmd_test.go             |  14 +-
+ cmd/kephalaion/configimport_test.go          |  44 +-
+ cmd/kephalaion/doccmd.go                     | 305 +++++++++++++
+ cmd/kephalaion/doccmd_test.go                | 122 +++++
+ cmd/kephalaion/exportfile.go                 |  11 +-
+ cmd/kephalaion/hubcmd.go                     |   4 +-
+ cmd/kephalaion/main.go                       |  12 +-
+ cmd/kephalaion/nodecmd.go                    |  35 +-
+ cmd/kephalaion/replica_local_test.go         | 148 +++++++
+ cmd/kephalaion/roles.go                      | 123 +++++-
+ cmd/kephalaion/roles_test.go                 |  35 ++
+ cmd/kephalaion/synccmd.go                    | 279 ++++++++++++
+ cmd/kephalaion/synccmd_test.go               | 161 +++++++
+ docs/begriffe.md                             |  57 ++-
+ docs/konzept.md                              |  64 ++-
+ docs/vertrag.md                              | 127 ++++++
+ internal/config/config.go                    |  72 ++-
+ internal/config/config_test.go               |  59 ++-
+ internal/contract/contract.go                | 154 +++++++
+ internal/contract/contract_test.go           |  77 ++++
+ internal/hub/replication/replication.go      | 176 ++++++++
+ internal/hub/replication/replication_test.go | 405 +++++++++++++++++
+ internal/hub/store/documents.go              | 416 +++++++++++++++++
+ internal/hub/store/documents_test.go         | 366 +++++++++++++++
+ internal/hub/store/store.go                  |  89 +++-
+ internal/hub/store/store_test.go             |   4 +-
+ internal/hub/store/sync.go                   |  77 ++++
+ internal/hub/store/sync_test.go              |  94 ++++
+ internal/ident/ident.go                      | 105 ++++-
+ internal/ident/ident_test.go                 |  80 ++++
+ internal/node/replica/fake_test.go           | 150 +++++++
+ internal/node/replica/replica.go             | 396 +++++++++++++++++
+ internal/node/replica/sync.go                | 398 +++++++++++++++++
+ internal/node/replica/sync_test.go           | 639 +++++++++++++++++++++++++++
+ internal/node/store/hubs.go                  |  92 +++-
+ internal/node/store/hubs_test.go             | 183 +++++++-
+ internal/node/store/store.go                 |  42 +-
+ internal/node/store/store_test.go            |   6 +-
+ internal/separation_test.go                  |  16 +
+ k-playbook-local/k-playbook.md               |  33 +-
+ 44 files changed, 5704 insertions(+), 185 deletions(-)
+```
+
+**Code-Änderungen:** (Diff ~6500 Zeilen, hier zusammengefasst)
+- `internal/config`: `Section.Listen`, `DefaultListen`, `Config.Listen(r)`, `CheckListen` (Host verlangt); `init --listen`, `status` zeigt ihn.
+- `internal/node/store`: Schema 3 mit `hubs.node_name NOT NULL`, `ReplicaPath`, `SetHubID`; `RemoveHub` und `config import` löschen Replicas in der Transaktion. Exportformat 3.
+- `internal/ident`: `CheckDocName` (Pfadregeln, `SYSTEM:` gesperrt), `DocDirPrefix`, `DocAncestors`, `DocChild`.
+- `internal/hub/store/documents.go`: `PutDocument`, `Document`, `Documents`, `DeleteDocument`, `ImportDocuments` über `docTx`/`lazyRevision`; `sync.go`: `SyncRows` (eine OR-Abfrage je Collection, ≤ H, NULL als nil).
+- `internal/contract`: `Hub.Sync`, `SyncRequest`/`SyncResponse`/`Row`, Fehlercodes; `internal/separation_test.go` prüft seine Neutralität.
+- `internal/hub/replication`: Anmeldung, erlaubte Collections, Seitenschnitt. Kern:
+
+```go
+	rows, err = h.st.SyncRows(ctx, since, hubRev, pageSize+1)
+	...
+	if len(rows) <= pageSize {
+		return rows, hubRev, false, nil
+	}
+	last := rows[pageSize-1].Revision
+	if rows[pageSize].Revision != last {
+		return rows[:pageSize], last, true, nil
+	}
+	cut := pageSize
+	for cut > 0 && rows[cut-1].Revision == last {
+		cut--
+	}
+	if cut > 0 {
+		return rows[:cut], rows[cut-1].Revision, true, nil
+	}
+	// Die ganze Seite ist eine Revision, größer als die Seite: sie kommt ganz.
+	rows, err = h.st.SyncRows(ctx, raise(since, last-1), last, 0)
+```
+- `internal/node/replica`: Replica-Store (`Open` legt nie an, `Create` mit `replicas/` 0700, kein eindeutiger Namensindex, `sync_state`) und `Syncer.Sync` (Seite je Transaktion, max(seit, until), Reset bei anderer `hub_id` oder seit > H, Entfernen nicht erlaubter/nicht gewünschter Collections).
+- `cmd/kephalaion`: `doccmd.go` (hub doc, hub import), `synccmd.go` (`node sync`, `node doc`, `localConnector`), `roles.go` (status), Tests über `run()` und mit dem echten Hub über local.
+
+**Code-Review:** (engineering:code-review, nur auf dem Diff) — Urteil: Approve. Nichts blockiert den heutigen SQLite-Stand.
+- Mittel 1: Verzeichnisbereich `name >= 'x/' AND name < 'x0'` setzt Byte-Sortierung voraus; unter PostgreSQL mit Locale-Collation falsch → `COLLATE "C"` oder Präfixvergleich, vor PostgreSQL.
+- Mittel 2: `liveDocument`/`checkPathFree` lesen vor der Sperre der Revision; unter PostgreSQL (READ COMMITTED) können `put a` und `put a/b` parallel durchkommen → `LockRevision` am Anfang von `writeDocs`.
+- Mittel 3: Zwei gleichzeitige `node sync` desselben Eintrags: B kann nach einem Reset von A einen hohen Stand in die leere Replica schreiben → Sperre je Replica oder hub_id/Stand in `apply` neu lesen, vor Cron/`serve`.
+- Vorschläge: Obergrenze je Import (Seite und Speicher unbegrenzt, bekannte Grenze); Symlink als Import-Wurzel meldet still „0 angelegt“; `ident` lässt Cf-Zeichen (Bidi, U+200B) durch, keine NFC-Normalisierung (macOS-Import); `checkResponse` am Node könnte `Until ≤ HubRevision` und Zeilengrenzen prüfen; `invalid` vor `unauthenticated` vor HTTP entscheiden; Tests: große Revision mit anderer Collection `since > last` am echten Hub, `a` und `a/b` im selben Import, zwei Syncer auf einer Replica.
+
+
+**Intent-Alignment:** Ja - Vertrag in `docs/vertrag.md` und neutralem `internal/contract` (Neutralität per Test), Seiten an Revisionsgrenzen, `hub_id`-Prüfung mit Neuabgleich, Entfernen nicht erlaubter bzw. nicht gewünschter Collections, Anmeldeprüfung (Name, Token, Sperre — gesperrt getestet in `replica_local_test.go` und `TestNodeSyncPerEntryErrors`) auch über local, `listen` in der config ohne `serve`.
