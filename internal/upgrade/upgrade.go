@@ -46,7 +46,13 @@ type Upgrader struct {
 	Current buildinfo.Info
 	// Executable liefert den Pfad des zu ersetzenden Binarys.
 	Executable func() (string, error)
-	Out        io.Writer
+	// System sagt, ob die globale config gilt (/etc/kephalaion/config.yaml,
+	// über die Suche oder KEPHALAION_CONFIG): Kann sich das Binary dann nicht
+	// selbst ersetzen, ist der Weg der des Verwalters.
+	System bool
+	// Now liefert die Zeit für Report.CheckedAt.
+	Now func() time.Time
+	Out io.Writer
 }
 
 // New liefert einen Upgrader für dieses Binary und github.com/kephalaion/kephalaion.
@@ -57,6 +63,7 @@ func New(out io.Writer) *Upgrader {
 		Client:     &http.Client{Timeout: 10 * time.Minute},
 		Current:    buildinfo.Get(),
 		Executable: os.Executable,
+		Now:        time.Now,
 		Out:        out,
 	}
 }
@@ -68,109 +75,163 @@ func unchanged(err error) error {
 	return fmt.Errorf("%w\nDas installierte Binary bleibt unverändert.", err)
 }
 
-// Run führt `kephalaion upgrade` aus.
-func (u *Upgrader) Run(ctx context.Context, opts Options) error {
-	if err := u.run(ctx, opts); err != nil {
-		return unchanged(err)
-	}
-	return nil
+// Result sagt, was Run getan hat.
+type Result struct {
+	// Replaced: Das Binary ist ersetzt.
+	Replaced bool
+	// Exe ist das ersetzte Binary; From und To sind die Versionen.
+	Exe, From, To string
 }
 
-func (u *Upgrader) run(ctx context.Context, opts Options) error {
-	current, currentErr := ParseVersion(u.Current.Version)
-	isDev := u.Current.IsDev() || currentErr != nil
+// Run führt `kephalaion upgrade` aus. Scheitert es, bleibt das Binary, wie es
+// war, und die Meldung sagt das.
+func (u *Upgrader) Run(ctx context.Context, opts Options) (Result, error) {
+	res, err := u.run(ctx, opts)
+	if err != nil {
+		return Result{}, unchanged(err)
+	}
+	return res, nil
+}
+
+// current liefert die installierte Version; isDev ist true für einen dev
+// build und alles, was sich nicht als Version lesen lässt.
+func (u *Upgrader) current() (v Version, isDev bool) {
+	v, err := ParseVersion(u.Current.Version)
+	return v, u.Current.IsDev() || err != nil
+}
+
+// release holt das neueste Release ohne Suffix (tag leer) oder das zu tag und
+// prüft seinen Tag.
+func (u *Upgrader) release(ctx context.Context, tag string) (release, Version, error) {
+	rel, err := u.fetchRelease(ctx, tag)
+	if errors.Is(err, errNotFound) {
+		if tag != "" {
+			return release{}, Version{}, fmt.Errorf("ein Release %s gibt es nicht", tag)
+		}
+		return release{}, Version{}, errors.New("es gibt noch kein veröffentlichtes Release")
+	}
+	if err != nil {
+		return release{}, Version{}, err
+	}
+	target, err := ParseVersion(rel.TagName)
+	if err != nil {
+		return release{}, Version{}, fmt.Errorf("das Release trägt keinen gültigen Versions-Tag: %w", err)
+	}
+	// releases/latest liefert nie eine Vorabversion; darauf verlassen wir
+	// uns nicht, denn latest ist hier als „ohne Suffix“ festgelegt.
+	if tag == "" && (target.IsPrerelease() || rel.Prerelease) {
+		return release{}, Version{}, fmt.Errorf("GitHub nennt %s als neuestes Release, das ist aber eine Vorabversion", target)
+	}
+	return rel, target, nil
+}
+
+func (u *Upgrader) run(ctx context.Context, opts Options) (Result, error) {
+	current, isDev := u.current()
 
 	var explicit Version
 	if opts.Version != "" {
 		v, err := ParseVersion(opts.Version)
 		if err != nil {
-			return err
+			return Result{}, err
 		}
 		explicit = v
 	}
 
 	if isDev && opts.Version == "" && !opts.Check {
-		return fmt.Errorf("dieses Binary ist ein dev build (%s) und wird nur mit ausdrücklicher --version ersetzt, z. B.:\n  kephalaion upgrade --version vX.Y.Z", u.Current.Version)
+		return Result{}, fmt.Errorf("dieses Binary ist ein dev build (%s) und wird nur mit ausdrücklicher --version ersetzt, z. B.:\n  kephalaion upgrade --version vX.Y.Z", u.Current.Version)
 	}
 
-	rel, err := u.fetchRelease(ctx, opts.Version)
-	if errors.Is(err, errNotFound) {
-		if opts.Version != "" {
-			return fmt.Errorf("ein Release %s gibt es nicht", opts.Version)
-		}
-		return errors.New("es gibt noch kein veröffentlichtes Release")
-	}
+	rel, target, err := u.release(ctx, opts.Version)
 	if err != nil {
-		return err
-	}
-	target, err := ParseVersion(rel.TagName)
-	if err != nil {
-		return fmt.Errorf("das Release trägt keinen gültigen Versions-Tag: %w", err)
+		return Result{}, err
 	}
 	if opts.Version != "" && target.Compare(explicit) != 0 {
-		return fmt.Errorf("verlangt war %s, GitHub liefert %s", explicit, target)
-	}
-	// releases/latest liefert nie eine Vorabversion; darauf verlassen wir
-	// uns nicht, denn latest ist hier als „ohne Suffix“ festgelegt.
-	if opts.Version == "" && (target.IsPrerelease() || rel.Prerelease) {
-		return fmt.Errorf("GitHub nennt %s als neuestes Release, das ist aber eine Vorabversion", target)
+		return Result{}, fmt.Errorf("verlangt war %s, GitHub liefert %s", explicit, target)
 	}
 
+	if opts.Check {
+		u.printCheck(current, isDev, target, opts.Version != "")
+		return Result{}, nil
+	}
 	switch {
 	case isDev:
-		if opts.Check && opts.Version == "" {
-			fmt.Fprintf(u.Out, "Installiert: %s (dev build). Neuestes Release: %s.\n", u.Current.Version, target)
-			fmt.Fprintf(u.Out, "Ersetzen nur ausdrücklich: kephalaion upgrade --version %s\n", target)
-			return nil
-		}
 	case target.Compare(current) == 0:
 		fmt.Fprintf(u.Out, "%s ist bereits installiert.\n", current)
-		return nil
+		return Result{}, nil
 	case target.Compare(current) < 0 && opts.Version == "":
 		fmt.Fprintf(u.Out, "Installiert ist %s, neuer als das neueste Release %s. Nichts zu tun.\n", current, target)
 		fmt.Fprintf(u.Out, "Zurückstufen nur ausdrücklich: kephalaion upgrade --version %s\n", target)
-		return nil
+		return Result{}, nil
 	}
 
-	from := u.Current.Version
-	if opts.Check {
-		verb := "Neue Version verfügbar"
-		if !isDev && target.Compare(current) < 0 {
-			verb = "Zurückstufen möglich"
+	// Vor dem Download: Lässt sich das Binary nicht ersetzen, sagt die
+	// Meldung, wie es sonst geht.
+	exe, err := u.executablePath()
+	if err != nil {
+		return Result{}, err
+	}
+	if ok, why := probeWrite(filepath.Dir(exe)); !ok {
+		msg := fmt.Sprintf("%s — das Binary %s lässt sich von hier nicht ersetzen.", why, exe)
+		if method, _, hint := u.way(false, filepath.Dir(exe), target.String(), isDev); method != MethodManual {
+			msg += "\nWeg: " + hint
 		}
-		fmt.Fprintf(u.Out, "%s: %s → %s\n", verb, from, target)
-		return nil
+		return Result{}, errors.New(msg)
 	}
 
 	name := AssetName(u.Current.OS, u.Current.Arch)
 	bin, ok := rel.findAsset(name)
 	if !ok {
-		return fmt.Errorf("das Release %s hat kein Binary für %s (%s fehlt)", target, u.Current.Platform(), name)
+		return Result{}, fmt.Errorf("das Release %s hat kein Binary für %s (%s fehlt)", target, u.Current.Platform(), name)
 	}
 	sumsAsset, ok := rel.findAsset(SumsAsset)
 	if !ok {
-		return fmt.Errorf("das Release %s hat kein %s", target, SumsAsset)
+		return Result{}, fmt.Errorf("das Release %s hat kein %s", target, SumsAsset)
 	}
 
 	want, err := u.expectedSum(ctx, sumsAsset, name)
 	if err != nil {
-		return err
-	}
-
-	exe, err := u.executablePath()
-	if err != nil {
-		return err
+		return Result{}, err
 	}
 	if err := u.replace(ctx, exe, bin, want); err != nil {
-		return err
+		return Result{}, err
 	}
 
+	from := u.Current.Version
 	if !isDev && target.Compare(current) < 0 {
 		fmt.Fprintf(u.Out, "Zurückgestuft: %s → %s (%s)\n", from, target, exe)
 	} else {
 		fmt.Fprintf(u.Out, "Aktualisiert: %s → %s (%s)\n", from, target, exe)
 	}
-	return nil
+	return Result{Replaced: true, Exe: exe, From: from, To: target.String()}, nil
+}
+
+// printCheck meldet für upgrade --check, ob es eine andere Version gibt, ob
+// sich dieses Binary selbst ersetzen kann und wie das Upgrade geht.
+func (u *Upgrader) printCheck(current Version, isDev bool, target Version, explicit bool) {
+	switch {
+	case isDev && !explicit:
+		fmt.Fprintf(u.Out, "Installiert: %s (dev build). Neuestes Release: %s.\n", u.Current.Version, target)
+		fmt.Fprintf(u.Out, "Ersetzen nur ausdrücklich: kephalaion upgrade --version %s\n", target)
+	case !isDev && target.Compare(current) == 0:
+		fmt.Fprintf(u.Out, "%s ist bereits installiert.\n", current)
+	case !isDev && target.Compare(current) < 0 && !explicit:
+		fmt.Fprintf(u.Out, "Installiert ist %s, neuer als das neueste Release %s. Nichts zu tun.\n", current, target)
+		fmt.Fprintf(u.Out, "Zurückstufen nur ausdrücklich: kephalaion upgrade --version %s\n", target)
+	default:
+		verb := "Neue Version verfügbar"
+		if !isDev && target.Compare(current) < 0 {
+			verb = "Zurückstufen möglich"
+		}
+		fmt.Fprintf(u.Out, "%s: %s → %s\n", verb, u.Current.Version, target)
+	}
+	self, dir, why := u.access()
+	if self {
+		fmt.Fprintf(u.Out, "Selbst ersetzen: ja (Schreibrecht in %s)\n", dir)
+	} else {
+		fmt.Fprintf(u.Out, "Selbst ersetzen: nein (%s)\n", why)
+	}
+	_, _, hint := u.way(self, dir, target.String(), isDev)
+	fmt.Fprintf(u.Out, "Weg: %s\n", hint)
 }
 
 // expectedSum lädt SHA256SUMS und liefert die Summe für name.

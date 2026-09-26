@@ -28,6 +28,8 @@ type fakeGitHub struct {
 	releases map[string]map[string][]byte
 	latest   string
 	requests atomic.Int32
+	// downloads zählt die Anfragen nach Assets (Binary, SHA256SUMS).
+	downloads atomic.Int32
 	// override beantwortet eine Anfrage selbst, wenn es true liefert.
 	override func(w http.ResponseWriter, r *http.Request) bool
 }
@@ -63,6 +65,7 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, prefix+"tags/"):
 		f.writeRelease(w, strings.TrimPrefix(r.URL.Path, prefix+"tags/"))
 	case strings.HasPrefix(r.URL.Path, "/download/"):
+		f.downloads.Add(1)
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/download/"), "/")
 		data, ok := f.releases[parts[0]][parts[1]]
 		if !ok {
@@ -216,8 +219,12 @@ func TestUpgradeReplacesAtomically(t *testing.T) {
 	exe := installed(t)
 	u, out := f.upgrader("v0.1.0", exe)
 
-	if err := u.Run(context.Background(), Options{}); err != nil {
+	res, err := u.Run(context.Background(), Options{})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if res != (Result{Replaced: true, Exe: exe, From: "v0.1.0", To: "v0.2.0"}) {
+		t.Errorf("Ergebnis %+v", res)
 	}
 	if got := readFile(t, exe); got != "zwei" {
 		t.Fatalf("Inhalt %q, erwartet zwei", got)
@@ -246,7 +253,7 @@ func TestUpgradeResolvesSymlink(t *testing.T) {
 	}
 	u, _ := f.upgrader("v0.1.0", link)
 
-	if err := u.Run(context.Background(), Options{}); err != nil {
+	if _, err := u.Run(context.Background(), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, exe); got != "zwei" {
@@ -265,7 +272,7 @@ func TestUpgradeChecksumMismatch(t *testing.T) {
 	exe := installed(t)
 	u, _ := f.upgrader("v0.1.0", exe)
 
-	err := u.Run(context.Background(), Options{})
+	_, err := u.Run(context.Background(), Options{})
 	if err == nil || !strings.Contains(err.Error(), "Prüfsumme") {
 		t.Fatalf("Fehler %v, erwartet Prüfsumme", err)
 	}
@@ -282,7 +289,7 @@ func TestUpgradeSameVersion(t *testing.T) {
 	exe := installed(t)
 	u, out := f.upgrader("v0.2.0", exe)
 
-	if err := u.Run(context.Background(), Options{}); err != nil {
+	if _, err := u.Run(context.Background(), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	assertUnchanged(t, exe)
@@ -298,7 +305,7 @@ func TestUpgradeNoAutomaticDowngrade(t *testing.T) {
 	exe := installed(t)
 	u, out := f.upgrader("v0.3.0-rc1", exe)
 
-	if err := u.Run(context.Background(), Options{}); err != nil {
+	if _, err := u.Run(context.Background(), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	assertUnchanged(t, exe)
@@ -315,7 +322,7 @@ func TestUpgradeExplicitDowngrade(t *testing.T) {
 	exe := installed(t)
 	u, out := f.upgrader("v0.2.0", exe)
 
-	if err := u.Run(context.Background(), Options{Version: "v0.1.0"}); err != nil {
+	if _, err := u.Run(context.Background(), Options{Version: "v0.1.0"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, exe); got != "eins" {
@@ -333,7 +340,7 @@ func TestUpgradeCheckOnly(t *testing.T) {
 	exe := installed(t)
 	u, out := f.upgrader("v0.1.0", exe)
 
-	if err := u.Run(context.Background(), Options{Check: true}); err != nil {
+	if _, err := u.Run(context.Background(), Options{Check: true}); err != nil {
 		t.Fatal(err)
 	}
 	assertUnchanged(t, exe)
@@ -349,7 +356,7 @@ func TestUpgradeDevBuildNeedsVersion(t *testing.T) {
 	exe := installed(t)
 	u, _ := f.upgrader(buildinfo.DevVersion, exe)
 
-	err := u.Run(context.Background(), Options{})
+	_, err := u.Run(context.Background(), Options{})
 	if err == nil || !strings.Contains(err.Error(), "dev build") {
 		t.Fatalf("Fehler %v, erwartet Hinweis auf dev build", err)
 	}
@@ -358,7 +365,7 @@ func TestUpgradeDevBuildNeedsVersion(t *testing.T) {
 	}
 	assertUnchanged(t, exe)
 
-	if err := u.Run(context.Background(), Options{Version: "v0.2.0"}); err != nil {
+	if _, err := u.Run(context.Background(), Options{Version: "v0.2.0"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, exe); got != "zwei" {
@@ -373,7 +380,7 @@ func TestUpgradeDevBuildCheck(t *testing.T) {
 	exe := installed(t)
 	u, out := f.upgrader(buildinfo.DevVersion, exe)
 
-	if err := u.Run(context.Background(), Options{Check: true}); err != nil {
+	if _, err := u.Run(context.Background(), Options{Check: true}); err != nil {
 		t.Fatal(err)
 	}
 	assertUnchanged(t, exe)
@@ -389,12 +396,12 @@ func TestUpgradePrerelease(t *testing.T) {
 	exe := installed(t)
 	u, _ := f.upgrader("v0.2.0", exe)
 
-	if err := u.Run(context.Background(), Options{}); err == nil || !strings.Contains(err.Error(), "Vorabversion") {
+	if _, err := u.Run(context.Background(), Options{}); err == nil || !strings.Contains(err.Error(), "Vorabversion") {
 		t.Fatalf("Fehler %v, erwartet Vorabversion", err)
 	}
 	assertUnchanged(t, exe)
 
-	if err := u.Run(context.Background(), Options{Version: "v0.3.0-rc1"}); err != nil {
+	if _, err := u.Run(context.Background(), Options{Version: "v0.3.0-rc1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, exe); got != "rc" {
@@ -407,14 +414,14 @@ func TestUpgradeUnknownVersion(t *testing.T) {
 	exe := installed(t)
 	u, _ := f.upgrader("v0.1.0", exe)
 
-	err := u.Run(context.Background(), Options{Version: "v9.9.9"})
+	_, err := u.Run(context.Background(), Options{Version: "v9.9.9"})
 	if err == nil || !strings.Contains(err.Error(), "gibt es nicht") {
 		t.Fatalf("Fehler %v", err)
 	}
-	if err := u.Run(context.Background(), Options{}); err == nil || !strings.Contains(err.Error(), "kein veröffentlichtes Release") {
+	if _, err := u.Run(context.Background(), Options{}); err == nil || !strings.Contains(err.Error(), "kein veröffentlichtes Release") {
 		t.Fatalf("ohne Release: %v", err)
 	}
-	if err := u.Run(context.Background(), Options{Version: "0.1.0"}); err == nil || !strings.Contains(err.Error(), "keine gültige Version") {
+	if _, err := u.Run(context.Background(), Options{Version: "0.1.0"}); err == nil || !strings.Contains(err.Error(), "keine gültige Version") {
 		t.Fatalf("ungültige Version: %v", err)
 	}
 	assertUnchanged(t, exe)
@@ -428,7 +435,7 @@ func TestUpgradeMissingPlatformAsset(t *testing.T) {
 	exe := installed(t)
 	u, _ := f.upgrader("v0.1.0", exe)
 
-	err := u.Run(context.Background(), Options{})
+	_, err := u.Run(context.Background(), Options{})
 	if err == nil || !strings.Contains(err.Error(), "kein Binary für linux/amd64") {
 		t.Fatalf("Fehler %v", err)
 	}
@@ -454,7 +461,7 @@ func TestUpgradeRateLimit(t *testing.T) {
 		exe := installed(t)
 		u, _ := f.upgrader("v0.1.0", exe)
 
-		err := u.Run(context.Background(), Options{})
+		_, err := u.Run(context.Background(), Options{})
 		if err == nil || !strings.Contains(err.Error(), "Anfrage-Limit der GitHub-API") {
 			t.Fatalf("%d: Fehler %v", c.status, err)
 		}
@@ -470,7 +477,7 @@ func TestUpgradeForbiddenWithoutRateLimit(t *testing.T) {
 	}
 	exe := installed(t)
 	u, _ := f.upgrader("v0.1.0", exe)
-	if err := u.Run(context.Background(), Options{}); err == nil || !strings.Contains(err.Error(), "verweigert") {
+	if _, err := u.Run(context.Background(), Options{}); err == nil || !strings.Contains(err.Error(), "verweigert") {
 		t.Fatalf("Fehler %v", err)
 	}
 	assertUnchanged(t, exe)
@@ -482,7 +489,7 @@ func TestUpgradeNetworkDown(t *testing.T) {
 	u, _ := f.upgrader("v0.1.0", exe)
 	f.srv.Close() // niemand mehr am anderen Ende
 
-	err := u.Run(context.Background(), Options{})
+	_, err := u.Run(context.Background(), Options{})
 	if err == nil || !strings.Contains(err.Error(), "keine Verbindung") {
 		t.Fatalf("Fehler %v", err)
 	}
@@ -504,9 +511,25 @@ func TestUpgradeNoWritePermission(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 	u, _ := f.upgrader("v0.1.0", exe)
 
-	err := u.Run(context.Background(), Options{})
-	if err == nil || !strings.Contains(err.Error(), "kein Schreibrecht") {
+	_, err := u.Run(context.Background(), Options{})
+	if err == nil || !strings.Contains(err.Error(), "kein Schreibrecht in "+dir) ||
+		!strings.Contains(err.Error(), "bleibt unverändert") || strings.Contains(err.Error(), "Weg:") {
 		t.Fatalf("Fehler %v", err)
+	}
+	if n := f.downloads.Load(); n != 0 {
+		t.Errorf("%d Downloads trotz fehlendem Schreibrecht", n)
+	}
+	assertUnchanged(t, exe)
+
+	// Gilt die globale config: der Weg des Verwalters.
+	u.System = true
+	_, err = u.Run(context.Background(), Options{})
+	if err == nil || !strings.Contains(err.Error(), "Weg: globale Installation — das Upgrade macht der Verwalter: "+
+		"über Ansible (Version anheben) oder sudo kephalaion upgrade && sudo systemctl restart kephalaion") {
+		t.Fatalf("global: %v", err)
+	}
+	if n := f.downloads.Load(); n != 0 {
+		t.Errorf("%d Downloads trotz fehlendem Schreibrecht", n)
 	}
 	assertUnchanged(t, exe)
 }
@@ -535,7 +558,7 @@ func TestUpgradeAbortCleansUp(t *testing.T) {
 	u, _ := f.upgrader("v0.1.0", exe)
 
 	done := make(chan error, 1)
-	go func() { done <- u.Run(ctx, Options{}) }()
+	go func() { _, err := u.Run(ctx, Options{}); done <- err }()
 	<-started
 	// Die temporäre Datei existiert jetzt.
 	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(exe), TempPattern)); len(left) != 1 {
