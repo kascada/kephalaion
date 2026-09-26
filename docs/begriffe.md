@@ -11,9 +11,15 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **kephalaion** — Produkt, Paket, Binary. Kurzform im Gespräch: Keph.
 - **serve** — `kephalaion serve`, der Dienst. Trägt die Rollen, die in der Konfiguration
   stehen: `hub:`, `node:` oder beide in einem Prozess. Keine eigene Rolle und kein eigener
-  Eintrag in der config, sondern der eine Aufruf, der nicht endet: Er lauscht auf Ports (MCP
-  für Clients, HTTP für Nodes), gleicht im Hintergrund ab und hält den Index warm. Alle
-  anderen Kommandos sind kurze Aufrufe und arbeiten ohne ihn direkt auf der Datenbank.
+  Eintrag in der config, sondern der eine Aufruf, der nicht endet: Er lauscht je Rolle auf
+  ihrem `listen` (MCP für Clients unter `/mcp`, der Vertrag für Nodes unter `/v1/`), bisher
+  nur auf Loopback; später gleicht er im Hintergrund ab und hält den Index warm. Alle anderen
+  Kommandos sind kurze Aufrufe und arbeiten neben ihm direkt auf der Datenbank. Beendet durch
+  SIGINT/SIGTERM, mit Frist.
+- **lock file** (Sperrdatei) — `<db>.lock` neben der Datenbank einer Rolle. `serve` hält darauf
+  eine exklusive Sperre (`flock`), solange es läuft; ein zweiter `serve` auf derselben Rolle
+  scheitert daran. `status` prüft sie, ohne zu warten, und zeigt, ob `serve` läuft. CLI-Kommandos
+  kümmern sich nicht darum.
 - **config** — `~/.config/kephalaion/config.yaml`. Sagt nur, welche Rollen eingerichtet sind,
   wo ihre Datenbank liegt (`db:`) und wo ihr Dienst lauscht (`listen:`). Alles andere steht
   in der Datenbank der Rolle.

@@ -243,7 +243,7 @@ MCP (Node, /mcp):
 | 1 — Accounts am Hub | erledigt | 2026-09-26 | Tabelle `accounts` (Schema 3), `hub account …`, Export-Format 4, `admin` reserviert; make check grün |
 | 2 — Vertrag erweitert, Hub über HTTP | erledigt | 2026-09-26 | `whoami`/`rotate` in Vertrag und `replication`, `internal/contract/httpapi` (Handler, Client), Vertragstests gegen local und HTTP; make check grün |
 | 3 — Node: Transport http, check, --create, rotate | erledigt | 2026-09-26 | Connector mit `http`, `node hub check`, `--create`, `node account rotate` und `check` samt `.pending`; Replica-Schema 2 mit `documents_system`; make check grün |
-| 4 — serve | offen | | |
+| 4 — serve | erledigt | 2026-09-26 | `serve` je Rolle auf Loopback, Sperrdatei `<db>.lock` (flock), Log je Anfrage über `internal/reqlog`, Beenden mit Frist, `status` zeigt serve; make check grün |
 | 5 — Node als MCP-Server | offen | | |
 | 6 — Durchlauf und Doku | offen | | |
 

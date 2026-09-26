@@ -36,6 +36,8 @@ Kommandos:
   node        richtet den Node ein, pflegt seine Hubs und gewünschten
               Collections, tauscht Tokens von Accounts, gleicht ab und zeigt
               Dokumente der Replica (init, hub, collection, account, sync, doc)
+  serve       der Dienst: lauscht je eingerichteter Rolle auf ihrem listen
+              (Hub: Vertrag für Nodes, Node: MCP für Clients)
   status      zeigt, welche Rollen eingerichtet sind und wo ihre Datenbank liegt
   config      zeigt, sichert und stellt die Einstellungen wieder her
               (show, export, import)
@@ -68,6 +70,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runRole(config.Node, args[1:], stdin, stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
+	case "serve":
+		return runServe(args[1:], stdout, stderr)
 	case "config":
 		return runConfig(args[1:], stdout, stderr)
 	default:

@@ -234,9 +234,9 @@ Optionen:
                       $XDG_DATA_HOME/kephalaion/%[1]s.db bzw.
                       ~/.local/share/kephalaion/%[1]s.db
                       (postgres://… ist noch nicht unterstützt)
-  --listen host:port  wo der Dienst dieser Rolle später lauscht; ohne Angabe
-                      %[2]s (nur dieser Rechner). Nach außen lauscht nur,
-                      wer es ausdrücklich einträgt, etwa 0.0.0.0:<port>.
+  --listen host:port  wo kephalaion serve für diese Rolle lauscht; ohne Angabe
+                      %[2]s (nur dieser Rechner). serve lauscht bisher
+                      nur auf 127.0.0.1, ::1 oder localhost.
   --config pfad       Ort der config; sonst $KEPHALAION_CONFIG,
                       $XDG_CONFIG_HOME/kephalaion/config.yaml bzw.
                       ~/.config/kephalaion/config.yaml
@@ -306,7 +306,7 @@ func runInit(r config.Role, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "%s eingerichtet.\n", roleTitle(r))
 	fmt.Fprintf(stdout, "  Datenbank: %s (Schemafassung %d)\n", addr.Path, version)
 	fmt.Fprintf(stdout, "  config:    %s (Abschnitt %s:)\n", cfgPath, r)
-	fmt.Fprintf(stdout, "  listen:    %s (noch lauscht nichts)\n", *listenFlag)
+	fmt.Fprintf(stdout, "  listen:    %s (kephalaion serve lauscht dort)\n", *listenFlag)
 	return 0
 }
 
@@ -314,7 +314,8 @@ const statusUsage = `Aufruf:
   kephalaion status [--config pfad]
 
 Zeigt, welche Rollen auf diesem Rechner eingerichtet sind, wo ihre Datenbank
-liegt, wo ihr Dienst lauschen wird, und ihre Kennzahlen. Am Node steht je Hub
+liegt, wo ihr Dienst lauscht, ob kephalaion serve für sie läuft (geprüft an
+der Sperrdatei <db>.lock, ohne zu warten), und ihre Kennzahlen. Am Node steht je Hub
 die hub_id aus seiner Replica und je gewünschter Collection der Stand
 (Revision) und der letzte Abgleich; ohne Replica „noch kein Abgleich“.
 Öffnet die Datenbanken nur, legt nichts an. Der Exit-Code ist nur dann
@@ -359,6 +360,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 			listen += " (Standard, nicht in der config)"
 		}
 		fmt.Fprintf(stdout, "  listen:        %s\n", listen)
+		fmt.Fprintf(stdout, "  serve:         %s\n", serveState(sec))
 		if err := printRoleStatus(ctx, stdout, r, sec); err != nil {
 			fmt.Fprintf(stdout, "  Fehler:        %v\n", err)
 			failed = true
@@ -374,6 +376,23 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// serveState sagt, ob ein serve die Sperre der Rolle hält — geprüft ohne zu
+// warten und ohne etwas anzulegen.
+func serveState(sec *config.Section) string {
+	addr, err := config.ParseDB(sec.DB)
+	if err != nil || addr.Kind != config.SQLite {
+		return "unbekannt"
+	}
+	running, err := serveRunning(addr.Path)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("unbekannt (%v)", err)
+	case running:
+		return "läuft"
+	}
+	return "läuft nicht"
 }
 
 func printConfigLine(w io.Writer, path string, exists bool) {
