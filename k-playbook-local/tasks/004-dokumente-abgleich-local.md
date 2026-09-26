@@ -168,7 +168,7 @@ Node:
 |---|---|---|---|
 | 1 — listen und node_name | erledigt | 2026-09-25 | `config.Section.Listen` + `Config.Listen(r)` (Standard, wenn leer), `CheckListen` verlangt Host; Node-Schema 3 mit `hubs.node_name NOT NULL`, `--node` bei add/set; Exportformat 3 (Format 2 ohne `node_name` scheitert an der Prüfung); README-Beispiele nachgezogen |
 | 2 — Dokumente am Hub | erledigt | 2026-09-26 | `ident.CheckDocName`/`DocDirPrefix`/`DocChild`; Store `PutDocument`, `Document`, `Documents`, `DeleteDocument`, `ImportDocuments` über `docTx` (eine Transaktion, `lazyRevision` = höchstens eine Revision, nur bei Änderung); actions `create`/`update`/`delete` je Dokument; kein NUL im Inhalt (PostgreSQL); Import bricht bei Namens- oder Pfadkonflikt ganz ab, übergeht versteckte Dateien still, meldet Nicht-UTF-8, >1 MiB und Nicht-Reguläre (Symlinks); Hub-Schema unverändert (2) |
-| 3 — Vertrag und Hub-Seite | offen | | |
+| 3 — Vertrag und Hub-Seite | erledigt | 2026-09-26 | `docs/vertrag.md` (Fassung 1, nur sync); `internal/contract`: `Hub.Sync`, `SyncRequest` (Fassung und `NodeAuth` `json:"-"`, über HTTP Pfad/Header), `SyncResponse`, `Row` mit `*string` für `content`/`meta`, `Error{Code,Message}` mit `unauthenticated`/`invalid`/`unsupported_version` (Codes wie Task 005), `DefaultPageSize` 500; Hub-Seite in `internal/hub/replication` (Anmeldung mit Ersatz-Hash, H zuerst, Seitenschnitt, `MaxPageSize` 5000), Store nur `SyncRows` (eine OR-Abfrage, NULL als nil); `until` = H auf jeder letzten Seite, nicht nur der leeren; Test: `internal/contract` importiert weder Hub noch Node |
 | 4 — Replica und Abgleich am Node | offen | | |
 | 5 — CLI und status am Node | offen | | |
 | 6 — Doku | offen | | |

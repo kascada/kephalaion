@@ -1,0 +1,176 @@
+// Package replication ist die Seite des Hubs im Vertrag (docs/vertrag.md):
+// Es setzt contract.Hub über dem Hub-Store um. Hier stehen Anmeldung,
+// erlaubte Collections und der Schnitt der Seiten; der Store liefert nur
+// Zeilen. So gilt die Logik für jede Umsetzung des Stores, und jeder
+// Transport (local, später HTTP) ruft dieselbe Prüfung.
+package replication
+
+import (
+	"context"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+
+	"github.com/kascada/kephalaion/internal/contract"
+	"github.com/kascada/kephalaion/internal/hub/store"
+	"github.com/kascada/kephalaion/internal/ident"
+)
+
+// MaxPageSize ist die Obergrenze des Hubs für die Seitengröße; eine größere
+// Anfrage wird darauf begrenzt.
+const MaxPageSize = 5000
+
+// dummyHash wird verglichen, wenn es den Node nicht gibt: So kostet ein
+// unbekannter Name dieselbe Arbeit wie ein falsches Token.
+var dummyHash = ident.HashToken("keph_unbekannter-node")
+
+// Hub setzt contract.Hub über einem Hub-Store um.
+type Hub struct {
+	st          store.Store
+	maxPageSize int
+}
+
+var _ contract.Hub = (*Hub)(nil)
+
+// New liefert die Seite des Hubs über st. Der Store bleibt beim Aufrufer.
+func New(st store.Store) *Hub {
+	return &Hub{st: st, maxPageSize: MaxPageSize}
+}
+
+// authenticate prüft Name, Token und Sperre des Nodes und liefert seine
+// erlaubten Collections. Unbekannt, falsches Token und gesperrt ergeben
+// denselben Fehler; der Hash wird in jedem Fall in konstanter Zeit
+// verglichen.
+func (h *Hub) authenticate(ctx context.Context, auth contract.NodeAuth) ([]string, error) {
+	n, err := h.st.Node(ctx, auth.Node)
+	known := err == nil
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	want := dummyHash
+	if known {
+		want = n.TokenHash
+	}
+	match := subtle.ConstantTimeCompare([]byte(ident.HashToken(auth.Token)), []byte(want)) == 1
+	if !known || !match || n.Locked {
+		return nil, contract.ErrUnauthenticated
+	}
+	return n.Collections, nil
+}
+
+// checkRequest prüft die Anfrage ohne Datenbank.
+func checkRequest(req contract.SyncRequest) error {
+	if req.Version != contract.Version {
+		return &contract.Error{Code: contract.CodeUnsupportedVersion,
+			Message: fmt.Sprintf("Fassung %d nicht unterstützt, der Hub spricht Fassung %d", req.Version, contract.Version)}
+	}
+	if req.PageSize <= 0 {
+		return contract.Invalid(fmt.Sprintf("Seitengröße %d, erwartet > 0", req.PageSize))
+	}
+	seen := map[string]bool{}
+	for _, c := range req.Collections {
+		if seen[c.Collection] {
+			return contract.Invalid(fmt.Sprintf("Collection %q steht zweimal in der Anfrage", c.Collection))
+		}
+		seen[c.Collection] = true
+		if c.Since < 0 {
+			return contract.Invalid(fmt.Sprintf("Collection %q: seit %d, erwartet ≥ 0", c.Collection, c.Since))
+		}
+	}
+	return nil
+}
+
+// Sync liefert eine Seite des Abgleichs. Reihenfolge: Anfrage prüfen,
+// anmelden, dann die Hub-Revision H lesen und erst danach die Zeilen, nur
+// solche mit revision ≤ H — so passen Seite und H zusammen, ohne
+// Lese-Transaktion.
+func (h *Hub) Sync(ctx context.Context, req contract.SyncRequest) (contract.SyncResponse, error) {
+	if err := checkRequest(req); err != nil {
+		return contract.SyncResponse{}, err
+	}
+	allowed, err := h.authenticate(ctx, req.Auth)
+	if err != nil {
+		return contract.SyncResponse{}, err
+	}
+	info, err := h.st.Info(ctx)
+	if err != nil {
+		return contract.SyncResponse{}, err
+	}
+	resp := contract.SyncResponse{
+		HubID:       info.HubID,
+		Version:     contract.Version,
+		Collections: make([]contract.CollectionStatus, 0, len(req.Collections)),
+		Allowed:     append([]string{}, allowed...),
+		Rows:        []contract.Row{},
+		HubRevision: info.Revision,
+	}
+	isAllowed := map[string]bool{}
+	for _, c := range allowed {
+		isAllowed[c] = true
+	}
+	var since []contract.Since
+	for _, c := range req.Collections {
+		ok := isAllowed[c.Collection]
+		resp.Collections = append(resp.Collections, contract.CollectionStatus{Collection: c.Collection, Allowed: ok})
+		if ok {
+			since = append(since, c)
+		}
+	}
+	pageSize := min(req.PageSize, h.maxPageSize)
+	resp.Rows, resp.Until, resp.More, err = h.page(ctx, since, info.Revision, pageSize)
+	if err != nil {
+		return contract.SyncResponse{}, err
+	}
+	return resp, nil
+}
+
+// page schneidet eine Seite an einer Revisionsgrenze: ganze Revisionen, bis
+// pageSize erreicht ist; eine einzelne größere Revision kommt ganz. until
+// ist die Revision der letzten Zeile, wenn more gilt, sonst hubRev.
+func (h *Hub) page(ctx context.Context, since []contract.Since, hubRev int64, pageSize int) (rows []contract.Row, until int64, more bool, err error) {
+	// Eine Zeile mehr zeigt, ob die letzte Revision über die Seite reicht.
+	rows, err = h.st.SyncRows(ctx, since, hubRev, pageSize+1)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if len(rows) <= pageSize {
+		return rows, hubRev, false, nil
+	}
+	last := rows[pageSize-1].Revision
+	if rows[pageSize].Revision != last {
+		// Die Seite endet genau an einer Revisionsgrenze.
+		return rows[:pageSize], last, true, nil
+	}
+	// Die letzte Revision reicht über die Seite: weglassen, was von ihr
+	// darauf steht.
+	cut := pageSize
+	for cut > 0 && rows[cut-1].Revision == last {
+		cut--
+	}
+	if cut > 0 {
+		return rows[:cut], rows[cut-1].Revision, true, nil
+	}
+	// Die ganze Seite ist eine Revision, und sie ist größer als die Seite:
+	// sie kommt ganz. Danach eine Zeile weiter schauen, ob mehr folgt.
+	rows, err = h.st.SyncRows(ctx, raise(since, last-1), last, 0)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	next, err := h.st.SyncRows(ctx, raise(since, last), hubRev, 1)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if len(next) == 0 {
+		return rows, hubRev, false, nil
+	}
+	return rows, last, true, nil
+}
+
+// raise hebt jedes seit auf mindestens floor.
+func raise(since []contract.Since, floor int64) []contract.Since {
+	out := make([]contract.Since, len(since))
+	for i, c := range since {
+		out[i] = contract.Since{Collection: c.Collection, Since: max(c.Since, floor)}
+	}
+	return out
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/kascada/kephalaion/internal/config"
+	"github.com/kascada/kephalaion/internal/contract"
 	"github.com/kascada/kephalaion/internal/sqlitedb"
 	"github.com/kascada/kephalaion/internal/sqlq"
 )
@@ -102,6 +103,13 @@ type Store interface {
 	// einer Transaktion und unter einer Revision. Was fehlt, bleibt.
 	ImportDocuments(ctx context.Context, collection string, docs []DocumentInput) (ImportResult, error)
 
+	// SyncRows liest für den Abgleich die Zeilen der Collections in since
+	// mit revision > Since der jeweiligen Collection und revision ≤ upTo,
+	// sortiert nach Revision, dann id, höchstens limit (0: ohne Grenze). Alle
+	// Spalten, auch Löschmarken und SYSTEM:-Zeilen; NULL bleibt nil. Ohne
+	// Transaktion. Rechte prüft der Aufrufer.
+	SyncRows(ctx context.Context, since []contract.Since, upTo int64, limit int) ([]contract.Row, error)
+
 	Close() error
 }
 
@@ -121,6 +129,12 @@ var queries = struct {
 	DocumentInsert     string
 	DocumentReplace    string
 	DocumentDelete     string
+
+	SyncRowsHead   string
+	SyncRowsClause string
+	SyncRowsOr     string
+	SyncRowsOrder  string
+	SyncRowsLimit  string
 
 	CollectionsAll        string
 	CollectionGet         string
@@ -188,6 +202,16 @@ var queries = struct {
 	DocumentDelete: `UPDATE documents SET content = NULL, meta = NULL, deleted = 1,
 		revision = $2, updated_at = $3, updated_by = $4
 		WHERE id = $1`,
+
+	// SyncRows… setzen die Abfrage des Abgleichs zusammen (syncRowsQuery):
+	// Kopf, je Collection eine Klausel, durch OR verbunden, Ordnung,
+	// wahlweise Grenze. Die Nummern der Platzhalter vergibt syncRowsQuery;
+	// %d steht für sie. Jede Klausel nutzt den Index (collection, revision).
+	SyncRowsHead:   `SELECT ` + documentColumns + ` FROM documents WHERE revision <= $1 AND (`,
+	SyncRowsClause: `(collection = $%d AND revision > $%d)`,
+	SyncRowsOr:     ` OR `,
+	SyncRowsOrder:  `) ORDER BY revision, id`,
+	SyncRowsLimit:  ` LIMIT $%d`,
 
 	CollectionsAll: `SELECT name, COALESCE(description, ''), created_at, created_by
 		FROM collections ORDER BY name`,

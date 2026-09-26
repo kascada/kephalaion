@@ -146,3 +146,19 @@ func TestViolations(t *testing.T) {
 		t.Errorf("violations = %v", got)
 	}
 }
+
+// TestContractNeutral prüft, dass der Vertrag weder Hub noch Node kennt: Der
+// Node benutzt ihn, ohne über ihn an den Hub zu kommen.
+func TestContractNeutral(t *testing.T) {
+	module := modulePath(t)
+	graph := importGraph(t, ".", module+"/internal")
+	contract := module + "/internal/contract"
+	if _, ok := graph[contract]; !ok {
+		t.Fatalf("%s nicht gefunden", contract)
+	}
+	for _, forbidden := range []string{module + "/internal/hub", module + "/internal/node"} {
+		for _, v := range violations(graph, contract, forbidden) {
+			t.Errorf("%s importiert %s — der Vertrag bleibt neutral", contract, v)
+		}
+	}
+}
