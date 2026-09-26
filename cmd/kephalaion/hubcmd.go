@@ -57,7 +57,8 @@ Kommandos:
 
 Gespeichert wird nur der Hash des Tokens. Am Node wird es mit
 kephalaion node hub add … --node <name> --token-stdin eingetragen. Node-Namen folgen den
-Regeln für Collections und sind gemeinsam mit den Account-Namen eindeutig.
+Regeln für Collections, admin ist reserviert, und sie sind gemeinsam mit den
+Account-Namen eindeutig.
 
 Optionen:
   --description text   Kurzbeschreibung

@@ -30,8 +30,9 @@ Kommandos:
   help        zeigt diese Übersicht
   version     zeigt Version, Commit, Go-Version und Plattform
   upgrade     aktualisiert dieses Binary auf das neueste Release
-  hub         richtet den Hub ein, pflegt seine Collections und Nodes und
-              spielt Dokumente ein (init, collection, node, doc, import)
+  hub         richtet den Hub ein, pflegt seine Collections, Nodes und
+              Accounts und spielt Dokumente ein (init, collection, node,
+              account, doc, import)
   node        richtet den Node ein, pflegt seine Hubs und gewünschten
               Collections, gleicht ab und zeigt Dokumente der Replica
               (init, hub, collection, sync, doc)

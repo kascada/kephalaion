@@ -232,7 +232,7 @@ func TestSchemaVersion1Rejected(t *testing.T) {
 	if !errors.As(err, &sv) {
 		t.Fatalf("Open: %v, erwartet SchemaVersionError", err)
 	}
-	for _, want := range []string{"Schemafassung 1", "erwartet 2", "hub init", "config export", "config import"} {
+	for _, want := range []string{"Schemafassung 1", "erwartet 3", "hub init", "config export", "config import"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("Meldung ohne %q: %v", want, err)
 		}

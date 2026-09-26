@@ -5,20 +5,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kascada/kephalaion/internal/contract"
 	"github.com/kascada/kephalaion/internal/ident"
 	"github.com/kascada/kephalaion/internal/sqlitedb"
 )
 
 // Admin ist der Account, als der die CLI am Hub handelt: in created_by und
 // in actions.
-const Admin = "admin"
-
-// accountPrefix ist der Name der Zeile eines Accounts in documents, vor dem
-// Account-Namen.
-const accountPrefix = "SYSTEM:A:"
+const Admin = ident.AdminName
 
 // Fehlerarten; die Meldungen nennen dazu, was betroffen ist.
 var (
@@ -65,18 +61,22 @@ type Grant struct {
 
 // Tables sind die lokalen Tabellen des Hubs, wie export und import sie
 // behandeln. Node.Collections bleibt dabei leer; die Rechte stehen in Grants.
+// Accounts tragen ihre Rechte je Collection mit — beim Import entstehen aus
+// ihnen die SYSTEM:A:-Zeilen. KeepAccounts heißt: Der Import lässt die
+// Accounts, wie sie sind (ein Export ohne Accounts-Teil, Format vor 4).
 type Tables struct {
-	Collections []Collection
-	Nodes       []Node
-	Grants      []Grant
+	Collections  []Collection
+	Nodes        []Node
+	Grants       []Grant
+	Accounts     []Account
+	KeepAccounts bool
 }
 
-var tokenHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
 // CheckTables prüft lokale Tabellen ohne Datenbank, wie die CLI es beim
-// Anlegen tut: Namensregel, Eindeutigkeit, Form des Hashes, Rechte nur auf
-// vorhandene Nodes und Collections. Was die Datenbank braucht (Dokumente,
-// SYSTEM:A:), prüft Import in der Transaktion.
+// Anlegen tut: Namensregel, Eindeutigkeit (Nodes und Accounts gemeinsam),
+// Form des Hashes, Rechte nur auf vorhandene Nodes und Collections. Was die
+// Datenbank braucht (Dokumente in wegfallenden Collections), prüft Import in
+// der Transaktion.
 func CheckTables(t Tables) error {
 	colls := map[string]bool{}
 	for _, c := range t.Collections {
@@ -93,13 +93,13 @@ func CheckTables(t Tables) error {
 	}
 	nodes := map[string]bool{}
 	for _, n := range t.Nodes {
-		if err := ident.CheckName("Node", n.Name); err != nil {
+		if err := ident.CheckPrincipalName("Node", n.Name); err != nil {
 			return err
 		}
 		if nodes[n.Name] {
 			return fmt.Errorf("Node %s: %w", n.Name, ErrExists)
 		}
-		if !tokenHashPattern.MatchString(n.TokenHash) {
+		if !contract.IsTokenHash(n.TokenHash) {
 			return fmt.Errorf("Node %s: token_hash ist kein sha256 in Hex", n.Name)
 		}
 		if n.CreatedBy == "" {
@@ -119,6 +119,38 @@ func CheckTables(t Tables) error {
 			return fmt.Errorf("Recht %s: %w", ident.Address(g.Node, g.Collection), ErrExists)
 		}
 		grants[g] = true
+	}
+	if t.KeepAccounts {
+		return nil
+	}
+	accounts := map[string]bool{}
+	for _, a := range t.Accounts {
+		if err := ident.CheckPrincipalName("Account", a.Name); err != nil {
+			return err
+		}
+		if accounts[a.Name] {
+			return fmt.Errorf("Account %s: %w", a.Name, ErrExists)
+		}
+		if nodes[a.Name] {
+			return fmt.Errorf("Name %s steht als Node und als Account im Export; Node- und Account-Namen sind gemeinsam eindeutig", a.Name)
+		}
+		if !contract.IsTokenHash(a.TokenHash) {
+			return fmt.Errorf("Account %s: token_hash ist kein sha256 in Hex", a.Name)
+		}
+		if a.CreatedBy == "" {
+			return fmt.Errorf("Account %s: created_by fehlt", a.Name)
+		}
+		accounts[a.Name] = true
+		seen := map[string]bool{}
+		for _, r := range a.Rights {
+			if !colls[r.Collection] {
+				return fmt.Errorf("Account %s: Collection %s %w", a.Name, r.Collection, ErrNotFound)
+			}
+			if seen[r.Collection] {
+				return fmt.Errorf("Account %s: Rechte in %s stehen zweimal", a.Name, r.Collection)
+			}
+			seen[r.Collection] = true
+		}
 	}
 	return nil
 }
@@ -246,7 +278,7 @@ func (s *sqliteStore) RemoveCollection(ctx context.Context, name string) error {
 		if !ok {
 			return fmt.Errorf("Collection %s %w", name, ErrNotFound)
 		}
-		if err := collectionRemovable(ctx, tx, name, true); err != nil {
+		if err := collectionRemovable(ctx, tx, name, true, true); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, q(queries.CollectionDelete), name)
@@ -255,9 +287,20 @@ func (s *sqliteStore) RemoveCollection(ctx context.Context, name string) error {
 }
 
 // collectionRemovable prüft, ob eine Collection entfernt werden darf: keine
-// Dokumente in ihr (jede Zeile zählt, auch Löschmarken und SYSTEM:-Zeilen)
-// und, wenn checkGrants, kein Node, der sie abgleichen darf.
-func collectionRemovable(ctx context.Context, tx sqlitedb.Querier, name string, checkGrants bool) error {
+// Dokumente in ihr (jede Zeile zählt, auch Löschmarken und SYSTEM:-Zeilen),
+// wenn checkGrants, kein Node, der sie abgleichen darf, und wenn
+// checkAccounts, kein gesperrter Account, der sich Rechte in ihr gemerkt hat.
+func collectionRemovable(ctx context.Context, tx sqlitedb.Querier, name string, checkGrants, checkAccounts bool) error {
+	if checkAccounts {
+		accounts, err := lockedAccountsUsing(ctx, tx, name)
+		if err != nil {
+			return err
+		}
+		if len(accounts) > 0 {
+			return fmt.Errorf("Collection %s %w: der gesperrte Account %s hat sich Rechte in ihr gemerkt "+
+				"(zuerst hub account revoke)", name, ErrInUse, strings.Join(accounts, ", "))
+		}
+	}
 	if checkGrants {
 		nodes, err := strings1(ctx, tx, queries.CollectionGrantedNode, name)
 		if err != nil {
@@ -385,23 +428,8 @@ func (s *sqliteStore) Node(ctx context.Context, name string) (Node, error) {
 	return n, nil
 }
 
-// checkNodeNameFree prüft, dass kein Account den Namen trägt: Node- und
-// Account-Namen sind gemeinsam eindeutig. Jede Zeile SYSTEM:A:<name> zählt,
-// in jeder Collection, auch eine Löschmarke.
-func checkNodeNameFree(ctx context.Context, db sqlitedb.Querier, name string) error {
-	n, err := count(ctx, db, queries.AccountRows, accountPrefix+name)
-	if err != nil {
-		return err
-	}
-	if n > 0 {
-		return fmt.Errorf("Name %s ist schon an einen Account vergeben (%s%s); Node- und Account-Namen sind gemeinsam eindeutig",
-			name, accountPrefix, name)
-	}
-	return nil
-}
-
 func (s *sqliteStore) AddNode(ctx context.Context, name, description string) (string, error) {
-	if err := ident.CheckName("Node", name); err != nil {
+	if err := ident.CheckPrincipalName("Node", name); err != nil {
 		return "", err
 	}
 	token, err := ident.NewToken()
@@ -531,6 +559,9 @@ func (s *sqliteStore) Tables(ctx context.Context) (Tables, error) {
 	if t.Grants, err = readGrants(ctx, s.db); err != nil {
 		return Tables{}, err
 	}
+	if t.Accounts, err = readAccounts(ctx, s.db); err != nil {
+		return Tables{}, err
+	}
 	return t, nil
 }
 
@@ -540,25 +571,40 @@ func (s *sqliteStore) Import(ctx context.Context, settings map[string]string, ta
 			return err
 		}
 	}
-	return s.write(ctx, "config.import", "", func(tx *sql.Tx) error {
-		if tables != nil {
-			if err := checkImport(ctx, tx, *tables); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	w := &accountTx{docTx{tx: tx, rev: &lazyRevision{tx: tx}, now: sqlitedb.NowMillis()}}
+	if tables != nil {
+		if err := checkImport(ctx, tx, *tables); err != nil {
+			return err
+		}
+	}
+	if err := sqlitedb.ReplaceSettingsTx(ctx, tx, settings); err != nil {
+		return err
+	}
+	if tables != nil {
+		if err := replaceTables(ctx, tx, *tables); err != nil {
+			return err
+		}
+		if !tables.KeepAccounts {
+			if err := w.replaceAccounts(ctx, tables.Accounts); err != nil {
 				return err
 			}
 		}
-		if err := sqlitedb.ReplaceSettingsTx(ctx, tx, settings); err != nil {
-			return err
-		}
-		if tables == nil {
-			return nil
-		}
-		return replaceTables(ctx, tx, *tables)
-	})
+	}
+	if err := logActionFull(ctx, tx, w.now, Admin, "", "config.import", "", w.rev.rev); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // checkImport prüft vor dem Schreiben, was die Datenbank braucht: Keine
 // Collection mit Dokumenten fiele weg, kein Node trägt den Namen eines
-// Accounts.
+// Accounts. Bleiben die Accounts, zählen die vorhandenen; sonst hat
+// CheckTables die Namen schon gegen die Accounts des Exports geprüft.
 func checkImport(ctx context.Context, tx sqlitedb.Querier, t Tables) error {
 	keep := map[string]bool{}
 	for _, c := range t.Collections {
@@ -572,9 +618,12 @@ func checkImport(ctx context.Context, tx sqlitedb.Querier, t Tables) error {
 		if keep[c.Name] {
 			continue
 		}
-		if err := collectionRemovable(ctx, tx, c.Name, false); err != nil {
+		if err := collectionRemovable(ctx, tx, c.Name, false, t.KeepAccounts); err != nil {
 			return fmt.Errorf("%w — der Import würde sie entfernen", err)
 		}
+	}
+	if !t.KeepAccounts {
+		return nil
 	}
 	for _, n := range t.Nodes {
 		if err := checkNodeNameFree(ctx, tx, n.Name); err != nil {

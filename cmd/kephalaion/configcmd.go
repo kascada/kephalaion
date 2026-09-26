@@ -144,7 +144,8 @@ const configExportUsage = `Aufruf:
 
 Schreibt die config und je eingerichteter Rolle die settings und die lokalen
 Tabellen als YAML, samt Fassung des Formats — keine Inhalte:
-  hub:   collections, nodes (nur der Hash des Tokens), node_collections
+  hub:   collections, nodes (nur der Hash des Tokens), node_collections,
+         accounts (nur der Hash des Tokens, die Rechte je Collection)
   node:  hubs (samt dem eigenen Token beim Hub, im Klartext), hub_collections
 Nicht dabei sind db_info — ein neu angelegter Hub bekommt eine neue hub_id —
 und das Protokoll actions. Ohne --output auf die Standardausgabe. Die Datei
@@ -247,8 +248,11 @@ const configImportUsage = `Aufruf:
 Schreibt einen Export in die bereits eingerichteten Rollen und ersetzt dort je
 Rolle alles in einer Transaktion: die settings und, ab Format 2, die lokalen
 Tabellen. Ein Export im Format 1 ersetzt nur die settings und lässt die
-Tabellen unberührt. Die config selbst, db_info und das Protokoll bleiben; am
-Hub kommt eine Zeile config.import ins Protokoll. Am Node gehen die Replicas der
+Tabellen unberührt; einer vor Format 4 lässt die Accounts unberührt. Am Hub
+gleicht der Import die Account-Zeilen (SYSTEM:A:) an die Accounts des Exports
+an — vorhandene ändern, fehlende werden Löschmarken, neue entstehen —, unter
+einer Revision. Die config selbst, db_info und das Protokoll bleiben; am Hub
+kommt eine Zeile config.import ins Protokoll. Am Node gehen die Replicas der
 Hub-Einträge mit, die der Import nicht mehr enthält; sie sind abgeleitet.
 
 Vorab wird alles geprüft, mit denselben Regeln wie beim Anlegen über die
@@ -332,7 +336,7 @@ func runConfigImport(args []string, stdout, stderr io.Writer) int {
 	var nodeTables *nodestore.Tables
 	if exp.Format >= 2 {
 		if exp.Tables.Hub != nil {
-			t := exp.Tables.Hub.toStore()
+			t := exp.Tables.Hub.toStore(exp.Format)
 			if err := hubstore.CheckTables(t); err != nil {
 				return nothing(fmt.Errorf("Rolle hub: %w", err))
 			}
@@ -379,6 +383,11 @@ func runConfigImport(args []string, stdout, stderr io.Writer) int {
 			if hubTables != nil {
 				summary += fmt.Sprintf(", %d Collections, %d Nodes, %d Rechte",
 					len(hubTables.Collections), len(hubTables.Nodes), len(hubTables.Grants))
+				if hubTables.KeepAccounts {
+					summary += fmt.Sprintf(", Accounts unberührt (Format %d)", exp.Format)
+				} else {
+					summary += fmt.Sprintf(", %d Accounts", len(hubTables.Accounts))
+				}
 			}
 			summary += "; config.import im Protokoll"
 		case nodestore.Store:

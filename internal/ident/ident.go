@@ -42,6 +42,38 @@ func CheckName(what, name string) error {
 	return nil
 }
 
+// AdminName ist der Name, unter dem das Protokoll des Hubs den Verwalter
+// führt (die CLI am Hub). Er ist als Account- und Node-Name reserviert, damit
+// `account` und `carrier` in actions eindeutig bleiben. Collections und
+// Hub-Aliase dürfen so heißen.
+const AdminName = "admin"
+
+// CheckPrincipalName prüft den Namen eines Accounts oder Nodes: die
+// Namensregel wie CheckName, dazu ist AdminName reserviert. Account- und
+// Node-Namen sind am Hub gemeinsam eindeutig; das prüft der Hub-Store.
+func CheckPrincipalName(what, name string) error {
+	if err := CheckName(what, name); err != nil {
+		return err
+	}
+	if name == AdminName {
+		return fmt.Errorf("%s %q: der Name ist reserviert — er steht im Protokoll des Hubs für den Verwalter", what, name)
+	}
+	return nil
+}
+
+// LogName liefert einen Namen für ein Log: den Namen selbst, wenn er der
+// Namensregel folgt, sonst eine Maske — so kommt nichts Fremdes ins Log, kein
+// Steuerzeichen und kein versehentlich als Name geschicktes Token.
+func LogName(name string) string {
+	if name == "" {
+		return "-"
+	}
+	if namePattern.MatchString(name) {
+		return name
+	}
+	return "(ungültig)"
+}
+
 // ParseAddress zerlegt eine Adresse <hub>:<collection> und prüft beide Teile
 // gegen die Namensregel.
 func ParseAddress(addr string) (hub, collection string, err error) {

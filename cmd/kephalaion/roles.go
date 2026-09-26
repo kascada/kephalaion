@@ -135,6 +135,7 @@ const hubUsage = `Aufruf:
   kephalaion hub init [--db sqlite:///pfad/hub.db] [--config pfad]
   kephalaion hub collection add|list|set|rm …
   kephalaion hub node add|list|show|set|rm|lock|unlock|grant|revoke|token …
+  kephalaion hub account add|list|show|set|rm|lock|unlock|grant|revoke|token …
   kephalaion hub doc put|get|list|rm …
   kephalaion hub import <collection> <verzeichnis> [--prefix pfad/]
 
@@ -143,11 +144,14 @@ Kommandos:
   collection   legt die Collections des Hubs an, ändert und entfernt sie
   node         legt Nodes an, erlaubt ihnen Collections, sperrt sie, erneuert
                ihr Token
+  account      legt Accounts an, setzt ihre Rechte je Collection, sperrt sie,
+               erzeugt ein Einrichtungstoken
   doc          legt Dokumente an, ersetzt, liest, listet und löscht sie
   import       spielt ein Verzeichnis als Dokumente ein, in einer Revision
 
 Hilfe: kephalaion hub collection --help, kephalaion hub node --help,
-kephalaion hub doc --help, kephalaion hub import --help
+kephalaion hub account --help, kephalaion hub doc --help,
+kephalaion hub import --help
 `
 
 const nodeUsage = `Aufruf:
@@ -188,6 +192,8 @@ func runRole(r config.Role, args []string, stdin io.Reader, stdout, stderr io.Wr
 		return runHubCollection(args[1:], stdout, stderr)
 	case r == config.Hub && args[0] == "node":
 		return runHubNode(args[1:], stdout, stderr)
+	case r == config.Hub && args[0] == "account":
+		return runHubAccount(args[1:], stdout, stderr)
 	case r == config.Hub && args[0] == "doc":
 		return runHubDoc(args[1:], stdin, stdout, stderr)
 	case r == config.Hub && args[0] == "import":
@@ -405,6 +411,10 @@ func printHubStatus(ctx context.Context, w io.Writer, st hubstore.Store) error {
 	if err != nil {
 		return err
 	}
+	accounts, err := st.Accounts(ctx)
+	if err != nil {
+		return err
+	}
 	names := make([]string, 0, len(colls))
 	for _, c := range colls {
 		names = append(names, c.Name)
@@ -414,6 +424,15 @@ func printHubStatus(ctx context.Context, w io.Writer, st hubstore.Store) error {
 	fmt.Fprintf(w, "  Revision:      %d\n", info.Revision)
 	fmt.Fprintf(w, "  Dokumente:     %d\n", stats.Documents)
 	fmt.Fprintf(w, "  Collections:   %s\n", joinOrNone(names))
+	accountNames := make([]string, 0, len(accounts))
+	for _, a := range accounts {
+		n := a.Name
+		if a.Locked {
+			n += " (gesperrt)"
+		}
+		accountNames = append(accountNames, n)
+	}
+	fmt.Fprintf(w, "  Accounts:      %s\n", joinOrNone(accountNames))
 	if len(nodes) == 0 {
 		fmt.Fprintf(w, "  Nodes:         keine\n")
 		return nil

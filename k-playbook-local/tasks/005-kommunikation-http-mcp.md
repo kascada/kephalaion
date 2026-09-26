@@ -236,6 +236,17 @@ MCP (Node, /mcp):
   `k-playbook-local/k-playbook.md`: Accounts, Namenseindeutigkeit (über `accounts` ↔
   `nodes`, nicht mehr über `SYSTEM:A:`-Zeilen), Transport `http`, `serve` und Sperrdatei.
 
+## Fortschritt
+
+| Etappe | Status | Datum | Notiz |
+|---|---|---|---|
+| 1 — Accounts am Hub | erledigt | 2026-09-26 | Tabelle `accounts` (Schema 3), `hub account …`, Export-Format 4, `admin` reserviert; make check grün |
+| 2 — Vertrag erweitert, Hub über HTTP | offen | | |
+| 3 — Node: Transport http, check, --create, rotate | offen | | |
+| 4 — serve | offen | | |
+| 5 — Node als MCP-Server | offen | | |
+| 6 — Durchlauf und Doku | offen | | |
+
 ---
 ## Review-Log (2026-09-25)
 

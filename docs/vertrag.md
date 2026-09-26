@@ -67,7 +67,7 @@ Aufruf, auch auf dem lokalen Weg.
 | `created_at`, `updated_at` | `created_at`, `updated_at` | Zahl, ms seit Epoche |
 | `created_by`, `updated_by` | `created_by`, `updated_by` | Text |
 
-Auch Löschmarken und `SYSTEM:`-Zeilen kommen mit. `null` ist ausdrücklich: Der Node speichert
+Auch Löschmarken und `SYSTEM:`-Zeilen kommen mit (Account-Zeilen siehe unten). `null` ist ausdrücklich: Der Node speichert
 genau die Zeile des Hubs und leitet `content` nicht aus `deleted` ab. In Go sind die nullbaren
 Spalten Zeiger (`*string`, `nil` = NULL).
 
@@ -104,6 +104,24 @@ mit der nächsten Seite. So passen Seite und H zusammen, ohne Lese-Transaktion.
   Kommando gibt, verwirft der Node die Replica selbst (`node hub rm` und `node hub add`).
 - Collections mit `allowed` falsch — nicht erlaubt, nicht mehr erlaubt oder unbekannt — entfernt
   der Node aus seiner Replica.
+
+## Account-Zeilen
+
+Je Account und Collection steht in `documents` eine Zeile mit dem Namen `SYSTEM:A:<account>`
+(`contract.AccountRowPrefix`). Sie gleicht sich ab wie jede andere Zeile; der Node prüft seine
+Clients gegen sie. `content` ist JSON in genau dieser Form:
+
+```json
+{"hash":"<sha256 des Tokens, 64 Zeichen hex>","rights":{"write":false,"supersede":false}}
+```
+
+- `hash` ist eine Kopie; maßgeblich führt der Hub den Hash in seiner Tabelle `accounts`.
+- `rights` sind die Rechte in dieser Collection über `read` hinaus; `read` ergibt sich aus der
+  Zeile selbst. `write` und `supersede` sind unabhängig.
+- Sperren, Entziehen und Entfernen machen die Zeile zur Löschmarke (`content` NULL). Bekommt
+  der Account die Collection wieder, wird die Löschmarke mit neuer Revision wiederbelebt; ihre
+  `id` bleibt.
+- `meta` ist immer NULL.
 
 ## Fehler
 

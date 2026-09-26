@@ -9,6 +9,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/kascada/kephalaion/internal/config"
+	"github.com/kascada/kephalaion/internal/contract"
 	hubstore "github.com/kascada/kephalaion/internal/hub/store"
 	nodestore "github.com/kascada/kephalaion/internal/node/store"
 )
@@ -16,10 +17,14 @@ import (
 // exportFormat ist die Fassung des Exportformats, die dieses Binary schreibt.
 // Gelesen werden auch ältere Fassungen ab minExportFormat. Format 3 bringt
 // hubs.node_name am Node; ein Hub-Eintrag ohne ihn scheitert beim Import an
-// derselben Prüfung wie node hub add ohne --node.
+// derselben Prüfung wie node hub add ohne --node. Format 4 bringt die Accounts
+// des Hubs samt Rechten; ein Export vor Format 4 lässt die Accounts beim
+// Import, wie sie sind.
 const (
-	exportFormat    = 3
+	exportFormat    = 4
 	minExportFormat = 1
+	// accountsFormat ist die erste Fassung mit Accounts.
+	accountsFormat = 4
 )
 
 // exportFile ist der Inhalt einer Exportdatei: die config, die settings je
@@ -43,6 +48,26 @@ type hubTablesYAML struct {
 	Collections     []collectionYAML `yaml:"collections"`
 	Nodes           []nodeYAML       `yaml:"nodes"`
 	NodeCollections []grantYAML      `yaml:"node_collections"`
+	// Accounts fehlt vor Format 4.
+	Accounts []accountYAML `yaml:"accounts"`
+}
+
+// accountYAML ist ein Account im Export: die Zeile aus accounts und die
+// Rechte je Collection — bei einem gesperrten Account die gemerkten.
+type accountYAML struct {
+	Name        string      `yaml:"name"`
+	Description string      `yaml:"description"`
+	TokenHash   string      `yaml:"token_hash"`
+	Locked      bool        `yaml:"locked"`
+	CreatedAt   int64       `yaml:"created_at"`
+	CreatedBy   string      `yaml:"created_by"`
+	Rights      []rightYAML `yaml:"rights"`
+}
+
+type rightYAML struct {
+	Collection string `yaml:"collection"`
+	Write      bool   `yaml:"write"`
+	Supersede  bool   `yaml:"supersede"`
 }
 
 type collectionYAML struct {
@@ -102,11 +127,32 @@ func hubTablesToYAML(t hubstore.Tables) *hubTablesYAML {
 	for _, g := range t.Grants {
 		out.NodeCollections = append(out.NodeCollections, grantYAML(g))
 	}
+	out.Accounts = []accountYAML{}
+	for _, a := range t.Accounts {
+		y := accountYAML{Name: a.Name, Description: a.Description, TokenHash: a.TokenHash, Locked: a.Locked,
+			CreatedAt: a.CreatedAt, CreatedBy: a.CreatedBy, Rights: []rightYAML{}}
+		for _, r := range a.Rights {
+			y.Rights = append(y.Rights, rightYAML{Collection: r.Collection, Write: r.Write, Supersede: r.Supersede})
+		}
+		out.Accounts = append(out.Accounts, y)
+	}
 	return out
 }
 
-func (y *hubTablesYAML) toStore() hubstore.Tables {
-	t := hubstore.Tables{Collections: []hubstore.Collection{}, Nodes: []hubstore.Node{}, Grants: []hubstore.Grant{}}
+// toStore liefert die Tabellen für den Import. Vor Format 4 gibt es keine
+// Accounts im Export; der Import lässt sie dann, wie sie sind.
+func (y *hubTablesYAML) toStore(format int) hubstore.Tables {
+	t := hubstore.Tables{Collections: []hubstore.Collection{}, Nodes: []hubstore.Node{}, Grants: []hubstore.Grant{},
+		Accounts: []hubstore.Account{}, KeepAccounts: format < accountsFormat}
+	for _, a := range y.Accounts {
+		acc := hubstore.Account{Name: a.Name, Description: a.Description, TokenHash: a.TokenHash, Locked: a.Locked,
+			CreatedAt: a.CreatedAt, CreatedBy: a.CreatedBy, Rights: []hubstore.AccountRight{}}
+		for _, r := range a.Rights {
+			acc.Rights = append(acc.Rights, hubstore.AccountRight{Collection: r.Collection,
+				Rights: contract.Rights{Write: r.Write, Supersede: r.Supersede}})
+		}
+		t.Accounts = append(t.Accounts, acc)
+	}
 	for _, c := range y.Collections {
 		t.Collections = append(t.Collections, hubstore.Collection(c))
 	}
@@ -163,10 +209,20 @@ func (e *exportFile) roles() ([]config.Role, error) {
 	return out, nil
 }
 
-// tableKeys sind die Tabellen je Rolle, wie sie im Export heißen.
+// tableKeys sind die Tabellen je Rolle, wie sie im Export heißen; ab
+// accountsFormat kommt am Hub accounts dazu.
 var tableKeys = map[config.Role][]string{
 	config.Hub:  {"collections", "nodes", "node_collections"},
 	config.Node: {"hubs", "hub_collections"},
+}
+
+// tableKeysOf liefert die Tabellen einer Rolle in einer Fassung.
+func tableKeysOf(r config.Role, format int) []string {
+	keys := tableKeys[r]
+	if r == config.Hub && format >= accountsFormat {
+		keys = append(append([]string{}, keys...), "accounts")
+	}
+	return keys
 }
 
 // parseExport liest eine Exportdatei. Die Fassung wird zuerst geprüft, damit
@@ -215,7 +271,11 @@ func parseExport(data []byte) (exportFile, error) {
 		if err := requirePart(&root, "tables", string(r)); err != nil {
 			return exportFile{}, err
 		}
-		for _, k := range tableKeys[r] {
+		if r == config.Hub && exp.Format < accountsFormat && exp.Tables != nil && exp.Tables.Hub != nil &&
+			exp.Tables.Hub.Accounts != nil {
+			return exportFile{}, fmt.Errorf("Format %d kennt keine Accounts (tables.hub.accounts)", exp.Format)
+		}
+		for _, k := range tableKeysOf(r, exp.Format) {
 			if err := requirePart(&root, "tables", string(r), k); err != nil {
 				return exportFile{}, err
 			}

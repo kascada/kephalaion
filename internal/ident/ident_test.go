@@ -153,3 +153,29 @@ func TestDocAncestorsAndChild(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckPrincipalName(t *testing.T) {
+	for _, ok := range []string{"alice", "laptop", "admin2", "x-admin"} {
+		if err := CheckPrincipalName("Account", ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for n, want := range map[string]string{"admin": "reserviert", "Admin": "ungültiger Name", "system-x": "reserviert", "": "fehlt"} {
+		err := CheckPrincipalName("Account", n)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, erwartet %q", n, err, want)
+		}
+	}
+	// Collections und Hub-Aliase dürfen admin heißen.
+	if err := CheckName("Collection", "admin"); err != nil {
+		t.Errorf("CheckName(admin): %v", err)
+	}
+}
+
+func TestLogName(t *testing.T) {
+	for in, want := range map[string]string{"laptop": "laptop", "": "-", "keph_abc\n": "(ungültig)", "Laptop": "(ungültig)"} {
+		if got := LogName(in); got != want {
+			t.Errorf("LogName(%q) = %q, erwartet %q", in, got, want)
+		}
+	}
+}

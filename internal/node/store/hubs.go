@@ -83,7 +83,7 @@ func CheckHub(h Hub, hubInConfig bool) error {
 	if h.NodeName == "" {
 		return fmt.Errorf("Hub %s: es fehlt der Name, unter dem der Hub diesen Node kennt (--node)", h.Name)
 	}
-	if err := ident.CheckName("Node", h.NodeName); err != nil {
+	if err := ident.CheckPrincipalName("Node", h.NodeName); err != nil {
 		return fmt.Errorf("Hub %s: %w", h.Name, err)
 	}
 	if err := ident.CheckToken(h.Token); err != nil {

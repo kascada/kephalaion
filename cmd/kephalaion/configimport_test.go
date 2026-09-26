@@ -17,9 +17,25 @@ import (
 	"github.com/kascada/kephalaion/internal/sqlitedb"
 )
 
-// fill richtet unter cfg Collections, Nodes, Rechte, Hubs und gewünschte
-// Collections ein und liefert das Token des Hub-Eintrags.
+// fill richtet unter cfg Collections, Nodes, Rechte, Accounts (einer
+// gesperrt), Hubs und gewünschte Collections ein und liefert das Token des
+// Hub-Eintrags.
 func fill(t *testing.T, cfg string) string {
+	t.Helper()
+	tok := fillBase(t, cfg)
+	c := "--config=" + cfg
+	runT(t, "hub", "account", "add", "alice", c).want(t, 0)
+	runT(t, "hub", "account", "add", "bob", "--description", "Bob", c).want(t, 0)
+	runT(t, "hub", "account", "grant", "alice", "team-x", c).want(t, 0)
+	runT(t, "hub", "account", "grant", "bob", "team-x", "--write", c).want(t, 0)
+	runT(t, "hub", "account", "grant", "bob", "privat", "--supersede", c).want(t, 0)
+	runT(t, "hub", "account", "lock", "bob", c).want(t, 0)
+	return tok
+}
+
+// fillBase ist fill ohne Accounts: Deren Zeilen blieben als Löschmarken in
+// den Collections und sperrten sie gegen Entfernen.
+func fillBase(t *testing.T, cfg string) string {
 	t.Helper()
 	c := "--config=" + cfg
 	runT(t, "hub", "collection", "add", "team-x", "--description", "Team X", c).want(t, 0)
@@ -120,7 +136,7 @@ func TestImportRoundTripTables(t *testing.T) {
 	exportTo(t, cfgA, exp)
 	data, _ := os.ReadFile(exp)
 	for _, want := range []string{"token_hash: " + ident.HashToken(tok), "token: " + tok, "node_collections:", "hub_collections:",
-		"format: 3", "node_name: laptop", "node_name: rechner-fern"} {
+		"format: 4", "node_name: laptop", "node_name: rechner-fern", "accounts:", "name: alice", "supersede: true"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("Export ohne %q", want)
 		}
@@ -131,7 +147,7 @@ func TestImportRoundTripTables(t *testing.T) {
 
 	cfgB := setup(t, b)
 	runT(t, "config", "import", "--config", cfgB, exp).want(t, 0,
-		"hub: settings ersetzt (1 Einträge), 2 Collections, 2 Nodes, 1 Rechte; config.import im Protokoll",
+		"hub: settings ersetzt (1 Einträge), 2 Collections, 2 Nodes, 1 Rechte, 2 Accounts; config.import im Protokoll",
 		"node: settings ersetzt (0 Einträge), 2 Hubs, 2 Collections")
 	if got, want := hubTables(t, cfgB), hubTables(t, cfgA); !reflect.DeepEqual(got, want) {
 		t.Errorf("Hub-Tabellen\n%+v\nerwartet\n%+v", got, want)
@@ -175,7 +191,7 @@ func TestImportFormat2WithoutNodeName(t *testing.T) {
 			lines = append(lines, l)
 		}
 	}
-	old := strings.Replace(strings.Join(lines, "\n"), "format: 3", "format: 2", 1)
+	old := strings.Replace(dropAccounts(t, strings.Join(lines, "\n")), "format: 4", "format: 2", 1)
 	if err := os.WriteFile(exp, []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -195,16 +211,16 @@ func TestImportEmptyRoundTrip(t *testing.T) {
 	exportTo(t, cfgA, exp)
 	data, _ := os.ReadFile(exp)
 	for _, want := range []string{"hub: {}", "node: {}", "collections: []", "nodes: []", "node_collections: []",
-		"hubs: []", "hub_collections: []"} {
+		"hubs: []", "hub_collections: []", "accounts: []"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("Export ohne %q:\n%s", want, data)
 		}
 	}
 	cfgB := setup(t, b)
-	fill(t, cfgB)
+	fillBase(t, cfgB)
 	setSettings(t, cfgB, config.Node, map[string]string{"alt": "weg"})
 	runT(t, "config", "import", "--config", cfgB, exp).want(t, 0)
-	if h := hubTables(t, cfgB); len(h.Collections)+len(h.Nodes)+len(h.Grants) != 0 {
+	if h := hubTables(t, cfgB); len(h.Collections)+len(h.Nodes)+len(h.Grants)+len(h.Accounts) != 0 {
 		t.Errorf("Hub nicht geleert: %+v", h)
 	}
 	if n := nodeTables(t, cfgB); len(n.Hubs)+len(n.Wanted) != 0 {
@@ -272,7 +288,9 @@ func TestImportInvalidWritesNothing(t *testing.T) {
 	}
 }
 
-// Ein Account-Name belegt den Node-Namen auch beim Import.
+// Ein Account-Name belegt den Node-Namen auch beim Import — hier im Export
+// selbst (Node und Account gleichen Namens) und bei einem Export ohne
+// Accounts gegen die vorhandenen.
 func TestImportNodeNameTakenByAccount(t *testing.T) {
 	dir := isolate(t)
 	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
@@ -280,15 +298,101 @@ func TestImportNodeNameTakenByAccount(t *testing.T) {
 	fill(t, cfgA)
 	exp := filepath.Join(dir, "export.yaml")
 	exportTo(t, cfgA, exp)
-	cfgB := setup(t, b)
-	if _, err := rawHub(t, b).Exec(`INSERT INTO documents
-		(id, collection, name, deleted, revision, created_at, created_by, updated_at, updated_by)
-		VALUES ('1', 'x', 'SYSTEM:A:laptop', 1, 1, 0, 'x', 0, 'x')`); err != nil {
+	data, _ := os.ReadFile(exp)
+	both := filepath.Join(dir, "both.yaml")
+	if err := os.WriteFile(both, []byte(strings.Replace(string(data), "name: alice", "name: laptop", 1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runT(t, "config", "import", "--config", cfgB, exp).want(t, 1, "Account", "Nichts geschrieben")
+	cfgB := setup(t, b)
+	runT(t, "config", "import", "--config", cfgB, both).want(t, 1, "gemeinsam eindeutig", "Nichts geschrieben")
+
+	old := filepath.Join(dir, "old.yaml")
+	if err := os.WriteFile(old, []byte(strings.Replace(dropAccounts(t, string(data)), "format: 4", "format: 3", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runT(t, "hub", "account", "add", "laptop", "--config", cfgB).want(t, 0)
+	runT(t, "config", "import", "--config", cfgB, old).want(t, 1, "Account", "Nichts geschrieben")
 	if n := countImports(t, b); n != 0 {
 		t.Errorf("%d Zeilen config.import", n)
+	}
+}
+
+// dropAccounts entfernt den Teil tables.hub.accounts aus einem Export, wie
+// ihn ein Export vor Format 4 nicht hat.
+func dropAccounts(t *testing.T, data string) string {
+	t.Helper()
+	var out []string
+	skip := false
+	found := false
+	for _, l := range strings.Split(data, "\n") {
+		if l == "    accounts:" || l == "    accounts: []" {
+			skip, found = l == "    accounts:", true
+			continue
+		}
+		if skip && (strings.HasPrefix(l, "      ") || strings.HasPrefix(l, "    - ")) {
+			continue
+		}
+		skip = false
+		out = append(out, l)
+	}
+	if !found {
+		t.Fatalf("kein accounts-Teil im Export:\n%s", data)
+	}
+	return strings.Join(out, "\n")
+}
+
+// Ein Export vor Format 4 lässt die Accounts, wie sie sind; einer im Format 4
+// ohne Accounts-Teil bricht ab; ein älterer mit Accounts-Teil ebenso.
+func TestImportAccountsPart(t *testing.T) {
+	dir := isolate(t)
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	cfgA := setup(t, a)
+	fill(t, cfgA)
+	exp := filepath.Join(dir, "export.yaml")
+	exportTo(t, cfgA, exp)
+	data, _ := os.ReadFile(exp)
+	cfgB := setup(t, b)
+	runT(t, "hub", "collection", "add", "team-x", "--config", cfgB).want(t, 0)
+	runT(t, "hub", "account", "add", "carol", "--config", cfgB).want(t, 0)
+	runT(t, "hub", "account", "grant", "carol", "team-x", "--config", cfgB).want(t, 0)
+	before := hubTables(t, cfgB).Accounts
+
+	write := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	missing := write("missing.yaml", dropAccounts(t, string(data)))
+	runT(t, "config", "import", "--config", cfgB, missing).want(t, 1, "tables.hub.accounts fehlt", "Nichts geschrieben")
+	oldWith := write("oldwith.yaml", strings.Replace(string(data), "format: 4", "format: 3", 1))
+	runT(t, "config", "import", "--config", cfgB, oldWith).want(t, 1, "kennt keine Accounts", "Nichts geschrieben")
+	if got := hubTables(t, cfgB).Accounts; !reflect.DeepEqual(got, before) {
+		t.Errorf("Accounts verändert: %+v", got)
+	}
+
+	old := write("old.yaml", strings.Replace(dropAccounts(t, string(data)), "format: 4", "format: 3", 1))
+	// team-x bleibt im Export, carol behält ihre Zeile.
+	runT(t, "config", "import", "--config", cfgB, old).want(t, 0, "Accounts unberührt (Format 3)")
+	if got := hubTables(t, cfgB).Accounts; !reflect.DeepEqual(got, before) {
+		t.Errorf("Accounts nach Format 3: %+v", got)
+	}
+
+	runT(t, "config", "import", "--config", cfgB, exp).want(t, 0, "2 Accounts")
+	got := hubTables(t, cfgB).Accounts
+	if len(got) != 2 || got[0].Name != "alice" || got[1].Name != "bob" || !got[1].Locked {
+		t.Errorf("Accounts nach Format 4: %+v", got)
+	}
+	// carol ist weg, ihre Zeile eine Löschmarke; alices Zeile lebt.
+	var live, dead int
+	if err := rawHub(t, b).QueryRow(`SELECT
+		(SELECT COUNT(*) FROM documents WHERE name = 'SYSTEM:A:alice' AND deleted = 0),
+		(SELECT COUNT(*) FROM documents WHERE name = 'SYSTEM:A:carol' AND deleted = 1)`).Scan(&live, &dead); err != nil {
+		t.Fatal(err)
+	}
+	if live != 1 || dead != 1 {
+		t.Errorf("Zeilen: alice lebend %d, carol Löschmarke %d", live, dead)
 	}
 }
 

@@ -26,7 +26,7 @@ const Role = string(config.Hub)
 // SchemaVersion ist die Schemafassung, die dieses Binary erwartet. Es gibt
 // noch keine Migrationen: Passt die Fassung nicht, ist die Datenbank neu
 // anzulegen.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // Zeilen in db_info, die nur der Hub hat.
 const (
@@ -50,7 +50,8 @@ type Stats struct {
 }
 
 // Store ist der Zugriff des Hubs auf seine Datenbank. Jede Änderung läuft in
-// einer Transaktion und schreibt eine Zeile in actions, als Account admin.
+// einer Transaktion und schreibt eine Zeile in actions, als Account admin —
+// außer RotateAccount, das der Account selbst über einen Node auslöst.
 type Store interface {
 	Info(ctx context.Context) (Info, error)
 	Stats(ctx context.Context) (Stats, error)
@@ -79,10 +80,45 @@ type Store interface {
 	Grant(ctx context.Context, node, collection string) error
 	Revoke(ctx context.Context, node, collection string) error
 
+	// Accounts liest alle Accounts samt ihren Rechten, nach Name.
+	Accounts(ctx context.Context) ([]Account, error)
+	Account(ctx context.Context, name string) (Account, error)
+	// AddAccount legt einen Account ohne Collections an und liefert sein
+	// Einrichtungstoken. Gespeichert wird nur der Hash.
+	AddAccount(ctx context.Context, name, description string) (token string, err error)
+	SetAccountDescription(ctx context.Context, name, description string) error
+	// SetAccountLocked sperrt einen Account — seine Zeilen werden
+	// Löschmarken, die Rechte merkt sich accounts — oder hebt die Sperre auf
+	// und legt die Zeilen neu an.
+	SetAccountLocked(ctx context.Context, name string, locked bool) error
+	// NewAccountToken ersetzt das Token eines Accounts in accounts und in
+	// allen seinen Zeilen und liefert das neue Einrichtungstoken.
+	NewAccountToken(ctx context.Context, name string) (token string, err error)
+	// RemoveAccount entfernt einen Account; seine Zeilen werden Löschmarken.
+	RemoveAccount(ctx context.Context, name string) error
+	// GrantAccount setzt die Rechte eines Accounts in einer Collection
+	// vollständig: legt die Zeile an oder ändert sie. changed ist false, wenn
+	// schon genau diese Rechte galten; dann ist nichts geschrieben.
+	GrantAccount(ctx context.Context, name, collection string, rights contract.Rights) (changed bool, err error)
+	// RevokeAccount nimmt einem Account eine Collection: Die Zeile wird eine
+	// Löschmarke.
+	RevokeAccount(ctx context.Context, name, collection string) error
+	// RotateAccount ersetzt den Hash des Tokens eines Accounts in accounts
+	// und allen seinen Zeilen, in einer Transaktion und unter einer
+	// Revision, mit einer Zeile rotate in actions (carrier ist der Node). Es
+	// prüft in der Transaktion noch einmal, dass oldHash gilt und der Account
+	// nicht gesperrt ist (sonst ErrAccountAuth), und dass er mindestens eine
+	// der Collections in shared hat (sonst ErrNoSharedCollection, ohne
+	// Änderung). Es liefert die Zeilen des Accounts in diesen Collections.
+	RotateAccount(ctx context.Context, name, oldHash, newHash, carrier string, shared []string) ([]contract.Row, error)
+
 	// Tables liest die lokalen Tabellen für den Export.
 	Tables(ctx context.Context) (Tables, error)
 	// Import ersetzt in einer Transaktion die settings und, wenn tables nicht
 	// nil ist, die lokalen Tabellen, und schreibt config.import in actions.
+	// Die Accounts gleicht es nur an, wenn tables.KeepAccounts nicht gilt:
+	// accounts ersetzen und die SYSTEM:A:-Zeilen angleichen, unter einer
+	// Revision.
 	Import(ctx context.Context, settings map[string]string, tables *Tables) error
 
 	// PutDocument legt ein Dokument an oder ersetzt seinen Inhalt — der
@@ -120,6 +156,7 @@ var queries = struct {
 
 	ActionInsert         string
 	ActionInsertDocument string
+	ActionInsertFull     string
 
 	DocumentLive       string
 	DocumentsAll       string
@@ -153,7 +190,21 @@ var queries = struct {
 	NodeSetToken   string
 	NodeDelete     string
 	NodesDeleteAll string
-	AccountRows    string
+	NodeCount      string
+
+	AccountsAll        string
+	AccountGet         string
+	AccountCount       string
+	AccountInsert      string
+	AccountSetDesc     string
+	AccountSetLocked   string
+	AccountSetToken    string
+	AccountDelete      string
+	AccountsDeleteAll  string
+	AccountRowsLive    string
+	AccountRowsAllLive string
+	AccountRowLatest   string
+	AccountRowRevive   string
 
 	GrantsAll       string
 	GrantsOfNode    string
@@ -173,6 +224,8 @@ var queries = struct {
 	ActionInsert: `INSERT INTO actions (at, account, action, subject) VALUES ($1, $2, $3, $4)`,
 	ActionInsertDocument: `INSERT INTO actions (at, account, action, document_id, revision)
 		VALUES ($1, $2, $3, $4, $5)`,
+	ActionInsertFull: `INSERT INTO actions (at, account, carrier, action, subject, revision)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
 
 	// Dokumente: documentColumns in dieser Reihenfolge, gelesen mit scanDocument.
 	DocumentLive: `SELECT ` + documentColumns + ` FROM documents
@@ -237,9 +290,40 @@ var queries = struct {
 	NodeSetToken:   `UPDATE nodes SET token_hash = $2 WHERE name = $1`,
 	NodeDelete:     `DELETE FROM nodes WHERE name = $1`,
 	NodesDeleteAll: `DELETE FROM nodes`,
-	// Jede Zeile eines Accounts belegt den Namen, in jeder Collection, auch
-	// eine Löschmarke.
-	AccountRows: `SELECT COUNT(*) FROM documents WHERE name = $1`,
+	NodeCount:      `SELECT COUNT(*) FROM nodes WHERE name = $1`,
+
+	AccountsAll: `SELECT name, COALESCE(description, ''), token_hash, locked, COALESCE(locked_rights, ''),
+		created_at, created_by FROM accounts ORDER BY name`,
+	AccountGet: `SELECT name, COALESCE(description, ''), token_hash, locked, COALESCE(locked_rights, ''),
+		created_at, created_by FROM accounts WHERE name = $1`,
+	AccountCount: `SELECT COUNT(*) FROM accounts WHERE name = $1`,
+	AccountInsert: `INSERT INTO accounts (name, description, token_hash, locked, locked_rights, created_at, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+	AccountSetDesc:    `UPDATE accounts SET description = $2 WHERE name = $1`,
+	AccountSetLocked:  `UPDATE accounts SET locked = $2, locked_rights = $3 WHERE name = $1`,
+	AccountSetToken:   `UPDATE accounts SET token_hash = $2 WHERE name = $1`,
+	AccountDelete:     `DELETE FROM accounts WHERE name = $1`,
+	AccountsDeleteAll: `DELETE FROM accounts`,
+	// Account-Zeilen: Die Bedingung name LIKE 'SYSTEM:%' steht wörtlich wie im
+	// Teilindex documents_system, damit SQLite und PostgreSQL ihn benutzen.
+	// Sie allein grenzt nicht genau ein — LIKE unterscheidet in SQLite nicht
+	// zwischen Groß- und Kleinschreibung —, genau grenzt name = $1 bzw.
+	// substr ein.
+	AccountRowsLive: `SELECT ` + documentColumns + ` FROM documents
+		WHERE name = $1 AND name LIKE 'SYSTEM:%' AND deleted = 0
+		ORDER BY collection`,
+	AccountRowsAllLive: `SELECT ` + documentColumns + ` FROM documents
+		WHERE name LIKE 'SYSTEM:%' AND substr(name, 1, 9) = 'SYSTEM:A:' AND deleted = 0
+		ORDER BY name, collection`,
+	// AccountRowLatest liest die Zeile eines Accounts in einer Collection, die
+	// lebende vor einer Löschmarke: Eine Löschmarke wird wiederbelebt, statt
+	// eine zweite Zeile anzulegen.
+	AccountRowLatest: `SELECT ` + documentColumns + ` FROM documents
+		WHERE collection = $1 AND name = $2
+		ORDER BY deleted, revision DESC LIMIT 1`,
+	AccountRowRevive: `UPDATE documents SET content = $2, meta = NULL, deleted = 0, revision = $3,
+		created_at = $4, created_by = $5, updated_at = $4, updated_by = $5
+		WHERE id = $1`,
 
 	GrantsAll:       `SELECT node, collection FROM node_collections ORDER BY node, collection`,
 	GrantsOfNode:    `SELECT collection FROM node_collections WHERE node = $1 ORDER BY collection`,
@@ -298,6 +382,15 @@ CREATE TABLE node_collections (
   node        TEXT NOT NULL REFERENCES nodes(name),
   collection  TEXT NOT NULL REFERENCES collections(name),
   PRIMARY KEY (node, collection)
+);
+CREATE TABLE accounts (
+  name          TEXT PRIMARY KEY,
+  description   TEXT,
+  token_hash    TEXT NOT NULL,
+  locked        INTEGER NOT NULL DEFAULT 0,
+  locked_rights TEXT,
+  created_at    INTEGER NOT NULL,
+  created_by    TEXT NOT NULL
 );
 `
 

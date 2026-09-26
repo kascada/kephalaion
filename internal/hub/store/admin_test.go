@@ -252,12 +252,14 @@ func TestGrants(t *testing.T) {
 	}
 }
 
-// Ein Account-Name ist auch als Node-Name belegt, auch durch eine Löschmarke
-// in irgendeiner Collection.
+// Ein Account-Name ist auch als Node-Name belegt; eine Zeile SYSTEM:A:<name>
+// allein belegt nichts mehr — geprüft wird über die Tabellen.
 func TestNodeNameTakenByAccount(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	insertDoc(t, s, "1", "irgendwo", "SYSTEM:A:laptop", 1)
+	if _, err := s.AddAccount(ctx, "laptop", ""); err != nil {
+		t.Fatal(err)
+	}
 	_, err := s.AddNode(ctx, "laptop", "")
 	if err == nil || !strings.Contains(err.Error(), "Account") {
 		t.Fatalf("AddNode: %v", err)
@@ -265,8 +267,7 @@ func TestNodeNameTakenByAccount(t *testing.T) {
 	if _, err := s.Node(ctx, "laptop"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Node trotzdem angelegt: %v", err)
 	}
-	// Ein Dokument gleichen Namens ohne Präfix belegt nichts.
-	insertDoc(t, s, "2", "irgendwo", "desktop", 0)
+	insertDoc(t, s, "1", "irgendwo", "SYSTEM:A:desktop", 1)
 	if _, err := s.AddNode(ctx, "desktop", ""); err != nil {
 		t.Error(err)
 	}
