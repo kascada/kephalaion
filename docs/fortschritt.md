@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Task 008, Etappen 1–5, nicht committet)
+Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`)
 
 ## So wird diese Datei aktualisiert
 
@@ -41,8 +41,8 @@ Stand: 2026-09-26 (Task 008, Etappen 1–5, nicht committet)
   `rotate` schreibt `updated_by` = User; `whoami` (`/v1/`, `local`, MCP) nennt ihn nur bei
   gültiger Anmeldung; Export Format 5 mit `user` (Pflicht), Format 4 → User = Name
   (`konzept.md`, „Account und User“).
-- **Task 008 — Abgleich im Hintergrund, whoami, node whoami** (2026-09-26, Etappen 1–5; der
-  Task liegt noch in `tasks/`):
+- **Task 008 — Abgleich im Hintergrund, whoami, node whoami** (2026-09-26, Etappen 1–5,
+  in `done/`; Intent-Alignment „Teilweise“, siehe „Zu tun“):
   - `serve` gleicht als Node selbst ab: beim Start, dann je `sync_interval` (Standard 30 s,
     `0` aus), je Eintrag eine Goroutine, `https`/`ssh` übergangen; Log nur bei Zeilen, beim
     ersten Fehler, bei Wechsel der Art des Fehlers und bei Erholung;
@@ -102,6 +102,34 @@ Stand: 2026-09-26 (Task 008, Etappen 1–5, nicht committet)
   - Kommando für eine neue `hub_id` nach Wiederherstellung aus einer Sicherung;
   - Markdown-Export des Stores;
   - Begrenzung von Fehlversuchen bei der Anmeldung.
+- **Nachbesserung Task 008, vor dem nächsten Release** (Code-Review und Intent-Alignment,
+  `done/008-…`, „Ausführung“) — Task 012:
+  - `whoami`/`node whoami` scheitern insgesamt, wenn eine einzige Replica nicht lesbar ist
+    (alte Schemafassung, beschädigt); Fehler je Hub abbilden (Befund 1, Hoch);
+  - Race in `replica.Create` zwischen `os.Link` und `Open`: nach `Open` die `entry_id` prüfen,
+    sonst `ErrChanged` (Vorschlag 1);
+  - `serve` wartet beim Beenden ohne Frist auf den Abgleich (`<-bgDone`); mit
+    `shutdownGrace` begrenzen (Vorschlag 2).
+- **Kleinere Punkte aus dem Review von Task 008** (`done/008-…`, „Code-Review“, Vorschläge 3–12):
+  - `reset` prüft nur `entry_id`, nicht die alte `hub_id` — doppeltes Verwerfen bei zwei
+    parallelen Resets (3);
+  - `DescribeSync` dereferenziert `Revision` ohne nil-Prüfung (4);
+  - neues `sync_interval` wirkt erst nach dem laufenden Timer, bei `0` bis zu 30 s
+    (`syncIdle`); in der Hilfe nennen (5, Ausführung);
+  - `outcome`/`skipped` in `bgsync.go` für entfernte Einträge nicht geräumt; https → http →
+    https ohne zweite Logzeile (6);
+  - verwaiste `.db.new-<ULID>`-Dateien nach einem Absturz; `os.Link` setzt Hardlinks voraus (7);
+  - je Runde ein neuer `connector`, bei `http` womöglich offene Idle-Verbindungen (8);
+  - `whoami` liest die Hubs zweimal und öffnet je Replica bis zu zweimal (9);
+  - nach `Remove` in `openForSync` sehen lesende Pfade eines alten `*sql.DB` womöglich die neue
+    Datei — nur schreibende Pfade geschützt; im Kommentar festhalten (10);
+  - Log-Tests nur langsam über `serve` (`TestBackgroundSyncErrors` ~9 s); Unit-Test der
+    Log-Zustandsmaschine mit gefälschtem Connector (11);
+  - geloggte „Revision“ ist das Minimum über die Collections; so benennen (12);
+  - ungültiges `sync_interval` aus `config import` wird nicht abgewiesen, `serve` nimmt 30 s
+    (Ausführung, Restrisiken);
+  - `last_error` in `whoami` nur als fester Satz je Fehlerart (Adresse); bewusst, ggf.
+    besprechen (Ausführung, Restrisiken).
 - **Kleinere Punkte aus Reviews (Task 003):**
   - `node hub add` prüft Transportregeln erst nach der Token-Eingabe;
   - `parseFlags`: Flag-Wert `--` gilt als Ende der Optionen;
@@ -112,7 +140,8 @@ Stand: 2026-09-26 (Task 008, Etappen 1–5, nicht committet)
 
 - **Task 008:** Schemafassung +1 für `node.db` (4) und Replica (3): Vor dem Update
   `config export` mit dem alten Binary, danach `node init` neu und `config import` (Task 008,
-  Review-Punkt 9, offen). Abgleich im Hintergrund mit einem echten Client über längere Zeit;
+  Review-Punkt 9, offen) — wie man neu anlegt, obwohl `node init` bei eingetragener Rolle
+  abbricht, ist nirgends beschrieben. Abgleich im Hintergrund mit einem echten Client über längere Zeit;
   Der Race-Detector lief über `cmd/kephalaion` und `internal/node/...` sauber.
 
 - **Task 004, Etappe 5:** Durchlauf Hub + Node in einer config über `local`.

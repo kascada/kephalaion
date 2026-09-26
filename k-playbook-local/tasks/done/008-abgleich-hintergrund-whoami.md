@@ -191,3 +191,142 @@ Ja. Alle vier Punkte des Intents sind abgedeckt: Abgleich im Hintergrund mit Abs
 
 ### Offen (nicht gefixt)
 - 9: Hinweis für den Nutzer zur Schemafassung +1 (Export vor dem Update); nicht blockierend.
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** `serve` gleicht als Node jeden Hub-Eintrag beim Start und danach je `sync_interval` ab. Neu sind `config set|unset`, eine eigene Goroutine je Eintrag und ein Log nur bei Übergängen. Der Stand je Hub steht in der neuen Tabelle `hub_sync` und wird in `status` und `whoami` gezeigt. `whoami` folgt dem Konzept (alle Hubs, `login` ok/invalid/missing, `node`, `sync`, `unknown_hubs`). Die gemeinsame Funktion `mcpnode.Authenticate` ist die Grundlage für Task 009, und `kephalaion node whoami [<account>] [--hub] [--json]` kommt aus derselben Funktion `mcpnode.Whoami`. Nebenläufigkeit: Das Schreiben ist an eine nie wiederkehrende `entry_id` (ULID) des Hub-Eintrags gebunden, statt eine Sperre über Prozesse zu nehmen. Die Bindung steht in `hubs`, `hub_sync` und in `db_info` der Replica; die Replica wird per tmp-Datei und `os.Link` neu angelegt. Schemafassungen: Node 3 → 4, Replica 2 → 3. `make check` ist grün, `go test -race` über `cmd/kephalaion` und `internal/node/...` ebenfalls.
+
+Die Baseline ist `bd13357`. Der Diff enthält auch die parallelen Commits `973e94a` (Task 010: Refine) und `3d14e27` (Konzept: Installation und Betrieb). Der Code wurde vom Nutzer mit `18da4d0 Zwischenstand` gesichert.
+
+**Geänderte Dateien:**
+```
+ README.md                                          |  69 +++-
+ cmd/kephalaion/bgsync.go                           | 195 +++++++++++
+ cmd/kephalaion/bgsync_test.go                      | 364 +++++++++++++++++++++
+ cmd/kephalaion/configcmd.go                        |  80 +++++
+ cmd/kephalaion/configimport_test.go                |   5 +
+ cmd/kephalaion/main.go                             |  12 +-
+ cmd/kephalaion/mcp_test.go                         |  55 +++-
+ cmd/kephalaion/nodewhoami_test.go                  | 106 ++++++
+ cmd/kephalaion/nodewhoamicmd.go                    | 148 +++++++++
+ cmd/kephalaion/roles.go                            |  62 +++-
+ cmd/kephalaion/serve.go                            |  47 ++-
+ cmd/kephalaion/synccmd.go                          |  14 +-
+ cmd/kephalaion/synccmd_test.go                     |  75 +++++
+ docs/begriffe.md                                   |  66 +++-
+ docs/fortschritt.md                                |  26 +-
+ docs/konzept.md                                    | 188 ++++++++++-
+ docs/vscode.md                                     |  11 +-
+ internal/node/mcpnode/login.go                     | 275 ++++++++++++++++
+ internal/node/mcpnode/mcpnode.go                   | 176 +---------
+ internal/node/mcpnode/mcpnode_test.go              | 183 +++++++++--
+ internal/node/mcpnode/whoami.go                    | 188 +++++++++++
+ internal/node/replica/accounts.go                  |  39 ++-
+ internal/node/replica/concurrency_test.go          | 321 ++++++++++++++++++
+ internal/node/replica/replica.go                   | 148 +++++++--
+ internal/node/replica/sync.go                      | 231 +++++++++++--
+ internal/node/replica/sync_test.go                 |   6 +-
+ internal/node/store/hubs.go                        |  64 ++--
+ internal/node/store/hubs_test.go                   |  32 +-
+ internal/node/store/settings.go                    | 102 ++++++
+ internal/node/store/store.go                       |  38 ++-
+ internal/node/store/store_test.go                  |   2 +-
+ internal/node/store/syncstatus.go                  |  83 +++++
+ internal/node/store/syncstatus_test.go             | 147 +++++++++
+ internal/sqlitedb/sqlitedb.go                      |  28 ++
+ k-playbook-local/k-playbook.md                     |  26 +-
+ .../tasks/008-abgleich-hintergrund-whoami.md       |  10 +
+ k-playbook-local/tasks/010-arbeitsbranch-dev.md    |  99 +++++-
+ 37 files changed, 3357 insertions(+), 364 deletions(-)
+```
+
+**Code-Änderungen:** (die wichtigsten Hunks, gekürzt)
+
+Replica prüft den Eigentümer in jeder schreibenden Transaktion (`internal/node/replica/replica.go`):
+```go
++func (r *Replica) checkOwner(ctx context.Context, tx *sql.Tx) error {
++	info, err := sqlitedb.ReadInfo(ctx, tx)
++	if info[KeyEntryID] != r.entryID || info[KeyHubID] != r.hubID { return ErrChanged }
++	qStateUpsert = `… ON CONFLICT(collection) DO UPDATE SET revision = max(sync_state.revision, excluded.revision), …`
++	qDocUpsert = `INSERT … ON CONFLICT(id) DO UPDATE SET … WHERE excluded.revision >= documents.revision`
++func Create(ctx context.Context, path, hubID, entryID string) (*Replica, error) {
++	tmp := path + ".new-" + ulid.Make().String()   // bauen, schließen, os.Link(tmp, path), tmp entfernen
+```
+
+Bindung in node.db (`internal/node/store/hubs.go`, `syncstatus.go`):
+```go
+-	qHubID = `UPDATE hubs SET hub_id = ? WHERE name = ?`
++	qHubID = `UPDATE hubs SET hub_id = ? WHERE name = ? AND entry_id = ?`
++	qSyncOK = `INSERT INTO hub_sync (…) SELECT name, entry_id, ?, NULL, NULL, NULL FROM hubs WHERE name = ? AND entry_id = ?
++		ON CONFLICT(hub) DO UPDATE SET … error = NULL, error_kind = NULL, error_at = NULL`   // 0 Zeilen → ErrEntryGone
+```
+
+Hintergrund (`cmd/kephalaion/bgsync.go`, `serve.go`):
+```go
++func (b *backgroundSync) run(ctx) { … d := b.readInterval(ctx); if d > 0 { b.round(ctx); wait = d } else { wait = syncIdle } … }
++func (b *backgroundSync) round(ctx) { … https/ssh: einmal loggen, übergehen; läuft schon: übergehen; sonst go syncOne }
++	if res.Err != nil { if !seen || !prev.failed || prev.kind != res.Kind { log "Abgleich %s gescheitert: %v" } }
++	bg := newBackgroundSync(nodes, cfg, hub, log); go bg.run(bgCtx)
++	stopBg(); <-bgDone   // vor dem Shutdown und dem Schließen der Stores
+```
+
+whoami (`internal/node/mcpnode/login.go`, `whoami.go`):
+```go
++func (n *Node) Authenticate(ctx, header) (Logins, error)   // je Hub-Eintrag ok/invalid/missing, Unknown = Aliase ohne Eintrag
++func AccountLogins(ctx, nodes, account) (Logins, error)    // CLI: ok, wo lebende SYSTEM:A:-Zeilen stehen, sonst missing
++func Whoami(ctx, nodes, version, logins) (WhoamiOutput, string, error)   // eine Funktion für MCP und CLI
+```
+
+Die übrigen Änderungen:
+- `config set|unset` in `configcmd.go`, dazu `store/settings.go`.
+- `node whoami` in `nodewhoamicmd.go`.
+- Die Tests: `bgsync_test.go`, `concurrency_test.go`, `syncstatus_test.go`, `nodewhoami_test.go`, dazu die Erweiterungen in `mcpnode_test.go`.
+- Die Doku: README, `begriffe`, `konzept`, `vscode`, `fortschritt`, `k-playbook-local/k-playbook.md`.
+
+**Restrisiken laut Ausführung:**
+- `last_error` zeigt in `whoami` nur einen festen Satz je Fehlerart, weil die Meldung die Adresse nennen kann.
+- Ein ungültiges `sync_interval` aus `config import` wird nicht abgewiesen. `serve` meldet es und nimmt 30 s.
+- Bei Abstand 0 sieht `serve` erst nach 30 s nach, ob der Abgleich wieder an ist.
+- `TestBackgroundSyncErrors` braucht etwa 9 s.
+- Review-Punkt 9 ist weiter offen: Wie man die Datenbank neu anlegt, ist nicht beschrieben.
+
+**Code-Review:** (nur auf Basis des Diffs von `cmd/` und `internal/`)
+
+Urteil: Request Changes. Befund 1 und Vorschlag 1 sollten vor dem nächsten Release behoben werden, der Rest kann als Folgearbeit laufen.
+
+| # | Datei | Befund | Schwere |
+|---|---|---|---|
+| 1 | `mcpnode/login.go` (`openReplica`), `whoami.go` (`syncInfo`) | Nur `sqlitedb.ErrNotFound` gilt als „keine Replica“. Jeder andere Fehler bricht `Authenticate` und `Whoami` insgesamt ab, etwa bei einer alten Replica mit Schemafassung 2, einer ohne `entry_id` oder einer beschädigten Datei. Weil `whoami` jetzt über alle Hubs läuft, legt eine einzige solche Replica das Werkzeug für alle Hubs lahm. Bei `sync_interval 0` oder einem Fehler beim Verbinden wird die Datei nie verworfen. Vorschlag: den Fehler je Hub abbilden statt global zu scheitern. | 🟠 Hoch |
+
+| # | Datei | Vorschlag | Kategorie |
+|---|---|---|---|
+| 1 | `replica/replica.go` (`Create`) | Ein schmales Race zwischen `os.Link` und `Open`: Ersetzt ein anderer Prozess die Datei, trägt die Replica eine fremde `entry_id`, und `checkOwner` prüft nur gegen `r.entryID`. Nach `Open` sollte `EntryID() == entryID` geprüft werden, sonst `ErrChanged`. | Korrektheit |
+| 2 | `serve.go` (`<-bgDone`) | Das Warten auf den Abgleich beim Beenden hat keine Frist. Es sollte mit `shutdownGrace` begrenzt werden. | Shutdown |
+| 3 | `replica/replica.go` (`reset`) | `reset` prüft nur `entry_id`, nicht die alte `hub_id`. Zwei parallele Resets verwerfen doppelt; das kostet Arbeit, ergibt aber keine falschen Daten. | Korrektheit |
+| 4 | `mcpnode/whoami.go` (`DescribeSync`) | `*s.Revision` wird ohne nil-Prüfung dereferenziert. | Robustheit |
+| 5 | `bgsync.go` (`run`) | Ein neues `sync_interval` wirkt erst nach Ablauf des laufenden Timers. Das sollte in der Hilfe stehen. | UX |
+| 6 | `bgsync.go` | `outcome` und `skipped` werden für entfernte Einträge nicht geräumt. Wechselt ein Eintrag https → http → https, fehlt die zweite Logzeile. | Wartbarkeit |
+| 7 | `replica/replica.go` (`Create`) | Nach einem Absturz bleiben verwaiste `.db.new-<ULID>`-Dateien liegen. Außerdem setzt `os.Link` Hardlinks im Dateisystem voraus. | Robustheit |
+| 8 | `bgsync.go` (`syncOne`) | Je Runde entsteht ein neuer `connector`. Beim http-Transport bleiben dadurch womöglich Idle-Verbindungen offen. | Performance |
+| 9 | `mcpnode/whoami.go`, `login.go` | Die Hubs werden zweimal gelesen, und die Replica wird je Anfrage bis zu zweimal geöffnet. | Wartbarkeit |
+| 10 | `replica/sync.go` (`openForSync`) | Nach `Remove` sehen lesende Pfade eines alten `*sql.DB` womöglich die neue Datei. Nur die schreibenden Pfade sind geschützt; das sollte im Kommentar stehen. | Korrektheit |
+| 11 | `bgsync_test.go` | Die Log-Zustandsmaschine wird nur langsam über `serve` getestet. Es fehlen Tests zu Befund 1, zu Vorschlag 1 und zu einem Hub, der den ctx nicht beachtet. | Tests |
+| 12 | `bgsync.go` | Die geloggte „Revision“ ist das Minimum über die Collections. Das sollte im Kommentar bzw. in der Hilfe so benannt sein. | Wartbarkeit |
+
+Positiv:
+- Die Bindung an `entry_id` ist durchgängig und atomar (`INSERT … SELECT … WHERE entry_id`).
+- Die Upserts schreiben nie zurück, und eine Lücke im Stand wird erkannt.
+- `whoami` enthält keine Geheimnisse; die Tests prüfen das mit `noSecrets`.
+- Das Log meldet nur Übergänge.
+- `--json` ist per `DeepEqual` gegen die MCP-Antwort geprüft.
+- Der `connector` schließt nur, was er selbst geöffnet hat.
+
+**Intent-Alignment:** Teilweise. Der Kern ist erfüllt:
+- Der Abgleich läuft im Hintergrund je `sync_interval`.
+- Fehler stehen im Log und in `hub_sync`, und `status` und `whoami` zeigen denselben Stand.
+- `whoami` enthält keine Geheimnisse.
+- `node whoami` kommt aus derselben Funktion wie das Werkzeug.
+
+Offen ist der Review-Befund „Hoch“: Eine einzelne unlesbare Replica (alte Schemafassung, beschädigt) lässt `whoami` und `node whoami` insgesamt scheitern statt nur für diesen Hub. Der Critic nennt außerdem, dass Einträge mit `https`/`ssh` nur übergangen werden. Das verlangt die Task so: Diese Transporte sind noch nicht gebaut.
