@@ -1,0 +1,203 @@
+- generic [active] [ref=f57e1]:
+  - navigation "Kurznavigation":
+    - generic:
+      - generic [ref=f57e2]: "Kurznavigation:"
+      - list:
+        - listitem:
+          - link "Inhalt" [ref=f57e3] [cursor=pointer]:
+            - /url: "#inhaltscontainer"
+      - link "Gehe nach oben" [ref=f57e4] [cursor=pointer]:
+        - /url: "#oben"
+  - banner [ref=f57e6]:
+    - link [ref=f57e8] [cursor=pointer]:
+      - /url: http://www.dpma.de
+      - img "Zur Startseite des DPMA" [ref=f57e9]
+    - navigation "Servicenavigation" [ref=f57e10]:
+      - generic [ref=f57e11]: "Servicenavigation:"
+      - list [ref=f57e12]:
+        - listitem [ref=f57e13]:
+          - link "Switch to the English user interface" [ref=f57e14] [cursor=pointer]:
+            - /url: https://register.dpma.de/DPMAregister/marke/register/3020232353446/DE?lang=en
+            - text: English
+        - listitem [ref=f57e15]:
+          - link "Kontakt" [ref=f57e16] [cursor=pointer]:
+            - /url: /DPMAregister/service/KontaktPage
+        - listitem [ref=f57e17]:
+          - 'link "Öffnet PDF in neuem Fenster: Hilfe" [ref=f57e18] [cursor=pointer]':
+            - /url: https://register.dpma.de/prod/de/register_hilfe.pdf
+            - text: Hilfe
+        - listitem [ref=f57e19]:
+          - 'link "Öffnet Link in neuem Fenster: Gebärdensprache" [ref=f57e20] [cursor=pointer]':
+            - /url: https://www.dpma.de/service/gebaerdensprache/dienste/dpmaregister/index.html
+            - text: Gebärdensprache
+        - listitem [ref=f57e21]:
+          - 'link "Öffnet Link in neuem Fenster: Leichte Sprache" [ref=f57e22] [cursor=pointer]':
+            - /url: https://www.dpma.de/service/leichte_sprache/dienste/dpmaregister/index.html
+            - text: Leichte Sprache
+        - listitem [ref=f57e23]:
+          - link "Login" [ref=f57e24] [cursor=pointer]:
+            - /url: /DPMAregister/konto/KontoLogin
+      - paragraph [ref=f57e27]:
+        - link "DPMAregister" [ref=f57e28] [cursor=pointer]:
+          - /url: https://register.dpma.de/DPMAregister/uebersicht
+      - search [ref=f57e31]:
+        - generic [ref=f57e32] [cursor=pointer]: Einfach suchen
+        - textbox "Einfach suchen" [ref=f57e33]:
+          - /placeholder: Namen/Nummern/Suchbegriffe
+        - button "Recherche starten" [ref=f57e34] [cursor=pointer]
+  - navigation "Hauptnavigation" [ref=f57e36]:
+    - generic [ref=f57e37]:
+      - generic [ref=f57e38]: "Hauptnavigation:"
+      - navigation [ref=f57e39]:
+        - list [ref=f57e41]:
+          - listitem [ref=f57e42]:
+            - button "Patente und Gebrauchsmuster einschl. Topografien und Ergänzende Schutzzertifikate" [ref=f57e43] [cursor=pointer]: Patente und Gebrauchsmuster
+          - listitem [ref=f57e44]:
+            - generic [ref=f57e45]: "Ausgewaehlt:"
+            - button "Marken" [ref=f57e46] [cursor=pointer]
+          - listitem [ref=f57e47]:
+            - button "Designs" [ref=f57e48] [cursor=pointer]
+          - listitem [ref=f57e49]:
+            - button "Geografische Angaben" [ref=f57e50] [cursor=pointer]
+          - listitem [ref=f57e51]:
+            - button "Service" [ref=f57e52] [cursor=pointer]
+          - listitem [ref=f57e53]:
+            - button "Lieferdienste des Deutschen Patent- und Markenamtes" [ref=f57e54] [cursor=pointer]: DPMAkurier
+  - paragraph [ref=f57e57]
+  - main [ref=f57e58]:
+    - generic:
+      - button [disabled]:
+        - status
+    - generic [ref=f57e59]:
+      - heading "Auskunft zu einer Markenanmeldung" [level=1] [ref=f57e60]
+      - paragraph [ref=f57e63]: Aktenzeichen 3020232353446 (Marke nicht eingetragen, Stand am 26.09.2026)
+      - generic [ref=f57e64]:
+        - generic [ref=f57e67]:
+          - generic [ref=f57e68] [cursor=pointer]: Treffer 1/1
+          - group "Navigationsmöglichkeiten" [ref=f57e69]:
+            - button "Gehe zum ersten Treffer" [disabled]: "|<"
+            - button "Gehe zum vorherigen Treffer" [disabled]: <
+            - button "Gehe zum nächsten Treffer" [disabled]: ">"
+            - button "Gehe zum letzten Treffer" [disabled]: ">|"
+            - button "Zurück zur Recherche" [ref=f57e70] [cursor=pointer]: ↩ Recherche
+            - button "Zurück zur letzten Trefferlistenseite" [ref=f57e71] [cursor=pointer]: ↩ Trefferliste
+          - button "Aktionsmenü" [ref=f57e73] [cursor=pointer]
+        - table [ref=f57e76]:
+          - caption [ref=f57e77]: Stammdaten
+          - rowgroup [ref=f57e78]:
+            - row [ref=f57e79]:
+              - columnheader "INID" [ref=f57e80]
+              - columnheader "Kriterium" [ref=f57e81]
+              - columnheader "Feld" [ref=f57e82]
+              - columnheader "Inhalt" [ref=f57e83]
+          - rowgroup [ref=f57e84]:
+            - row [ref=f57e85]:
+              - cell [ref=f57e86]
+              - cell "Datenbestand" [ref=f57e87]
+              - cell "DB" [ref=f57e88]
+              - cell "DE" [ref=f57e89]
+            - row [ref=f57e90]:
+              - cell "210" [ref=f57e91]
+              - cell "Aktenzeichen" [ref=f57e92]
+              - cell "AKZ" [ref=f57e93]
+              - cell "3020232353446" [ref=f57e94]
+            - row [ref=f57e95]:
+              - cell "540" [ref=f57e96]
+              - cell "Markendarstellung" [ref=f57e97]
+              - cell "MD" [ref=f57e98]
+              - cell "KI Wissen" [ref=f57e99]
+            - row [ref=f57e100]:
+              - cell "550" [ref=f57e101]
+              - cell "Markenform" [ref=f57e102]
+              - cell "MF" [ref=f57e103]
+              - cell "Wortmarke" [ref=f57e104]
+            - row [ref=f57e105]:
+              - cell "551" [ref=f57e106]
+              - cell "Markenkategorie" [ref=f57e107]
+              - cell "MK" [ref=f57e108]
+              - cell "Individualmarke" [ref=f57e109]
+            - row [ref=f57e110]:
+              - cell "220" [ref=f57e111]
+              - cell "Anmeldetag" [ref=f57e112]
+              - cell "AT" [ref=f57e113]
+              - cell "21.09.2023" [ref=f57e114]
+            - row [ref=f57e115]:
+              - cell [ref=f57e116]
+              - cell "Version der Nizza-Klassifikation" [ref=f57e117]
+              - cell [ref=f57e118]
+              - cell "NCL12" [ref=f57e119]
+            - row [ref=f57e120]:
+              - cell "511" [ref=f57e121]
+              - cell "Klasse(n)" [ref=f57e122]
+              - cell "KL" [ref=f57e123]
+              - cell [ref=f57e124]:
+                - emphasis [ref=f57e125]: "35"
+                - text: ", 41, 42"
+            - row [ref=f57e126]:
+              - cell [ref=f57e127]
+              - cell "Aktenzustand" [ref=f57e128]
+              - cell "AST" [ref=f57e129]
+              - cell "Marke nicht eingetragen" [ref=f57e130]
+            - row [ref=f57e131]:
+              - cell [ref=f57e132]
+              - cell "Verfahrensstand des Anmeldeverfahrens" [ref=f57e133]
+              - cell "VSTAV" [ref=f57e134]
+              - cell "Anmeldung zurückgewiesen" [ref=f57e135]
+            - row [ref=f57e136]:
+              - cell [ref=f57e137]
+              - cell "Schutzhindernis" [ref=f57e138]
+              - cell [ref=f57e139]
+              - cell "Fehlende Unterscheidungskraft (§ 8 Abs. 2 Nr. 1)" [ref=f57e140]
+            - row [ref=f57e141]:
+              - cell [ref=f57e142]
+              - cell "Schutzhindernis" [ref=f57e143]
+              - cell [ref=f57e144]
+              - cell "Beschreibende (freihaltungsbedürftige) Angabe (§ 8 Abs. 2 Nr. 2)" [ref=f57e145]
+            - row [ref=f57e146]:
+              - cell "510" [ref=f57e147]
+              - cell "Waren/Dienstleistungen" [ref=f57e148]
+              - cell "WDV" [ref=f57e149]
+              - 'cell "Klasse(n) 35: Unternehmensberatung Klasse(n) 41: Bildung, Erziehung, Unterhaltung und sportliche Aktivitäten; Verlagsdienstleistungen und Berichterstattung sowie Verfassen von Texten Klasse(n) 42: IT-Beratungs-, -Auskunfts- und -Informationsdienstleistungen; Entwicklung, Programmierung und Implementierung von Software" [ref=f57e150]': "Klasse(n) 35: UnternehmensberatungKlasse(n) 41: Bildung, Erziehung, Unterhaltung und sportliche Aktivitäten; Verlagsdienstleistungen und Berichterstattung sowie Verfassen von TextenKlasse(n) 42: IT-Beratungs-, -Auskunfts- und -Informationsdienstleistungen; Entwicklung, Programmierung und Implementierung von Software"
+            - row [ref=f57e151]:
+              - cell [ref=f57e152]
+              - cell "Erstmalige Übernahme in DPMAregister" [ref=f57e153]
+              - cell "EREGT" [ref=f57e154]
+              - cell "25.09.2023" [ref=f57e155]
+            - row [ref=f57e156]:
+              - cell [ref=f57e157]
+              - cell "Tag der (letzten) Aktualisierung in DPMAregister" [ref=f57e158]
+              - cell "REGT" [ref=f57e159]
+              - cell [ref=f57e160]:
+                - text: 25.03.2024
+                - link "(alle Aktualisierungstage einblenden)" [ref=f57e162] [cursor=pointer]:
+                  - /url: "#a_alleAktualisierungstage_ausblenden"
+  - navigation "Standort" [ref=f57e163]:
+    - paragraph [ref=f57e167]:
+      - text: Sie sind hier >
+      - link "DPMAregister-Startseite" [ref=f57e168] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/uebersicht
+      - text: ">"
+      - link "Marken" [ref=f57e169] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/marke/uebersicht
+      - text: ">"
+      - link "Basisrecherche" [ref=f57e170] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/marke/basis
+      - text: ">"
+      - link "Trefferliste" [ref=f57e171] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/marke/trefferliste
+      - text: "> Detailansicht"
+  - contentinfo "Fußbereich mit Linklisten" [ref=f57e172]:
+    - generic [ref=f57e175]:
+      - list [ref=f57e176]:
+        - listitem [ref=f57e177]:
+          - link "Impressum" [ref=f57e178] [cursor=pointer]:
+            - /url: https://register.dpma.de/DPMAregister/impressum
+        - listitem [ref=f57e179]:
+          - 'link "Öffnet Link in neuem Fenster: Datenschutz" [ref=f57e180] [cursor=pointer]':
+            - /url: https://www.dpma.de/dpma/recht_und_gesetz/datenschutzerklaerung/index.html
+            - text: Datenschutz
+        - listitem [ref=f57e181]:
+          - 'link "Öffnet Link in neuem Fenster: Erklärung zur Barrierefreiheit" [ref=f57e182] [cursor=pointer]':
+            - /url: https://www.dpma.de/dpma/recht_und_gesetz/erklaerung_barrierefreiheit/index.html
+            - text: Erklärung zur Barrierefreiheit
+      - generic [ref=f57e183]: © 2026 Deutsches Patent- und Markenamt | Version 8.27.0-b25-p5 vom 19. August 2026

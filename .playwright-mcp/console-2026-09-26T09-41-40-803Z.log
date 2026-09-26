@@ -1,0 +1,6 @@
+[     583ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144
+[    3969ms] [INFO] Autofocus processing was blocked because a document already has a focused element. @ https://register.dpma.de/DPMAregister/marke/basis?si=#infomsg:0
+[    3993ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144
+[   10328ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144
+[   10838ms] [INFO] Autofocus processing was blocked because a document already has a focused element. @ https://register.dpma.de/DPMAregister/marke/basis?si=#infomsg:0
+[   10870ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144

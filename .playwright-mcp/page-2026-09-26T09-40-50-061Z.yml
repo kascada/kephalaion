@@ -1,0 +1,210 @@
+- generic [active] [ref=f53e1]:
+  - navigation "Kurznavigation":
+    - generic:
+      - generic [ref=f53e2]: "Kurznavigation:"
+      - list:
+        - listitem:
+          - link "Inhalt" [ref=f53e3] [cursor=pointer]:
+            - /url: "#inhaltscontainer"
+      - link "Gehe nach oben" [ref=f53e4] [cursor=pointer]:
+        - /url: "#oben"
+  - banner [ref=f53e6]:
+    - link [ref=f53e8] [cursor=pointer]:
+      - /url: http://www.dpma.de
+      - img "Zur Startseite des DPMA" [ref=f53e9]
+    - navigation "Servicenavigation" [ref=f53e10]:
+      - generic [ref=f53e11]: "Servicenavigation:"
+      - list [ref=f53e12]:
+        - listitem [ref=f53e13]:
+          - link "Switch to the English user interface" [ref=f53e14] [cursor=pointer]:
+            - /url: https://register.dpma.de/DPMAregister/marke/basis?lang=en
+            - text: English
+        - listitem [ref=f53e15]:
+          - link "Kontakt" [ref=f53e16] [cursor=pointer]:
+            - /url: /DPMAregister/service/KontaktPage
+        - listitem [ref=f53e17]:
+          - 'link "Öffnet PDF in neuem Fenster: Hilfe" [ref=f53e18] [cursor=pointer]':
+            - /url: https://register.dpma.de/prod/de/register_hilfe.pdf
+            - text: Hilfe
+        - listitem [ref=f53e19]:
+          - 'link "Öffnet Link in neuem Fenster: Gebärdensprache" [ref=f53e20] [cursor=pointer]':
+            - /url: https://www.dpma.de/service/gebaerdensprache/dienste/dpmaregister/index.html
+            - text: Gebärdensprache
+        - listitem [ref=f53e21]:
+          - 'link "Öffnet Link in neuem Fenster: Leichte Sprache" [ref=f53e22] [cursor=pointer]':
+            - /url: https://www.dpma.de/service/leichte_sprache/dienste/dpmaregister/index.html
+            - text: Leichte Sprache
+        - listitem [ref=f53e23]:
+          - link "Login" [ref=f53e24] [cursor=pointer]:
+            - /url: /DPMAregister/konto/KontoLogin
+      - paragraph [ref=f53e27]:
+        - link "DPMAregister" [ref=f53e28] [cursor=pointer]:
+          - /url: https://register.dpma.de/DPMAregister/uebersicht
+      - search [ref=f53e31]:
+        - generic [ref=f53e32] [cursor=pointer]: Einfach suchen
+        - textbox "Einfach suchen" [ref=f53e33]:
+          - /placeholder: Namen/Nummern/Suchbegriffe
+        - button "Recherche starten" [ref=f53e34] [cursor=pointer]
+  - navigation "Hauptnavigation" [ref=f53e36]:
+    - generic [ref=f53e37]:
+      - generic [ref=f53e38]: "Hauptnavigation:"
+      - navigation [ref=f53e39]:
+        - list [ref=f53e41]:
+          - listitem [ref=f53e42]:
+            - button "Patente und Gebrauchsmuster einschl. Topografien und Ergänzende Schutzzertifikate" [ref=f53e43] [cursor=pointer]: Patente und Gebrauchsmuster
+          - listitem [ref=f53e44]:
+            - generic [ref=f53e45]: "Ausgewaehlt:"
+            - button "Marken" [ref=f53e46] [cursor=pointer]
+          - listitem [ref=f53e47]:
+            - button "Designs" [ref=f53e48] [cursor=pointer]
+          - listitem [ref=f53e49]:
+            - button "Geografische Angaben" [ref=f53e50] [cursor=pointer]
+          - listitem [ref=f53e51]:
+            - button "Service" [ref=f53e52] [cursor=pointer]
+          - listitem [ref=f53e53]:
+            - button "Lieferdienste des Deutschen Patent- und Markenamtes" [ref=f53e54] [cursor=pointer]: DPMAkurier
+  - paragraph [ref=f53e57]
+  - main [ref=f53e58]:
+    - generic:
+      - button [disabled]:
+        - status
+    - heading "Basisrecherche" [level=1] [ref=f53e59]
+    - generic [ref=f53e60]:
+      - paragraph [ref=f53e63]:
+        - text: Informationen zu Klassifikationen finden Sie unter
+        - 'link "Öffnet externen Link in neuem Fenster: international harmonisierte Klassifikation für Waren- und Dienstleistungsbegriffe" [ref=f53e64] [cursor=pointer]':
+          - /url: http://tmclass.tmdn.org/ec2/?lang=de
+          - text: international harmonisierte Klassifikation für Waren- und Dienstleistungsbegriffe
+        - text: und
+        - 'link "Öffnet PDF in neuem Fenster: Wiener Bildklassifikation" [ref=f53e65] [cursor=pointer]':
+          - /url: https://www.dpma.de/docs/marken/markenwienerklassifikation_9_2023.pdf
+          - text: Wiener Bildklassifikation
+      - group [ref=f53e66]:
+        - generic [ref=f53e67]:
+          - button "Recherche formulieren" [disabled]
+        - generic [ref=f53e69]:
+          - generic [ref=f53e70]:
+            - generic [ref=f53e71] [cursor=pointer]: Datenbestand
+            - button "Hilfe zum Feld Datenbestand. Die Checkboxen betreffen den Datenbestand, in dem eine Marke enthalten ist. Gesucht werden je nach Auswahl nationale Marken (D E), Unionsmarken (EM) und internationale Marken (IR)." [ref=f53e73] [cursor=pointer]: "?"
+            - group "Datenbestand" [ref=f53e74]:
+              - generic [ref=f53e75]:
+                - checkbox "nationale Marken" [checked] [ref=f53e76]
+                - generic [ref=f53e77] [cursor=pointer]: nationale Marken
+              - generic [ref=f53e78]:
+                - checkbox "Unionsmarken" [checked] [ref=f53e79]
+                - generic [ref=f53e80] [cursor=pointer]: Unionsmarken
+              - generic [ref=f53e81]:
+                - checkbox "internationale Marken" [checked] [ref=f53e82]
+                - generic [ref=f53e83] [cursor=pointer]: internationale Marken
+          - generic [ref=f53e84]:
+            - generic [ref=f53e85] [cursor=pointer]: Marke
+            - button "Hilfe zum Feld Marke. Das Eingabefeld betrifft den Text einer Marke, dessen Übersetzung, die Markendarstellung beschreibende Begriffe und sonstige, die Marke beschreibende Angaben. Gesucht werden Marken, deren Attribute alle eingegebenen Begriffe enthalten. Platzhalter und Anführungszeichen sind möglich. Das Fragezeichen steht für kein Zeichen, für ein Zeichen oder mehrere Zeichen, das Ausrufezeichen steht für ein Zeichen, das Nummernzeichen steht für ein Zeichen oder kein Zeichen." [ref=f53e87] [cursor=pointer]: "?"
+            - textbox "Marke" [ref=f53e89]:
+              - /placeholder: z.B. DPMAdirektWeb
+              - text: kephal?
+          - generic [ref=f53e90]:
+            - generic [ref=f53e91] [cursor=pointer]: Aktenzeichen/Registernummer
+            - button "Hilfe zum Feld Registernummer. Das Eingabefeld betrifft die Registernummer bzw. das Aktenzeichen einer Marke. Hier ist entweder eine Registernummer oder ein Aktenzeichen anzugeben. Die Nummer darf kein Leerzeichen enthalten, außer sie steht zwischen Anführungszeichen. Platzhalter sind möglich. Das Fragezeichen steht für kein Zeichen, für ein Zeichen oder mehrere Zeichen, das Ausrufezeichen steht für ein Zeichen, das Nummernzeichen steht für ein Zeichen oder kein Zeichen." [ref=f53e93] [cursor=pointer]: "?"
+            - textbox "Aktenzeichen/Registernummer" [ref=f53e95]:
+              - /placeholder: z.B. 302016028133
+          - generic [ref=f53e96]:
+            - generic [ref=f53e97] [cursor=pointer]: Beginn Widerspruchsfrist
+            - button "Hilfe zum Feld Beginn Widerspruchsfrist. Die Eingabefelder betreffen das Datum des Beginns der Widerspruchsfrist. Bei nationalen Marken beginnt die Widerspruchsfrist mit dem Tag der Veröffentlichung der Eintragung der Marke. Für Unionsmarken (EM) und internationale Marken (IR) gelten abweichende Bestimmungen. Gesucht werden Marken, deren Widerspruchsfrist am angegebenen Tag oder innerhalb des angegebenen Zeitraums begonnen hat. Die Option Datum ermöglicht die Angabe eines Tages, einer Kalenderwoche, eines Monats, eines Quartals, eines Jahres oder eines Zeitraums, zum Beispiel 04.11.2021, KW44 minus 2021, M11 minus 2021, Q4 minus 2021, J minus 2021 oder 01.01.2023 Doppelpunkt 30.06.2023. Die Option Zeitraum lässt die Angabe eines Startdatums (von) und/oder eines Enddatums (bis) zu. Ohne Enddatum ist der Zeitraum ab dem Startdatum gemeint, ohne Startdatum der Zeitraum vor dem Enddatum." [ref=f53e99] [cursor=pointer]: "?"
+            - group "Beginn Widerspruchsfrist" [ref=f53e100]:
+              - generic [ref=f53e102]:
+                - generic [ref=f53e104] [cursor=pointer]:
+                  - radio "Datum" [checked] [ref=f53e105]
+                  - text: Datum
+                - generic [ref=f53e106]:
+                  - generic [ref=f53e107] [cursor=pointer]: Datum
+                  - textbox "Datum" [ref=f53e108]:
+                    - /placeholder: z.B. 17.05.2013
+              - generic [ref=f53e110]:
+                - generic [ref=f53e112] [cursor=pointer]:
+                  - radio "Zeitraum (von/bis)" [ref=f53e113]
+                  - text: Zeitraum (von/bis)
+                - generic [ref=f53e114]:
+                  - generic [ref=f53e115] [cursor=pointer]: Zeitraum (von/bis)
+                  - textbox "Auswahl Zeitraum von" [disabled] [ref=f53e116]
+                - generic [ref=f53e117]:
+                  - generic [ref=f53e118] [cursor=pointer]: Zeitraum (von/bis)
+                  - textbox "Auswahl Zeitraum bis" [disabled] [ref=f53e119]
+          - generic [ref=f53e120]:
+            - generic [ref=f53e121] [cursor=pointer]: Markenform
+            - button "Hilfe zum Feld Markenform. Das Auswahlfeld betrifft die Form einer Marke. Gesucht werden Marken mit der ausgewählten Markenform (Wortmarke, Wort-/Bildmarke, Bildmarke, Farbmarke, Hörmarke, dreidimensionale Marke, Kennfadenmarke, Klangmarke, Positionsmarke, Mustermarke, Bewegungsmarke, Multimediamarke, Hologrammmarke oder sonstige Marke)." [ref=f53e123] [cursor=pointer]: "?"
+            - combobox "Markenform" [ref=f53e125]:
+              - option "Alle Markenformen" [selected]
+              - option "Wortmarke"
+              - option "Wort-/Bildmarke"
+              - option "Bildmarke"
+              - option "Farbmarke"
+              - option "Hörmarke"
+              - option "Dreidimensionale Marke"
+              - option "Kennfadenmarke"
+              - option "Klangmarke"
+              - option "Positionsmarke"
+              - option "Mustermarke"
+              - option "Bewegungsmarke"
+              - option "Multimediamarke"
+              - option "Hologrammmarke"
+              - option "Sonstige Marke"
+              - option "Unbekannte Markenform"
+          - generic [ref=f53e126]:
+            - generic [ref=f53e127] [cursor=pointer]: Anmelder/Inhaber
+            - button "Hilfe zum Feld Anmelder/Inhaber. Das Eingabefeld betrifft Angaben zum Anmelder bzw. Inhaber einer Marke. Gesucht werden Marken, deren Angaben zum Anmelder oder zum Inhaber jeweils alle hier eingegebenen Namen oder Adressbestandteile enthalten, zum Beispiel Müller Berlin oder Sport GmbH 12345. Bei nationalen Marken und Unionsmarken (EM) sind Straßennamen und Hausnummern nicht von der Suche umfasst. Platzhalter und Anführungszeichen sind möglich. Das Fragezeichen steht für kein Zeichen, für ein Zeichen oder mehrere Zeichen, das Ausrufezeichen steht für ein Zeichen, das Nummernzeichen steht für ein Zeichen oder kein Zeichen." [ref=f53e129] [cursor=pointer]: "?"
+            - textbox "Anmelder/Inhaber" [ref=f53e131]:
+              - /placeholder: z.B. Bundesrepublik Deutschland
+          - generic [ref=f53e132]:
+            - generic [ref=f53e133] [cursor=pointer]: Waren/Dienstleistungen
+            - button "Hilfe zum Feld Waren/Dienstleistungen. Das Eingabefeld betrifft die Waren und/oder Dienstleistungen, für die eine Marke angemeldet oder eingetragen worden ist. Gesucht werden Marken, die für alle hier eingegebenen Waren bzw. Dienstleistungen angemeldet oder eingetragen wurden. Platzhalter und Anführungszeichen sind möglich. Das Fragezeichen steht für kein Zeichen, für ein Zeichen oder mehrere Zeichen, das Ausrufezeichen steht für ein Zeichen, das Nummernzeichen steht für ein Zeichen oder kein Zeichen." [ref=f53e135] [cursor=pointer]: "?"
+            - textbox "Waren/Dienstleistungen" [ref=f53e137]:
+              - /placeholder: z.B. Software
+          - generic [ref=f53e138]:
+            - generic [ref=f53e139] [cursor=pointer]: Klasse(n)
+            - button "Hilfe zum Feld Klasse(n). Das Eingabefeld betrifft die Waren- und Dienstleistungsklassen (Klassifikation von Nizza, Klassen 01 bis 45), für die eine Marke angemeldet oder eingetragen wurde. Gesucht werden Marken, die für mindestens eine der hier angegebenen Klassen (01 bis 45) angemeldet oder eingetragen wurden. Mehrere Klassen sind mit einem Leerzeichen zu trennen." [ref=f53e141] [cursor=pointer]: "?"
+            - group [ref=f53e142]:
+              - textbox "Klasse(n)" [ref=f53e143]:
+                - /placeholder: z.B. 9
+              - button "Auswahl Klasse(n)" [expanded] [ref=f53e145] [cursor=pointer]
+          - generic [ref=f53e148]:
+            - generic [ref=f53e149] [cursor=pointer]: Bildklasse(n)
+            - button "Hilfe zum Feld Bildklasse(n). Das Eingabefeld betrifft die Bildklassen (Wiener Bildklassifikation), denen die Bildelemente einer Marke zugeordnet sind. Gesucht werden Marken mit Bildelementen, auf die alle hier angegebenen Bildklassen zutreffen. Bildklassen werden im Format NN.NN bzw. NN.NN.NN angegeben, zum Beispiel 05.01 (Bäume und Sträucher) oder 26.15.07 (Pyramiden). Mehrere Bildklassen sind mit einem Leerzeichen zu trennen." [ref=f53e151] [cursor=pointer]: "?"
+            - group [ref=f53e152]:
+              - textbox "Bildklasse(n)" [ref=f53e153]:
+                - /placeholder: z.B. 26.13.01
+              - button "Auswahl Bildklasse(n)" [expanded] [ref=f53e155] [cursor=pointer]
+          - generic [ref=f53e158]:
+            - generic [ref=f53e159] [cursor=pointer]: Filter
+            - button "Hilfe zum Feld Filter. Die Checkbox Filter ermöglicht eine Einschränkung der Suche. Die Beschränkung auf Angemeldete und eingetragene Marken klammert bei der Suche alle Marken aus, die nicht zur Eintragung gelangt sind oder nicht mehr eingetragen (gelöscht) sind." [ref=f53e161] [cursor=pointer]: "?"
+            - generic [ref=f53e164] [cursor=pointer]:
+              - checkbox "Filter Angemeldete und eingetragene Marken" [ref=f53e165]
+              - text: Angemeldete und eingetragene Marken
+      - group [ref=f53e166]:
+        - button "Trefferlistenkonfiguration einblenden" [ref=f53e168] [cursor=pointer]
+      - generic [ref=f53e170]:
+        - button "Recherche starten" [ref=f53e171] [cursor=pointer]
+        - button "Anfrage löschen" [ref=f53e172] [cursor=pointer]
+  - navigation "Standort" [ref=f53e173]:
+    - paragraph [ref=f53e177]:
+      - text: Sie sind hier >
+      - link "DPMAregister-Startseite" [ref=f53e178] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/uebersicht
+      - text: ">"
+      - link "Marken" [ref=f53e179] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/marke/uebersicht
+      - text: "> Basisrecherche"
+  - contentinfo "Fußbereich mit Linklisten" [ref=f53e180]:
+    - generic [ref=f53e183]:
+      - list [ref=f53e184]:
+        - listitem [ref=f53e185]:
+          - link "Impressum" [ref=f53e186] [cursor=pointer]:
+            - /url: https://register.dpma.de/DPMAregister/impressum
+        - listitem [ref=f53e187]:
+          - 'link "Öffnet Link in neuem Fenster: Datenschutz" [ref=f53e188] [cursor=pointer]':
+            - /url: https://www.dpma.de/dpma/recht_und_gesetz/datenschutzerklaerung/index.html
+            - text: Datenschutz
+        - listitem [ref=f53e189]:
+          - 'link "Öffnet Link in neuem Fenster: Erklärung zur Barrierefreiheit" [ref=f53e190] [cursor=pointer]':
+            - /url: https://www.dpma.de/dpma/recht_und_gesetz/erklaerung_barrierefreiheit/index.html
+            - text: Erklärung zur Barrierefreiheit
+      - generic [ref=f53e191]: © 2026 Deutsches Patent- und Markenamt | Version 8.27.0-b25-p5 vom 19. August 2026

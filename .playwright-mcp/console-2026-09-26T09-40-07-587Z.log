@@ -1,0 +1,4 @@
+[     588ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144
+[    6838ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144
+[    8008ms] [INFO] Autofocus processing was blocked because a document's URL has a fragment '#Filterkonfiguration'. @ https://register.dpma.de/DPMAregister/marke/trefferliste#Filterkonfiguration:0
+[    8037ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144

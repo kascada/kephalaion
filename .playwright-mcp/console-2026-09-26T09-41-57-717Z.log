@@ -1,0 +1,11 @@
+[    1231ms] Unexpected token ':'
+[    2838ms] [ERROR] Access to XMLHttpRequest at 'https://www.euipo.europa.eu/' (redirected from 'https://euipo.europa.eu/ohimportal/delegate/webcontent-services/ohim-pages?getName=banner-image-search&language=en_GB&_=1790415720440') from origin 'https://euipo.europa.eu' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: Redirect is not allowed for a preflight request. @ https://euipo.europa.eu/eSearch/#details/trademarks/017564981:0
+[    2838ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://www.euipo.europa.eu/:0
+[    2847ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://euipo.europa.eu/copla/security/portaluser?user=anon&details=details/trademarks/017564981&callback=jQuery1820981573429812572_1790415719740&_=1790415720454:0
+[    4123ms] Unexpected token ':'
+[    4752ms] [LOG] oidcCallbackEsearch success @ https://euipo.europa.eu/eSearch/javascripts/app.js:16
+[    4760ms] ErrorResponse: login_required
+    at new e (https://euipo.europa.eu/eSearch/javascripts/oidc-client.min.js:1:74903)
+    at t [as _processSigninParams] (https://euipo.europa.eu/eSearch/javascripts/oidc-client.min.js:1:152326)
+    at t [as validateSigninResponse] (https://euipo.europa.eu/eSearch/javascripts/oidc-client.min.js:1:150146)
+    at https://euipo.europa.eu/eSearch/javascripts/oidc-client.min.js:1:68326

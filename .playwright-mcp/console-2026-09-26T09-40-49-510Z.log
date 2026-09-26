@@ -1,0 +1,6 @@
+[     579ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144
+[    4030ms] [INFO] Autofocus processing was blocked because a document already has a focused element. @ https://register.dpma.de/DPMAregister/marke/basis?si=#infomsg:0
+[    4058ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144
+[   13613ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144
+[   14782ms] [INFO] Autofocus processing was blocked because a document's URL has a fragment '#Filterkonfiguration'. @ https://register.dpma.de/DPMAregister/marke/trefferliste#Filterkonfiguration:0
+[   14807ms] [LOG] {success: true, data: Object} @ https://register.dpma.de/DPMAregister/js/bootstrap-session-timeout.js:144

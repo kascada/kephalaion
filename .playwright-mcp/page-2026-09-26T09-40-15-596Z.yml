@@ -1,0 +1,183 @@
+- generic [active] [ref=f50e1]:
+  - navigation "Kurznavigation":
+    - generic:
+      - generic [ref=f50e2]: "Kurznavigation:"
+      - list:
+        - listitem:
+          - link "Inhalt" [ref=f50e3] [cursor=pointer]:
+            - /url: "#inhaltscontainer"
+      - link "Gehe nach oben" [ref=f50e4] [cursor=pointer]:
+        - /url: "#oben"
+  - banner [ref=f50e6]:
+    - link [ref=f50e8] [cursor=pointer]:
+      - /url: http://www.dpma.de
+      - img "Zur Startseite des DPMA" [ref=f50e9]
+    - navigation "Servicenavigation" [ref=f50e10]:
+      - generic [ref=f50e11]: "Servicenavigation:"
+      - list [ref=f50e12]:
+        - listitem [ref=f50e13]:
+          - link "Switch to the English user interface" [ref=f50e14] [cursor=pointer]:
+            - /url: https://register.dpma.de/DPMAregister/marke/trefferliste?lang=en
+            - text: English
+        - listitem [ref=f50e15]:
+          - link "Kontakt" [ref=f50e16] [cursor=pointer]:
+            - /url: /DPMAregister/service/KontaktPage
+        - listitem [ref=f50e17]:
+          - 'link "Öffnet PDF in neuem Fenster: Hilfe" [ref=f50e18] [cursor=pointer]':
+            - /url: https://register.dpma.de/prod/de/register_hilfe.pdf
+            - text: Hilfe
+        - listitem [ref=f50e19]:
+          - 'link "Öffnet Link in neuem Fenster: Gebärdensprache" [ref=f50e20] [cursor=pointer]':
+            - /url: https://www.dpma.de/service/gebaerdensprache/dienste/dpmaregister/index.html
+            - text: Gebärdensprache
+        - listitem [ref=f50e21]:
+          - 'link "Öffnet Link in neuem Fenster: Leichte Sprache" [ref=f50e22] [cursor=pointer]':
+            - /url: https://www.dpma.de/service/leichte_sprache/dienste/dpmaregister/index.html
+            - text: Leichte Sprache
+        - listitem [ref=f50e23]:
+          - link "Login" [ref=f50e24] [cursor=pointer]:
+            - /url: /DPMAregister/konto/KontoLogin
+      - paragraph [ref=f50e27]:
+        - link "DPMAregister" [ref=f50e28] [cursor=pointer]:
+          - /url: https://register.dpma.de/DPMAregister/uebersicht
+      - search [ref=f50e31]:
+        - generic [ref=f50e32] [cursor=pointer]: Einfach suchen
+        - textbox "Einfach suchen" [ref=f50e33]:
+          - /placeholder: Namen/Nummern/Suchbegriffe
+        - button "Recherche starten" [ref=f50e34] [cursor=pointer]
+  - navigation "Hauptnavigation" [ref=f50e36]:
+    - generic [ref=f50e37]:
+      - generic [ref=f50e38]: "Hauptnavigation:"
+      - navigation [ref=f50e39]:
+        - list [ref=f50e41]:
+          - listitem [ref=f50e42]:
+            - button "Patente und Gebrauchsmuster einschl. Topografien und Ergänzende Schutzzertifikate" [ref=f50e43] [cursor=pointer]: Patente und Gebrauchsmuster
+          - listitem [ref=f50e44]:
+            - generic [ref=f50e45]: "Ausgewaehlt:"
+            - button "Marken" [ref=f50e46] [cursor=pointer]
+          - listitem [ref=f50e47]:
+            - button "Designs" [ref=f50e48] [cursor=pointer]
+          - listitem [ref=f50e49]:
+            - button "Geografische Angaben" [ref=f50e50] [cursor=pointer]
+          - listitem [ref=f50e51]:
+            - button "Service" [ref=f50e52] [cursor=pointer]
+          - listitem [ref=f50e53]:
+            - button "Lieferdienste des Deutschen Patent- und Markenamtes" [ref=f50e54] [cursor=pointer]: DPMAkurier
+  - paragraph [ref=f50e57]
+  - main [ref=f50e58]:
+    - generic:
+      - button [disabled]:
+        - status
+    - heading "Suchergebnis" [level=1] [ref=f50e59]
+    - generic [ref=f50e60]:
+      - generic [ref=f50e61]:
+        - generic [ref=f50e62]:
+          - paragraph [ref=f50e63]: "Suchanfrage:"
+          - generic [ref=f50e64]: (marke="kefal?")
+        - paragraph [ref=f50e66]: "Trefferliste: 3 Treffer"
+      - group [ref=f50e67]:
+        - button "Filterkonfiguration ausblenden" [ref=f50e69] [cursor=pointer]
+        - generic [ref=f50e71]:
+          - generic [ref=f50e72] [cursor=pointer]: Filterauswahl
+          - generic [ref=f50e73]:
+            - button "Hilfe zur Definition von Filtern für die Trefferliste. Durch Klicken auf eines der Kriterien in der Liste Filterauswahl wird ein neuer Filter vorbereitet. Der neue Filter ist zunächst noch inaktiv. Zum Aktivieren des Filters dient seine Werteliste im Bereich ausgewählte Filter. Die Zahl neben einem Wert gibt jeweils die dazu ermittelte Treffermenge an. Nach Ankreuzen eines oder mehrerer Werte wird der Filter mit einem abschließenden Klick auf Filter anwenden wirksam. Ein Klick auf Filter zurücksetzen deaktiviert den Filter wieder." [ref=f50e74] [cursor=pointer]: "?"
+            - button "Filter definieren" [ref=f50e76] [cursor=pointer]
+      - group [ref=f50e77]:
+        - button "Trefferlistenkonfiguration einblenden" [ref=f50e79] [cursor=pointer]
+      - generic [ref=f50e82]:
+        - generic [ref=f50e85]:
+          - generic [ref=f50e86] [cursor=pointer]: Seite 1/1
+          - group "Navigationsmöglichkeiten" [ref=f50e87]:
+            - button "Gehe zum ersten Treffer" [disabled]: "|<"
+            - button "Gehe zum vorherigen Treffer" [disabled]: <
+            - button "Gehe zum nächsten Treffer" [disabled]: ">"
+            - button "Gehe zum letzten Treffer" [disabled]: ">|"
+            - button "Zurück zur Recherche" [ref=f50e88] [cursor=pointer]: ↩ Recherche
+          - button "Aktionsmenü" [ref=f50e90] [cursor=pointer]
+        - table [ref=f50e94]:
+          - rowgroup [ref=f50e95]:
+            - row [ref=f50e96]:
+              - columnheader "Nr." [ref=f50e97]
+              - columnheader [ref=f50e98]:
+                - checkbox "Alles auswählen/abwählen" [ref=f50e100]
+              - columnheader [ref=f50e101]:
+                - link "Datenbestand aufsteigend sortieren" [ref=f50e102] [cursor=pointer]:
+                  - /url: ./trefferliste:sortierespalte/Datenbestand/true
+                  - text: Datenbestand
+              - columnheader [ref=f50e103]:
+                - link "Aktenzeichen/Registernummer absteigend sortieren" [ref=f50e104] [cursor=pointer]:
+                  - /url: ./trefferliste:sortierespalte/MarkenIdentifikation/false
+                  - text: Aktenzeichen/Registernummer
+                - img "Aktenzeichen/Registernummer aufsteigend sortiert" [ref=f50e105]
+              - columnheader [ref=f50e106]:
+                - link "Markendarstellung aufsteigend sortieren" [ref=f50e107] [cursor=pointer]:
+                  - /url: ./trefferliste:sortierespalte/MarkenWiedergabe/true
+                  - text: Markendarstellung
+              - columnheader [ref=f50e108]:
+                - link "Aktenzustand aufsteigend sortieren" [ref=f50e109] [cursor=pointer]:
+                  - /url: ./trefferliste:sortierespalte/Aktenzustand/true
+                  - text: Aktenzustand
+          - rowgroup [ref=f50e110]:
+            - row [ref=f50e111]:
+              - cell "1" [ref=f50e112]
+              - cell [ref=f50e113]:
+                - checkbox "2074178 in Auswahl übernehmen" [ref=f50e115]
+              - cell "DE" [ref=f50e116]
+              - cell [ref=f50e117]:
+                - link "Registerauskunft Marke 2074178 anzeigen" [ref=f50e118] [cursor=pointer]:
+                  - /url: https://register.dpma.de/DPMAregister/marke/register/2074178/DE
+                  - text: "2074178"
+              - cell [ref=f50e119]:
+                - img "Darstellung der Marke 2074178 (KEFALITO)" [ref=f50e120]
+              - cell "Akte vernichtet" [ref=f50e121]
+            - row [ref=f50e122]:
+              - cell "2" [ref=f50e123]
+              - cell [ref=f50e124]:
+                - checkbox "019268822 in Auswahl übernehmen" [ref=f50e126]
+              - cell "EM" [ref=f50e127]
+              - cell [ref=f50e128]:
+                - link "Auskunft Unionsmarke 019268822 anzeigen" [ref=f50e129] [cursor=pointer]:
+                  - /url: registerHABM?AKZ=019268822&CURSOR=1
+                  - text: "019268822"
+              - cell [ref=f50e130]:
+                - strong [ref=f50e131]: Kefalyn
+              - cell "Marke eingetragen" [ref=f50e132]
+            - row [ref=f50e133]:
+              - cell "3" [ref=f50e134]
+              - cell [ref=f50e135]:
+                - checkbox "3020140703378 in Auswahl übernehmen" [ref=f50e137]
+              - cell "DE" [ref=f50e138]
+              - cell [ref=f50e139]:
+                - link "Registerauskunft Marke 3020140703378 anzeigen" [ref=f50e140] [cursor=pointer]:
+                  - /url: https://register.dpma.de/DPMAregister/marke/register/3020140703378/DE
+                  - text: "3020140703378"
+              - cell [ref=f50e141]:
+                - img "Darstellung der Marke 3020140703378 (Kefali Cologne)" [ref=f50e142]
+              - cell "Marke gelöscht" [ref=f50e143]
+  - navigation "Standort" [ref=f50e144]:
+    - paragraph [ref=f50e148]:
+      - text: Sie sind hier >
+      - link "DPMAregister-Startseite" [ref=f50e149] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/uebersicht
+      - text: ">"
+      - link "Marken" [ref=f50e150] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/marke/uebersicht
+      - text: ">"
+      - link "Basisrecherche" [ref=f50e151] [cursor=pointer]:
+        - /url: https://register.dpma.de/DPMAregister/marke/basis
+      - text: "> Trefferliste"
+  - contentinfo "Fußbereich mit Linklisten" [ref=f50e152]:
+    - generic [ref=f50e155]:
+      - list [ref=f50e156]:
+        - listitem [ref=f50e157]:
+          - link "Impressum" [ref=f50e158] [cursor=pointer]:
+            - /url: https://register.dpma.de/DPMAregister/impressum
+        - listitem [ref=f50e159]:
+          - 'link "Öffnet Link in neuem Fenster: Datenschutz" [ref=f50e160] [cursor=pointer]':
+            - /url: https://www.dpma.de/dpma/recht_und_gesetz/datenschutzerklaerung/index.html
+            - text: Datenschutz
+        - listitem [ref=f50e161]:
+          - 'link "Öffnet Link in neuem Fenster: Erklärung zur Barrierefreiheit" [ref=f50e162] [cursor=pointer]':
+            - /url: https://www.dpma.de/dpma/recht_und_gesetz/erklaerung_barrierefreiheit/index.html
+            - text: Erklärung zur Barrierefreiheit
+      - generic [ref=f50e163]: © 2026 Deutsches Patent- und Markenamt | Version 8.27.0-b25-p5 vom 19. August 2026
