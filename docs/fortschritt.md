@@ -50,7 +50,7 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
 - **Task 004, Etappe 6 — Doku:** README (einspielen, abgleichen), `begriffe.md`,
   `k-playbook-local/k-playbook.md` (Vertrag, Replica), `konzept.md` nachziehen: Rolle
   `replica` in `db_info`, Replica als Ausnahme von „nur `init` legt an“, `hubs.node_name`,
-  Abgleich-Verfeinerungen aus `vertrag.md`; Absatz „Stand“ oben im Konzept ist veraltet.
+  Abgleich-Verfeinerungen aus `vertrag.md`; Absatz „Stand“ oben im Konzept mit Etappe 5 nachziehen.
 - **Task 004 abschließen** und nach `done/` — Vorbedingung für Task 005.
 - **Task 005 — Kommunikation** (reviewt, nicht begonnen):
   1. Accounts am Hub (`hub account …`, `SYSTEM:A:`-Zeilen, `admin` reserviert, Export);

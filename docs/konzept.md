@@ -9,8 +9,11 @@ description: Entwurf für eine geteilte Wissensdatenbank mehrerer Nutzer und Pro
 `kephalaion upgrade`, siehe [`README.md`](../README.md) — und das Einrichten der Rollen
 (`hub init`, `node init`, `status`, `config show|export|import`) samt den lokalen Tabellen —
 Collections und Nodes am Hub, Hubs und gewünschte Collections am Node, alles über die
-Kommandozeile; vom Übrigen, auch jeder Verbindung, noch nichts. Die
-Überlegungen entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
+Kommandozeile. Dazu Dokumente am Hub (`hub doc`, `hub import`), der Vertrag für den Abgleich
+([`vertrag.md`](vertrag.md)) und die Replica am Node, abgeglichen im selben Prozess über
+`transport local` (die Kommandos dafür am Node folgen). Noch nicht gebaut: `serve`, jede
+Verbindung über das Netz, Accounts, Suche und Schreiben über den Node. Die Überlegungen
+entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
 Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
 
 Ausgangspunkt ist die lokale Wissensablage von k-playbook (`k-playbook-local/knowledge/`,
