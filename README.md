@@ -7,8 +7,10 @@ Was geplant ist und warum, steht in [`docs/konzept.md`](docs/konzept.md), die Be
 
 **Stand:** Gebaut sind das Gerüst (`version`, `upgrade`) und das Einrichten der Rollen:
 `hub init`, `node init`, `status`, `config show|export|import`, dazu am Hub Collections und
-Nodes, am Node seine Hubs und die gewünschten Collections. Verbindungen und Inhalte gibt es
-noch nicht.
+Nodes, am Node seine Hubs und die gewünschten Collections. Der Hub nimmt Dokumente auf
+(`hub doc`, `hub import`), der Node gleicht sie in seine Replica ab (`node sync`) und zeigt
+sie an (`node doc`) — bisher nur über `transport local`, also mit Hub und Node in derselben
+config. Noch nicht gebaut: `serve`, jede Verbindung über das Netz, Accounts, Suche.
 
 ## Was gebraucht wird (grob)
 
@@ -29,8 +31,8 @@ im Konzept.
 - **Werkzeuge** — lesen (`search`, `read`, `list`), schreiben (`create`, `create_numbered`,
   `write`, `append`, `replace_section`, `rename`, `supersede`, `delete`,
   `replace_directory`), dazu eigene für k-playbook (Eingang, Warteschlange, Todos, Tasks).
-- **Kommandozeile** — `init`, `status`, `config`, Verwaltung von Collections, Nodes und Hubs;
-  später Accounts, `serve`, `sync`, `search`.
+- **Kommandozeile** — `init`, `status`, `config`, Verwaltung von Collections, Nodes und Hubs,
+  Dokumente am Hub, `node sync`; später Accounts, `serve`, `search`.
 - **Stufen** — 1 lesen, 2 schreiben mit Rechten, 3 Vorgänge auf Dateien, 4 Schnipsel
   (zurückgestellt), 5 semantische Suche.
 
@@ -89,9 +91,11 @@ kephalaion config import keph-config.yaml            # in eingerichtete Rollen z
 ```
 
 `status` und alle anderen Kommandos öffnen nur vorhandene Datenbanken, angelegt wird nur mit
-`init`. Migrationen gibt es noch nicht: Passt die Schemafassung einer Datenbank nicht zum
+`init` — einzige Ausnahme ist die Replica, die der erste `node sync` anlegt (siehe unten).
+Migrationen gibt es noch nicht: Passt die Schemafassung einer Datenbank nicht zum
 Binary, ist sie neu anzulegen; die Einstellungen rettet `config export`/`import`, die Inhalte
-nicht.
+nicht. Dokumente am Hub sind wieder einzuspielen (`hub import`); eine Replica mit fremder
+Schemafassung verwirft `node sync` selbst und gleicht sie neu ab.
 
 ### Hub und Node auf einem Rechner
 
@@ -129,8 +133,112 @@ höchstens 63 Zeichen und nicht den Präfix `system`. Die Hilfe zeigt alle Komma
 `kephalaion hub node --help`, `kephalaion node hub --help`.
 
 `config export` sichert auch die Collections, Nodes (nur mit Hash) und die Hubs des Nodes
-samt ihrem Token im Klartext — die Datei entsteht deshalb mit `0600`. Ein Export aus einer
-älteren Fassung (Format 1) lässt sich weiter importieren; er ersetzt nur die `settings`.
+samt ihrem Token im Klartext — die Datei entsteht deshalb mit `0600`. Das Exportformat ist 3
+(`format: 3`, mit `node_name` je Hub-Eintrag). Ein Export im Format 1 lässt sich weiter
+importieren und ersetzt nur die `settings`; einer im Format 2 nur, wenn er am Node keine
+Hub-Einträge enthält — ihnen fehlt `node_name`. Dokumente und Replicas gehören nicht zum
+Export.
+
+### Dokumente einspielen und abgleichen
+
+Der ganze Weg auf einem Rechner, mit Hub und Node in derselben config: Der Hub nimmt
+Dokumente auf, der Node gleicht sie über `transport local` in seine Replica ab und liest sie
+dort. Ausgangspunkt ist ein Verzeichnis `~/wissen/team-x` mit `leitfaden.md`,
+`tasks/001-start.md`, `tasks/002-ende.md` und einem `.git/`.
+
+```sh
+kephalaion hub init
+kephalaion node init
+kephalaion hub collection add team-x --description "Wissen von Team X"
+kephalaion hub node add laptop --description "dieser Rechner"   # zeigt das Token einmal
+kephalaion hub node grant laptop team-x
+
+kephalaion hub import team-x ~/wissen/team-x      # ein Verzeichnis, eine Revision
+echo "Heute: Abgleich ausprobieren" | kephalaion hub doc put team-x notizen/heute.md
+
+read -rs TOKEN            # Token einfügen, Enter
+printf '%s\n' "$TOKEN" | kephalaion node hub add privat --node laptop --transport local --token-stdin
+unset TOKEN
+kephalaion node collection add privat:team-x
+
+kephalaion node sync                              # alle Hub-Einträge; oder: node sync privat
+kephalaion node doc list privat:team-x
+kephalaion node doc get privat:team-x leitfaden.md
+kephalaion status
+```
+
+`hub import` liest das Verzeichnis rekursiv; der Name eines Dokuments ist sein relativer
+Pfad, mit `--prefix pfad/` davor. Versteckte Dateien und Verzeichnisse wie `.git` übergeht
+es still; was kein UTF-8-Text, größer als 1 MiB oder keine gewöhnliche Datei ist, meldet es
+als „übersprungen“. Alle Dokumente eines Imports sind ein Schreibvorgang mit einer Revision;
+scheitert eines (ungültiger Name, Konflikt zwischen Dokument und Verzeichnis), wird nichts
+geschrieben. Was im Verzeichnis fehlt, bleibt am Hub stehen.
+
+```text
+angelegt: leitfaden.md
+angelegt: tasks/001-start.md
+angelegt: tasks/002-ende.md
+Import nach team-x: 3 angelegt, 0 ersetzt, 0 unverändert, 0 übersprungen — Revision 1.
+```
+
+`hub doc put` legt ein Dokument an oder ersetzt es, der Inhalt kommt von der
+Standardeingabe oder aus `--file pfad`; unveränderter Inhalt zählt keine Revision. `hub doc
+get|list` lesen am Hub, `hub doc rm` löscht — es bleibt eine Löschmarke, die der Abgleich
+weitergibt. Namen mit dem Präfix `SYSTEM:` schreibt nur der Hub selbst.
+
+`node sync` fragt je gewünschter Collection alles seit dem letzten Stand ab, in Seiten; den
+ersten Abgleich eines Hub-Eintrags legt seine Replica an, `replicas/<alias>.db` neben
+`node.db`:
+
+```text
+Hub privat (hub_id 01M3ECGQP32QBHTGXERZSMVBWR): 1 Seite
+  team-x: abgeglichen, 4 Zeilen, Revision 2
+```
+
+`node doc list|get` lesen nur die Replica, so wie der letzte Abgleich sie hinterlassen hat,
+ohne Löschmarken und `SYSTEM:`-Zeilen:
+
+```text
+NAME          REVISION  GEÄNDERT
+leitfaden.md  1         2026-09-26 10:15 von admin
+notizen/      –         –
+tasks/        –         –
+```
+
+Nach `kephalaion hub doc rm team-x notizen/heute.md` bringt der nächste `node sync` die
+Löschmarke (`team-x: abgeglichen, 1 Zeile, Revision 3`), und `node doc list` zeigt
+`notizen/` nicht mehr. `status` zeigt am Node je Hub-Eintrag die `hub_id` aus der Replica und je
+Collection Stand und letzten Abgleich:
+
+```text
+node: eingerichtet
+  …
+  Hubs:
+    privat: local, als Node laptop
+      hub_id:      01M3ECGQP32QBHTGXERZSMVBWR
+      Collections:
+        team-x: Revision 3, abgeglichen 2026-09-26 10:15
+```
+
+Bisher geht nur `transport local`: der Hub derselben config, im selben Prozess. Für
+Einträge mit `http`, `https` oder `ssh` meldet `node sync` „noch nicht unterstützt“, ohne
+`hub:`-Abschnitt in der config scheitert auch `local`. Ein gescheiterter Eintrag hält die
+übrigen nicht auf; die Meldung steht auf stderr, und der Exit-Code ist 1 — hier mit dem
+Eintrag `test` (`http`) aus dem Beispiel davor:
+
+```text
+Hub privat (hub_id 01M3ECGQP32QBHTGXERZSMVBWR): 1 Seite
+  team-x: abgeglichen, 0 Zeilen, Revision 3
+Hub test: gescheitert
+node sync: Hub test: Transport http wird noch nicht unterstützt; bisher geht nur local
+```
+
+Collections, die der Hub nicht (mehr) erlaubt oder die der Node nicht mehr will
+(`node collection rm`), entfernt `node sync` aus der Replica. Nennt der Hub eine andere
+`hub_id` als bisher oder steht die Replica weiter als der Hub, leert `node sync` sie und
+gleicht von vorn ab. Die Replica ist abgeleitet: `node hub rm` löscht sie mit, ebenso `config import` für
+Aliase, die im Export fehlen. Die Regeln des Abgleichs stehen in
+[`docs/vertrag.md`](docs/vertrag.md).
 
 ## Bauen
 

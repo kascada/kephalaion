@@ -11,7 +11,7 @@ description: Entwurf für eine geteilte Wissensdatenbank mehrerer Nutzer und Pro
 Collections und Nodes am Hub, Hubs und gewünschte Collections am Node, alles über die
 Kommandozeile. Dazu Dokumente am Hub (`hub doc`, `hub import`), der Vertrag für den Abgleich
 ([`vertrag.md`](vertrag.md)) und die Replica am Node, abgeglichen im selben Prozess über
-`transport local` (die Kommandos dafür am Node folgen). Noch nicht gebaut: `serve`, jede
+`transport local` (`node sync`, `node doc`). Noch nicht gebaut: `serve`, jede
 Verbindung über das Netz, Accounts, Suche und Schreiben über den Node. Die Überlegungen
 entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
 Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
@@ -142,12 +142,17 @@ node:
   überschreiben, ebenso, wenn die Datenbankdatei schon existiert. Erst entsteht die
   Datenbank, dann der Eintrag in der Datei; scheitert der, wird die Datenbank wieder
   entfernt. Nur `init` legt eine Datenbank an, alle anderen Kommandos öffnen nur vorhandene.
+  **Einzige Ausnahme, umgesetzt am 2026-09-26:** die Replica. Sie ist abgeleitet, und der
+  erste Abgleich eines Hub-Eintrags legt sie an.
   Bei PostgreSQL legt `init` nur das Schema an; Datenbank und Benutzer richtet der Betrieb
   ein.
 - **Die Replicas eines Nodes** liegen als eine Datenbank je Hub in `replicas/` neben `node.db`
   (siehe „Speicherung“); `node.db`
   selbst hält die Einstellungen des Nodes und in einer eigenen Tabelle `hubs` seine Hubs:
-  Name (den der Node als Alias vergibt), Transport, Adresse, Token, SSH-Schlüssel, `hub_id`.
+  Name (den der Node als Alias vergibt), den Namen, unter dem der Hub den Node kennt
+  (`node_name`), Transport, Adresse, Token, SSH-Schlüssel, `hub_id` (eine Kopie, maßgeblich
+  ist die in der Replica). `node hub rm` löscht die Replica mit, `config import` die Replicas
+  der Aliase, die im Export fehlen.
 
 - **Zwei Umsetzungen des Vertrags:** über HTTP — direkt per TLS oder durch SSH getunnelt, das
   ist derselbe Client mit anderem Verbindungsaufbau — und lokal als Funktionsaufruf. Der Node
@@ -581,8 +586,8 @@ Dienste, mehrere Ports, mehrere MCP-Einträge je Client.
   seiner Datenbank.
 - **Der Node ist auf jedem Hub ein eigener Eintrag** in `nodes`, mit eigenem Token und
   eigener Rotation.
-  Seine Datenbank führt eine Liste von Hubs: Name, Adresse, Transport (`https`, `http`, `ssh`,
-  `local`), SSH-Schlüssel, Token.
+  Seine Datenbank führt eine Liste von Hubs: Name, sein eigener Name am Hub, Adresse, Transport
+  (`https`, `http`, `ssh`, `local`), SSH-Schlüssel, Token.
 - **Abgleich je Hub.** Ist ein Hub nicht erreichbar, laufen die anderen weiter.
 - **Ein Client trägt mehrere Paare aus Name und Token**, je Hub höchstens eins. Die Suche
   geht über alle Collections, die diese Accounts lesen dürfen.
@@ -656,10 +661,11 @@ Projekte dieses Rechners.
 |---|---|---|
 | `~/.config/kephalaion/` (`XDG_CONFIG_HOME`) | Konfiguration, klein, lesbar | `config.yaml` |
 | `~/.local/share/kephalaion/` (`XDG_DATA_HOME`) | Daten, die bleiben müssen | `hub.db`, `node.db` |
-| `~/.local/share/kephalaion/replicas/` | wiederherstellbar durch Abgleich | `<hub>.db` je Hub |
+| `~/.local/share/kephalaion/replicas/` | wiederherstellbar durch Abgleich | `<alias>.db` je Hub-Eintrag |
 | `~/.local/state/kephalaion/` (`XDG_STATE_HOME`) | Zustand, Logs | später |
 
-- **Die Replicas liegen in einem eigenen Unterverzeichnis**, nicht neben `node.db`: So ist
+- **Die Replicas liegen in einem eigenen Unterverzeichnis** `replicas/` im Verzeichnis von
+  `node.db` (liegt `node.db` per `--db` anderswo, dann dort), nicht direkt daneben: So ist
   sichtbar, was sich neu abgleichen lässt und was nicht. Eine Sicherung kann `replicas/`
   auslassen. Nicht unter `~/.cache`: Aufräumprogramme leeren es bedenkenlos, und jedes Leeren
   hieße einen vollständigen Abgleich.
@@ -740,11 +746,12 @@ In `node.db`, ebenfalls lokal:
 ```sql
 CREATE TABLE hubs (
   name        TEXT PRIMARY KEY,        -- Alias, vom Node vergeben
+  node_name   TEXT NOT NULL,           -- Name des Nodes am Hub (nodes.name dort)
   transport   TEXT NOT NULL,           -- local, http, https, ssh
   address     TEXT,                    -- leer bei local
   token       TEXT,                    -- das eigene Token des Nodes bei diesem Hub
   ssh_key     TEXT,
-  hub_id      TEXT                     -- beim ersten Kontakt gemerkt
+  hub_id      TEXT                     -- Kopie; maßgeblich ist db_info der Replica
 );
 CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   hub         TEXT NOT NULL REFERENCES hubs(name),
@@ -755,7 +762,7 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
 
 - **Lokale Tabellen:** Einzelne Werte stehen in `settings` (Schlüssel, Wert); Listen mit
   Struktur bekommen eigene Tabellen. Nichts davon gleicht sich ab. `config export` und
-  `config import` nehmen sie mit (Exportformat 2, `tables:` je Rolle), `db_info` und
+  `config import` nehmen sie mit (Exportformat 3, `tables:` je Rolle), `db_info` und
   `actions` nicht. Änderungen an ihnen zählen keine Revision hoch.
 - **Namen** von Collections, Nodes und Hub-Aliasen: `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`
   (Adressen sind `<hub>:<collection>`), kein Präfix `system`. `documents.collection` hat
@@ -805,12 +812,14 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   beantworten „wer war zuletzt dran“ ohne Umweg; das Protokoll `actions` den Rest, solange es
   zurückreicht. Es ist befristet; Einträge über echtes Löschen durch den Admin bleiben
   dauerhaft.
-- **Jede Datenbank — des Hubs wie `node.db` — hat zwei weitere Tabellen**, beide
-  `(key TEXT PRIMARY KEY, value TEXT NOT NULL)`:
+- **Jede Datenbank — des Hubs, `node.db` und jede Replica — hat zwei weitere Tabellen**,
+  beide `(key TEXT PRIMARY KEY, value TEXT NOT NULL)`:
   - `db_info` beschreibt die Datenbank selbst: Schemafassung (`schema_version`), Rolle
-    (`role`, `hub` oder `node`), Anlagezeit (`created_at`), am Hub die Revision
-    (`revision`, siehe unten). Wer eine Datenbank öffnet, prüft Rolle und Schemafassung;
-    eine Hub-Datenbank als Node zu öffnen oder umgekehrt ist ein Fehler.
+    (`role`, `hub`, `node` oder `replica`), Anlagezeit (`created_at`), am Hub die Revision
+    (`revision`, siehe unten), in der Replica die `hub_id`. Wer eine Datenbank öffnet, prüft
+    Rolle und Schemafassung; eine Hub-Datenbank als Node zu öffnen oder umgekehrt ist ein
+    Fehler. Die Rolle `replica` ist keine Rolle der config — eine Replica gehört zum Node —,
+    sie hält nur Replica und `node.db` auseinander.
   - `settings` hält die Einstellungen der Rolle — alles, was nicht in der config steht.
     `config export` sichert sie, `config import` schreibt sie je Rolle in einer Transaktion
     zurück.
@@ -843,19 +852,33 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   wird; in SQLite beginnt jede Transaktion als `BEGIN IMMEDIATE` und hält die Sperre von
   Anfang an.
 - **Der Hub hat eine Identität.** `hub init` vergibt eine `hub_id` (ULID, in `db_info`); jede
-  Antwort an einen Node trägt sie, der Node speichert sie in `hubs`. Weicht sie ab — etwa
+  Antwort an einen Node trägt sie, der Node speichert sie in `db_info` seiner Replica —
+  maßgeblich — und danach als Kopie in `hubs`. Weicht sie ab — etwa
   weil die Datenbank des Hubs neu angelegt wurde und die Revision wieder bei 0 beginnt —,
   verwirft der Node die Replica und gleicht von vorn ab. Sonst fragte er „alles seit 1200“,
   bekäme nichts, und die Replica wäre still veraltet.
+- **Hub aus einer Sicherung.** Jede Antwort trägt auch die Revision H des Hubs. Liegt ein
+  `seit` des Nodes über H, wurde der Hub mit gleicher `hub_id` zurückgespielt; der Node
+  behandelt das wie einen Wechsel der `hub_id`. Das greift nur, bis der Hub wieder darüber
+  hinaus geschrieben hat. **Grenze, festgehalten in [`vertrag.md`](vertrag.md):** Ein aus einer
+  Sicherung zurückgespielter Hub braucht eine neue `hub_id`; bis es dafür ein Kommando gibt,
+  verwirft der Node die Replica selbst (`node hub rm` und `node hub add`).
 - **Eine Abfrage für alle Collections.** Der Node schickt eine Liste von Paaren (Collection,
   seit); der Hub fragt einmal ab, nach Revision sortiert, jede Collection über den Index
   `(collection, revision)`:
   `WHERE (collection='a' AND revision > 1200) OR (collection='b' AND revision > 0)`.
 - **In Seiten, nicht in einem Rutsch.** Die Abfrage liefert eine begrenzte Anzahl und wird
-  wiederholt, bis nichts mehr kommt. Jede Seite endet bei einer Revision R. Der Node wendet jede
-  Seite in einer Transaktion an und setzt die Revisionen auf R. Ein abgebrochener Abgleich
-  setzt dort fort, wo er stand; der erste vollständige Abgleich ist nur eine lange Folge von
-  Seiten.
+  wiederholt, bis nichts mehr kommt. Jede Seite endet bei einer Revision R, an einer
+  Revisionsgrenze: Ein Schreibvorgang kommt ganz oder gar nicht. Der Node wendet jede
+  Seite in einer Transaktion an und setzt die Revision jeder angefragten Collection auf
+  max(seit, R) — nie zurück, denn die Revision ist global, und eine Collection, die schon
+  weiter war, fiele sonst zurück. Den Stand je Collection hält die Replica in `sync_state`.
+  Ein abgebrochener Abgleich setzt dort fort, wo er stand; der erste vollständige Abgleich ist
+  nur eine lange Folge von Seiten.
+- **Lesestand ohne Transaktion, `bis` auf der letzten Seite.** Der Hub liest H zuerst und
+  liefert nur Zeilen mit `revision ≤ H`; eine Lese-Transaktion wäre in SQLite IMMEDIATE. Auf
+  der letzten Seite — auch einer leeren — ist R (`bis`, `until`) gleich H: Der Node hat dann
+  alles bis H, auch in Collections, in denen sich nichts geändert hat.
 - **Format:** JSON über HTTP, komprimiert (gzip). Ein Datenstrom zeilenweiser JSON-Objekte
   wäre die nächste Stufe, falls Seiten zu groß werden.
 - **In `documents` steht nur, was sich abgleichen muss.** Das ist der einzige Grund für

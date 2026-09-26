@@ -34,12 +34,31 @@ Pakete unter `internal/`:
   `Check` auf verbotene Konstrukte.
 - `hub/store`, `node/store` — die gekapselten Datenbanken von Hub und Node, je eine
   Schnittstelle `Store` mit SQLite-Umsetzung und DDL.
+- `contract` — neutral, der Vertrag zwischen Node und Hub als Go-Typen: Anfragen, Antworten,
+  Fehlercodes, Schnittstelle `Hub`, Fassung (`contract.Version`).
+- `hub/replication` — die Seite des Hubs im Vertrag: setzt `contract.Hub` über dem Hub-Store
+  um (Anmeldung, erlaubte Collections, Seitenschnitt); der Store liefert nur Zeilen.
+- `node/replica` — die Replica des Nodes (je Hub-Eintrag eine SQLite-Datei) und der Abgleich
+  (`Syncer`), der sie über `contract.Hub` füllt.
 
 Regeln dazu:
 
 - **Hub und Node bleiben getrennt.** Kein Paket unter `internal/hub` importiert eines unter
   `internal/node` und umgekehrt, auch nicht über Umwege oder in Tests; Gemeinsames gehört in
-  neutrale Pakete. `internal/separation_test.go` prüft das.
+  neutrale Pakete. `internal/separation_test.go` prüft das, ebenso, dass `internal/contract`
+  weder Hub noch Node importiert.
+- **Der Vertrag steht zweimal, gleich.** `docs/vertrag.md` ist verbindlich, `internal/contract`
+  folgt ihm; wer den einen ändert, zieht den anderen im selben Commit nach. Er trägt eine
+  Fassung (`contract.Version`, derzeit 1), und der Hub soll auch ältere Nodes bedienen.
+- **Welche Umsetzung des Vertrags ein Node bekommt, entscheidet nur `cmd/kephalaion`.** Dort
+  ist `local` verdrahtet (`localConnector` in `synccmd.go`: der Hub der eigenen config,
+  `hub/replication` darüber); `internal/node` kennt nur `contract.Hub`. Auch `local` prüft
+  die Anmeldung wie jeder Transport.
+- **Die Replica ist abgeleitet.** Sie enthält nur, was der Hub geliefert hat, und darf wie
+  der Node-Store SQLite-Eigenes benutzen. Angelegt wird sie nur vom Abgleich, nie von `init`;
+  `node hub rm` und `config import` (für weggefallene Aliase) entfernen sie mit, innerhalb der
+  Transaktion, die den Eintrag entfernt. Passt ihre Schemafassung nicht, verwirft der
+  Abgleich sie.
 - **Hub-SQL bleibt PostgreSQL-tauglich.** Die Abfragen (DML) des Hubs und des Unterbaus
   stehen zentral in einer Struktur (`queries` bzw. `sqlitedb.Queries`), mit Platzhaltern
   `$n` über `sqlq.Bind` — kein `INSERT OR`, kein `PRAGMA`, kein `AUTOINCREMENT`, kein rohes
@@ -51,14 +70,17 @@ Regeln dazu:
   (`ident.MaskToken`); ein am Hub erzeugtes Token genau einmal, gespeichert nur als Hash.
 - **Namensregeln.** Collections, Nodes und Hub-Aliase: `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`,
   kein Präfix `system` in beliebiger Schreibweise — geprüft mit `ident.CheckName` bzw.
-  `ident.ParseAddress`. Node-Namen sind gemeinsam mit Account-Namen eindeutig (jede Zeile
-  `SYSTEM:A:<name>` in `documents` belegt den Namen).
+  `ident.ParseAddress`. Die Pfadregeln für Dokumentnamen stehen nur in `ident`
+  (`CheckDocName`, `DocDirPrefix`); Hub-Store und Replica benutzen sie. Node-Namen sind
+  gemeinsam mit Account-Namen eindeutig (jede Zeile `SYSTEM:A:<name>` in `documents` belegt
+  den Namen).
 - **Import prüft wie die CLI.** `config import` benutzt dieselben Prüffunktionen
   (`CheckTables` je Store) und prüft alles, bevor geschrieben wird; erst der Hub, dann der
   Node.
 - **Keine Migrationen, Schema neu anlegen** — befristet, solange es keine Daten gibt, die
   bleiben müssen. Ändert sich das Schema, wird `SchemaVersion` im Store-Paket erhöht;
-  vorhandene Datenbanken werden dann abgelehnt und neu angelegt.
+  vorhandene Datenbanken werden dann abgelehnt und neu angelegt. Dokumente am Hub gelten
+  vorerst als wiederherstellbar per `hub import`; die Replica gleicht sich neu ab.
 
 ## Bauen
 

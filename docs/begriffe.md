@@ -28,12 +28,13 @@ Ausführlich: [`konzept.md`](konzept.md).
   Pfad>`; `postgres://…` ist vorgesehen.
 - **settings** (Einstellungen) — Tabelle `settings (key, value)` in der Datenbank jeder Rolle:
   alles, was nicht in der config steht. Wird mit `config export` gesichert.
-- **db_info** — Tabelle `db_info (key, value)` in der Datenbank jeder Rolle. Hält die
-  Schemafassung (`schema_version`), die Rolle (`role`), die Anlagezeit (`created_at`), am Hub
-  auch die Revision (`revision`). Passt Fassung oder Rolle nicht, wird die Datenbank nicht
-  benutzt.
+- **db_info** — Tabelle `db_info (key, value)` in der Datenbank jeder Rolle und in jeder
+  Replica. Hält die Schemafassung (`schema_version`), die Rolle (`role`: `hub`, `node` oder
+  `replica`), die Anlagezeit (`created_at`), am Hub auch die Revision (`revision`), in der
+  Replica die `hub_id`. Passt Fassung oder Rolle nicht, wird die Datenbank nicht benutzt.
 - **init** — `kephalaion hub init`, `kephalaion node init`: richtet eine Rolle ein — Datenbank,
-  Schema, Abschnitt in der config.
+  Schema, Abschnitt in der config. Nur `init` legt eine Datenbank an; einzige Ausnahme ist die
+  Replica, die der erste `sync` anlegt.
 - **status** — `kephalaion status`: welche Rollen eingerichtet sind, wo ihre Datenbank liegt,
   welche Verbindungen bestehen.
 - **client** (MCP-Client) — was per MCP mit dem Node redet: Claude Code, Cursor, OpenCode,
@@ -81,19 +82,31 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **journal** (Journal) — fortlaufende Folge der Änderungen eines Hubs.
 - **revision** (Stand) — fortlaufende Nummer je Hub über alle Collections, vergeben beim
   Schreiben. Der Node merkt sich je Collection die letzte und fragt „alles seit Revision X“.
-- **replica** (Kopie) — der Ausschnitt des Stores auf einem Node. Abgeleitet, nie selbst
-  beschrieben.
+- **replica** (Kopie) — der Ausschnitt des Stores auf einem Node: je Hub-Eintrag eine eigene
+  SQLite-Datei `replicas/<alias>.db` neben `node.db` (Verzeichnis `0700`), in `db_info` mit
+  der Rolle `replica` und der `hub_id`. Darin `documents` wie am Hub, aber ohne eindeutigen
+  Index auf den Namen — auf dem Node zählt die `id` —, und `sync_state`. Abgeleitet, nie
+  selbst beschrieben: Sie enthält genau die Zeilen, die der Hub geliefert hat, und lässt sich
+  jederzeit neu abgleichen. Der erste `sync` eines Hub-Eintrags legt sie an; `node hub rm`
+  löscht sie mit, ebenso `config import` für Aliase, die im Export fehlen. Eine Replica mit
+  fremder Schemafassung verwirft `sync` und legt sie neu an.
 - **sync_state** — Tabelle der Replica: je Collection der Stand des Abgleichs (`revision`) und
   der Zeitpunkt der letzten Seite (`synced_at`).
 - **contract** (Vertrag) — die Schnittstelle zwischen Node und Hub, beschrieben in
   [`vertrag.md`](vertrag.md), im Code das neutrale Paket `internal/contract`. Trägt eine
   **Fassung** (`version`, derzeit 1); der Hub nennt sie in jeder Antwort.
 - **sync** (Abgleich) — der Vorgang des Vertrags, mit dem ein Node je Collection alles seit
-  einer Revision holt, in Seiten. Kommando: `kephalaion node sync [<alias>]`.
+  einer Revision holt, in Seiten; jede Seite ist eine Transaktion in der Replica. Collections,
+  die der Hub nicht erlaubt oder der Node nicht mehr will, entfernt er aus der Replica; bei
+  anderer `hub_id` oder einem Stand über der Revision des Hubs gleicht er von vorn ab.
+  Kommando: `kephalaion node sync [<alias>]`, bisher nur über `transport local`; scheitert ein
+  Hub-Eintrag, laufen die übrigen weiter, der Exit-Code ist 1.
 - **page** (Seite) — eine Antwort des Abgleichs: ganze Revisionen, bis die **page size**
-  (Seitengröße, Zeilen je Seite, Standard 500) erreicht ist. **until** (`bis`) ist die
-  Revision, bis zu der der Node danach alles hat; **more** (`mehr`) sagt, dass eine weitere
-  Seite folgen kann.
+  (Seitengröße, Zeilen je Seite, Standard 500, am Hub höchstens 5000) erreicht ist; eine
+  einzelne größere Revision kommt ganz. **until** (`bis`) ist die Revision, bis zu der der
+  Node danach alles hat — auf der letzten Seite, auch einer leeren, die Revision des Hubs
+  (**hub_revision**); **more** (`mehr`) sagt, dass eine weitere Seite folgen kann. Der Node
+  setzt den Stand jeder angefragten Collection auf max(`since`, `until`), nie zurück.
 
 ## Zugriff
 
@@ -111,9 +124,12 @@ Ausführlich: [`konzept.md`](konzept.md).
 - **node entry** (Node-Eintrag) — ein Node am Hub: Zeile in `nodes`, Name vom Admin, Token
   (nur der Hash), gesperrt ja/nein. Name gemeinsam mit den Accounts eindeutig.
 - **hub entry** (Hub-Eintrag) — ein Hub am Node: Zeile in `hubs` in `node.db`, Alias vom
-  Node, Transport, Adresse, Token, `hub_id`.
+  Node, Name des Nodes am Hub (`node_name`, `--node`), Transport, Adresse, Token, `hub_id`
+  (Kopie aus der Replica).
 - **hub_id** — Kennung des Hubs, eine ULID, von `hub init` vergeben und in `db_info`
-  gehalten; `status` zeigt sie. Weicht sie ab, gleicht der Node von vorn ab.
+  gehalten; `status` zeigt sie. Am Node ist `db_info.hub_id` der Replica maßgeblich,
+  `hubs.hub_id` in `node.db` nur Kopie für Anzeige und Export. Weicht sie ab, gleicht der Node
+  von vorn ab.
 - **grant** / **revoke** — `kephalaion hub node grant <node> <collection>`: gibt einem Node
   `replicate` auf eine Collection; `revoke` nimmt es zurück.
 - **lock** / **unlock** — `kephalaion hub node lock <name>`: sperrt einen Node; `unlock` hebt
