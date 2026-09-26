@@ -20,13 +20,30 @@ import (
 // eventually wartet, bis cond gilt, höchstens 15 s.
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
+	if !waitUntil(cond) {
+		t.Fatalf("wartet vergeblich auf: %s", what)
+	}
+}
+
+// eventuallyLog wartet wie eventually auf etwas, das serve tut; scheitert
+// es, steht der Log von serve in der Meldung.
+func eventuallyLog(t *testing.T, srv *running, what string, cond func() bool) {
+	t.Helper()
+	if !waitUntil(cond) {
+		t.Fatalf("wartet vergeblich auf: %s\nLog:\n%s", what, srv.log.String())
+	}
+}
+
+// waitUntil prüft cond alle 50 ms, bis es gilt, höchstens 15 s.
+func waitUntil(cond func() bool) bool {
 	deadline := time.Now().Add(15 * time.Second)
 	for !cond() {
 		if time.Now().After(deadline) {
-			t.Fatalf("wartet vergeblich auf: %s", what)
+			return false
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	return true
 }
 
 // syncStatus liest hub_sync eines Eintrags.
@@ -109,11 +126,18 @@ func TestBackgroundSync(t *testing.T) {
 		"--address", "https://hub.example.org", "--token-stdin").want(t, 0)
 	srv := startServe(t, portZero(t, e.cfg))
 
+	// Die erste Runde läuft nach dem Start im Hintergrund und bringt die drei
+	// Account-Zeilen. Erst danach das Dokument: sonst kämen Account-Zeilen
+	// und Dokument in einer Runde (4 Zeilen), und die Logzeile zu genau einer
+	// Zeile bliebe aus.
+	eventuallyLog(t, srv, "erste Runde von eigen und fern", func() bool {
+		return syncStatus(t, ns, "eigen").OKAt != 0 && syncStatus(t, ns, "fern").OKAt != 0
+	})
 	e.runIn(t, "Inhalt", "hub", "doc", "put", "team-x", "a.md").want(t, 0)
-	eventually(t, "a.md in beiden Replicas", func() bool {
+	eventuallyLog(t, srv, "a.md in beiden Replicas", func() bool {
 		return e.docIs(t, "eigen:team-x", "a.md", "Inhalt") && e.docIs(t, "fern:team-x", "a.md", "Inhalt")
 	})
-	eventually(t, "Logzeilen", func() bool {
+	eventuallyLog(t, srv, "Logzeilen", func() bool {
 		log := srv.log.String()
 		return contains(log, "Abgleich eigen: 1 Zeile, Revision", "Abgleich fern: 1 Zeile, Revision")
 	})
@@ -205,7 +229,7 @@ func TestBackgroundSyncErrors(t *testing.T) {
 
 	// Wieder erreichbar.
 	e.run(t, "node", "hub", "set", "fern", "--address", e.url).want(t, 0)
-	eventually(t, "fern geht wieder", func() bool {
+	eventuallyLog(t, srv, "fern geht wieder", func() bool {
 		return strings.Contains(srv.log.String(), "Abgleich fern geht wieder") && syncStatus(t, ns, "fern").Err == ""
 	})
 	if !e.docIs(t, "fern:team-x", "a.md", "x") {
@@ -242,7 +266,7 @@ func TestBackgroundSyncOff(t *testing.T) {
 	e.run(t, "config", "set", "node", "sync_interval", "0").want(t, 0)
 	e.runIn(t, "x", "hub", "doc", "put", "team-x", "a.md").want(t, 0)
 	srv := startServe(t, portZero(t, e.cfg))
-	eventually(t, "Logzeile aus", func() bool {
+	eventuallyLog(t, srv, "Logzeile aus", func() bool {
 		return strings.Contains(srv.log.String(), "Abgleich im Hintergrund aus (sync_interval 0)")
 	})
 	time.Sleep(500 * time.Millisecond)

@@ -80,7 +80,7 @@ func TestServeUpdateInWhoami(t *testing.T) {
 	if n := requests.Load(); n != 1 {
 		t.Errorf("%d Anfragen an GitHub, erwartet 1", n)
 	}
-	eventually(t, "Logzeile zum Update", func() bool {
+	eventuallyLog(t, srv, "Logzeile zum Update", func() bool {
 		return contains(srv.log.String(), "Update: v0.2.0 verfügbar (installiert v0.1.0")
 	})
 

@@ -144,7 +144,7 @@ was veröffentlicht wird, ist trotzdem vollständig geprüft, bevor `main` sich 
 
 | Etappe | Status | Datum | Notiz |
 |---|---|---|---|
-| 1 — Race-Condition in TestBackgroundSync | offen | | |
+| 1 — Race-Condition in TestBackgroundSync | erledigt | 2026-09-26 | Wartet vor `hub doc put` auf `OKAt` von eigen und fern; `eventuallyLog` gibt den Log von serve aus (bgsync, nodewhoami, updatecheck). Übrige `TestBackgroundSync*` ohne diese Race. Nachweis in Wegwerf-Kopie mit 500 ms in `syncOne`: vorher rot („4 Zeilen, Revision 5“), danach 3× grün, `cmd/kephalaion` ganz grün |
 | 2 — Aufteilung über -short | offen | | |
 | 3 — CI je Branch | offen | | |
 | 4 — release verlangt den vollständigen Lauf | offen | | |

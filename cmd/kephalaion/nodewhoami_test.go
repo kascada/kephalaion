@@ -247,7 +247,7 @@ func TestNodeWhoamiUnreadableReplica(t *testing.T) {
 	if !reflect.DeepEqual(viaCLI, viaMCP) {
 		t.Errorf("CLI\n%+v\nMCP\n%+v", viaCLI, viaMCP)
 	}
-	eventually(t, "Meldungen im Log", func() bool {
+	eventuallyLog(t, srv, "Meldungen im Log", func() bool {
 		return contains(srv.log.String(), `error="Hub fern: Replica `+ns.ReplicaPath("fern"), `error="Hub dritt: `,
 			ns.ReplicaPath("dritt"))
 	})
