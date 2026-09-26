@@ -983,8 +983,16 @@ sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
 - **Warteschlange** der offenen Fragen: hinzufügen, auflisten, verwerfen
   (heute `knowledge_queue_*`).
 - **Todos:** hinzufügen, auflisten, ändern, löschen (heute `todo_*`).
-- **Tasks** — als eigene Werkzeuge, weil eine KI ein Werkzeug, das ihre Absicht beim Namen
-  nennt, zuverlässiger benutzt als eine Folge allgemeiner Aufrufe:
+- **Tasks — zurückgestellt, entschieden am 2026-09-26: Sie bleiben vorerst als Dateien im
+  Projekt** (`k-playbook-local/tasks/`) und kommen nicht in Kephalaion. Ein Task beschreibt
+  eine Änderung am Code und wandert mit ihr durch Git: im selben Commit angelegt, ausgeführt
+  und nach `done/` verschoben, mit demselben Stand je Branch und demselben Review. Geteilt
+  wird er ohnehin über das Repository. Dazu bleiben sie in VS Code und für jedes Werkzeug,
+  das Dateipfade liest, sichtbar — eine Datenbank bräuchte dafür einen Spiegel als Dateien,
+  eine Erweiterung für VS Code oder einen Mount. Wieder aufzunehmen, wenn es Tasks ohne
+  eigenes Repository gibt oder sie über Projekte hinweg sichtbar sein sollen. Der Entwurf
+  bleibt als Richtung stehen: eigene Werkzeuge, weil eine KI ein Werkzeug, das ihre Absicht
+  beim Namen nennt, zuverlässiger benutzt als eine Folge allgemeiner Aufrufe:
 
   | Werkzeug | Zweck | darunter |
   |---|---|---|
