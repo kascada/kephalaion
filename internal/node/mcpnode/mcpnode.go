@@ -61,6 +61,7 @@ func NewHandler(nodes store.Store, version string) http.Handler {
 	}, n.whoami)
 	mcp.AddTool(srv, &mcp.Tool{Name: "list", Description: listDescription}, n.list)
 	mcp.AddTool(srv, &mcp.Tool{Name: "read", Description: readDescription}, n.read)
+	mcp.AddTool(srv, &mcp.Tool{Name: "changes", Description: changesDescription}, n.changes)
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	mux := http.NewServeMux()

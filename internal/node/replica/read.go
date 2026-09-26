@@ -260,3 +260,60 @@ func (r *Replica) ListEntries(ctx context.Context, q ListQuery, fn func(Entry) b
 	}
 	return rows.Err()
 }
+
+const (
+	// qChanged liest die Zeilen einer Collection nach (revision, id), auch
+	// Löschmarken, ohne SYSTEM:-Zeilen, über den Index (collection,
+	// revision).
+	qChanged = `SELECT ` + entryColumns + ` FROM documents
+		WHERE collection = ? AND ` + notSystem + ` AND ` + inRange + `
+		AND (revision > ? OR (revision = ? AND ? <> '' AND id > ?)) AND revision <= ?
+		ORDER BY revision, id LIMIT ?`
+	qFirstSince = `SELECT MIN(revision) FROM documents
+		WHERE collection = ? AND ` + notSystem + ` AND ` + inRange + ` AND updated_at >= ?`
+)
+
+// ChangeKey ist die Stelle, nach der ChangedEntries weiterliest: alle Zeilen
+// mit kleinerer Revision und in Revision Rev die bis einschließlich ID sind
+// geliefert. Leere ID: Revision Rev ganz.
+type ChangeKey struct {
+	Rev int64
+	ID  string
+}
+
+// ChangedEntries liest die Zeilen einer Collection unter einem
+// Verzeichnis-Präfix ("" für alle) nach der Stelle after bis einschließlich
+// Revision upto, nach Revision und id, höchstens limit: je id die jüngste —
+// die Replica hält je id nur eine Zeile —, Löschmarken eingeschlossen,
+// SYSTEM:-Zeilen nicht.
+func (r *Replica) ChangedEntries(ctx context.Context, collection, prefix string, after ChangeKey, upto int64,
+	limit int) ([]Entry, error) {
+	hi := prefixRange(prefix)
+	rows, err := r.db.QueryContext(ctx, qChanged, collection, prefix, hi, hi, after.Rev, after.Rev, after.ID, after.ID,
+		upto, limit)
+	if err != nil {
+		return nil, fmt.Errorf("Änderungen lesen: %w", err)
+	}
+	defer rows.Close()
+	out := []Entry{}
+	for rows.Next() {
+		e, err := scanEntry(rows)
+		if err != nil {
+			return nil, fmt.Errorf("Änderungen lesen: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// FirstRevisionSince liefert die kleinste Revision einer Zeile unter einem
+// Verzeichnis-Präfix, die der Hub zu since (ms) oder später geschrieben hat,
+// Löschmarken eingeschlossen; ok ist false, wenn es keine gibt.
+func (r *Replica) FirstRevisionSince(ctx context.Context, collection, prefix string, since int64) (rev int64, ok bool, err error) {
+	hi := prefixRange(prefix)
+	var n sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, qFirstSince, collection, prefix, hi, hi, since).Scan(&n); err != nil {
+		return 0, false, fmt.Errorf("Änderungen lesen: %w", err)
+	}
+	return n.Int64, n.Valid, nil
+}

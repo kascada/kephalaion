@@ -116,6 +116,12 @@ Ausführlich: [`konzept.md`](konzept.md).
   `document`, `directory` oder `none` (kein Fehler). Mit `content: false` nur die Angaben —
   so beantwortet die Erweiterung für VS Code `stat`. Löschmarken sind `none`.
 - **writable** (schreibbar) — Angabe von `read`: Der Account hat `write` in der Collection.
+- **changes** — Werkzeug des Nodes: je Dokument, das sich seit dem `cursor` (oder seit einem
+  Zeitpunkt, `since`) geändert hat, einmal der aktuelle Stand, Löschmarken eingeschlossen, ohne
+  alten Namen. Ohne beides nur der `cursor` für „ab jetzt“. Dazu **reset** — Hubs, deren
+  Replica seit dem `cursor` neu angelegt oder geleert wurde (andere `generation`); der Aufrufer
+  liest sie neu mit `list` — und **dropped** — Collections des `cursor`, die nicht mehr lesbar
+  sind; ihre Dokumente verschwinden ohne Löschmarke.
 - **cursor** — undurchsichtige Angabe in der Antwort von `list` und `changes`, mit der der
   nächste Aufruf weiterfragt; der Client gibt sie unverändert zurück. Bei `list` die Stelle
   nach dem letzten Eintrag, bei `changes` der Stand je Collection und die `generation` je Hub.

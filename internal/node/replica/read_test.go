@@ -162,3 +162,54 @@ func TestEntryLookups(t *testing.T) {
 		t.Errorf("StateOf fehlt: %v, %v", ok, err)
 	}
 }
+
+// ChangedEntries liest nach (Revision, id) weiter, auch mitten in einer
+// Revision, bis upto; FirstRevisionSince findet die erste Zeile ab einer
+// Zeit des Hubs.
+func TestChangedEntries(t *testing.T) {
+	ctx := context.Background()
+	r := readReplica(t, 3,
+		row("A", "wissen", "a.md", 1, 1, "a"),
+		row("B", "wissen", "d/b.md", 2, 1, "b"),
+		row("C", "wissen", "d/c.md", 2, 1, "c"),
+		tomb("D", "wissen", "weg.md", 3),
+		row("S", "wissen", contract.AccountRowName("bob"), 3, 1, "{}"),
+		row("X", "andere", "x.md", 3, 1, "x"),
+	)
+	ids := func(es []Entry) string {
+		s := ""
+		for _, e := range es {
+			s += e.ID
+		}
+		return s
+	}
+	cases := []struct {
+		after  ChangeKey
+		prefix string
+		upto   int64
+		limit  int
+		want   string
+	}{
+		{ChangeKey{}, "", 3, 10, "ABCD"},
+		{ChangeKey{Rev: 1}, "", 3, 10, "BCD"},
+		{ChangeKey{Rev: 2, ID: "B"}, "", 3, 10, "CD"},
+		{ChangeKey{Rev: 2}, "", 3, 10, "D"},
+		{ChangeKey{}, "", 2, 10, "ABC"},
+		{ChangeKey{}, "", 3, 2, "AB"},
+		{ChangeKey{}, "d/", 3, 10, "BC"},
+	}
+	for _, c := range cases {
+		got, err := r.ChangedEntries(ctx, "wissen", c.prefix, c.after, c.upto, c.limit)
+		if err != nil || ids(got) != c.want {
+			t.Errorf("%+v: %s, %v", c, ids(got), err)
+		}
+	}
+	for since, want := range map[int64]int64{0: 1, 1500: 2, 3000: 3} {
+		if rev, ok, err := r.FirstRevisionSince(ctx, "wissen", "", since); err != nil || !ok || rev != want {
+			t.Errorf("since %d: %d, %v, %v", since, rev, ok, err)
+		}
+	}
+	if _, ok, err := r.FirstRevisionSince(ctx, "wissen", "", 3001); ok || err != nil {
+		t.Errorf("nach allem: %v, %v", ok, err)
+	}
+}

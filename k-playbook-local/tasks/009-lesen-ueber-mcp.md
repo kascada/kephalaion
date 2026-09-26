@@ -113,7 +113,7 @@ so, dass die Erweiterung für VS Code darauf ihren `FileSystemProvider` bauen ka
 | 1 — Adresse, Anmeldung, Abfragen | erledigt | 2026-09-26 | `mcpnode/access.go`: `resolve` (Hub-Teil optional), `open`/`eachValid` über `Authenticate`, eine Meldung „nicht lesbar“, „noch nie abgeglichen“, unlesbare Replica nur für ihren Hub; `replica/read.go` (Abfragen ohne Transaktion); `generation` in `db_info`, Schemafassung 4 |
 | 2 — `list` | erledigt | 2026-09-26 | `mcpnode/list.go`: Collections (alle Hubs, `<hub>:`), Verzeichnisse zuerst, Dokumente nach `name`/`created`/`updated`, Keyset-Cursor mit Fingerabdruck der Anfrage, `limit` Standard 100, höchstens 1000; `mask` per `path.Match` auf das letzte Segment; `unreadable_hubs` |
 | 3 — `read` | erledigt | 2026-09-26 | `mcpnode/read.go`: per Name oder `id` (Hub-Teil entbehrlich bei einem Hub), Inhalt als Text des Ergebnisses, `content: false` nur Angaben; Verzeichnis = lebendes Dokument darunter, Wurzel von Hub und Collection `directory`; Löschmarke, fremde und unbekannte id `none`; `writable` = `write` |
-| 4 — `changes` | offen | | |
+| 4 — `changes` | erledigt | 2026-09-26 | `mcpnode/changes.go`: cursor je Hub (`generation`) und je Collection (Revision, bei halber Revision die letzte id), bis zum Stand in `sync_state`; ab jetzt, `since` (erste Zeile ab dem Zeitpunkt), neu lesbar = alles, `reset` je Hub, `dropped`, `unreadable_hubs` behält den Stand; cursor an `collection`/`path` gebunden |
 | 5 — Durchlauf und Doku | offen | | |
 
 ---
