@@ -113,9 +113,8 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
 - **Verwaltung über MCP:** eigenes Recht (`admin` je Hub?), wer am Node verwalten darf, ob
   Werkzeuge nur mit Recht erscheinen, Token-Ausgabe ohne KI-Kontext.
 - **k-playbook ↔ Kephalaion:** welche k-playbook-Werkzeuge (Eingang, Warteschlange, Todos,
-  `publish`, Status) Kephalaion trägt; welche die KI nicht sehen soll; wie Werkzeuge
-  zuschaltbar werden. Tasks bleiben vorerst als Dateien im Projekt (`konzept.md`, „Für
-  k-playbook — Kandidaten“).
+  Tasks, `publish`, Status) Kephalaion trägt; welche die KI nicht sehen soll; in welcher
+  Collection die Tasks eines Projekts liegen; wie Werkzeuge zuschaltbar werden.
 - **Token-Rotation mit Frist** für Menschen/KIs; wie ein neues Token zu k-playbook gelangt.
 - **Persönliche Verzeichnisse** (`personal`, `numbered` als Eigenschaften eines Verzeichnisses)
   — vorgemerkt; ob es sie braucht, wer sie setzt, Übergabe an einen anderen User

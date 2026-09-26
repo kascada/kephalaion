@@ -342,9 +342,8 @@ erweist.
 **Die Mischform:** Alle dürfen lesen, aber man will bei der Arbeit nur das Eigene sehen.
 Beispiel Tasks: Ein Entwickler legt sie an, bearbeitet und führt sie aus. Sie sind für alle
 sichtbar, versioniert und gelten in begrenztem Umfang als Nachweis — die Tasks der anderen
-stören aber bei der eigenen Arbeit. Tasks selbst bleiben vorerst Dateien im Projekt (siehe
-„Werkzeuge“, „Für k-playbook“); dort wäre das Ausblenden Sache von k-playbook. Das Beispiel
-gilt für alles Gleichartige, das in den Store kommt.
+stören aber bei der eigenen Arbeit. Das Beispiel gilt für alles Gleichartige, das in den
+Store kommt.
 
 - **Ein Verzeichnis einer Collection bekommt die Eigenschaft `personal`.** Dann zeigen
   Auflisten, Lesen und Schreiben dort nur Dokumente, deren `created_by` der User des Accounts
@@ -1074,8 +1073,9 @@ im Hub. Wo die Grenze liegt und ob etwas allgemein taugt, wird je Werkzeug entsc
 | Werkzeug | Zweck | Anmerkungen |
 |---|---|---|
 | `search` | Volltextsuche | Collections wählbar; getrennte Trefferlisten je Collection, Rang ab 1, kein Punktwert |
-| `read` | ein Dokument lesen | per Name oder `id`; wahlweise ein Abschnitt |
+| `read` | ein Dokument lesen | per Name oder `id`; wahlweise ein Abschnitt; mit `content: false` nur die Angaben dazu, siehe unten |
 | `list` | Inhalt eines Verzeichnisses | siehe unten |
+| `changes` | was sich seit einer Revision oder einem Zeitpunkt geändert hat | siehe unten; neu am 2026-09-26 |
 | `status` / `whoami` | eigener Account, Hubs, lesbare Collections, Stand des Abgleichs | `whoami` gebaut (Task 005): je Hub mit Header-Paar angemeldet ja/nein, bei ja Account, Collections und Rechte; nie Token oder Hash |
 
 **`list` — neu aufgenommen am 2026-09-25**, um etwa das Neueste zu finden:
@@ -1087,6 +1087,33 @@ im Hub. Wo die Grenze liegt und ob etwas allgemein taugt, wird je Werkzeug entsc
   als regulärer Ausdruck — einfacher für Aufrufer und in Go ausgewertet, unabhängig von der
   Datenbank. `*` geht nicht über `/` hinweg;
 - Antwort je Eintrag: Name, `id`, angelegt und geändert (wann, von wem), Revision.
+- **Verzeichnisse als Einträge (2026-09-26):** Ohne Unterverzeichnisse liefert `list` auch
+  die Verzeichnisse der nächsten Ebene als eigene Einträge (Art `directory`, nur der Name),
+  abgeleitet aus den Namen darunter. Sonst müsste ein Aufrufer, der blättert, alles
+  rekursiv holen und die Ordner selbst bilden — die KI wie die Erweiterung für VS Code.
+  `list` auf die Wurzel eines Hubs liefert die lesbaren Collections.
+
+**`read` mit `content: false` — 2026-09-26**, statt eines eigenen Werkzeugs `stat`: Name →
+Dokument, Verzeichnis oder nichts; dazu `id`, Revision, angelegt und geändert, Größe,
+schreibbar ja/nein. Billig, weil ohne Inhalt; die KI fragt so „gibt es das, wie alt ist
+es“, die Erweiterung für VS Code beantwortet damit `stat`, das VS Code sehr oft aufruft.
+
+**`changes` — neu am 2026-09-26:** was sich in den lesbaren Collections eines Hubs geändert
+hat, seit einer Revision oder seit einem Zeitpunkt.
+
+- `since_revision` oder `since` (Zeitpunkt), wahlweise `collection` und `path` als Präfix;
+- Antwort: je Dokument Name, `id`, Art der Änderung (angelegt, geändert, umbenannt mit altem
+  Namen, gelöscht), Revision — dazu die aktuelle Revision der Replica, mit der der nächste
+  Aufruf weiterfragt; mit `limit` und Cursor;
+- beantwortet aus der Replica, ohne Netz. Die KI fragt nach Zeit („was ist neu seit
+  gestern“), die Erweiterung für VS Code nach Revision, in kurzen Abständen, und löst damit
+  `onDidChangeFile` aus. Benachrichtigungen von MCP (`resources/subscribe`) brauchten eine
+  Sitzung, die der Node bewusst nicht führt (siehe „Kommunikation“).
+
+**Keine Werkzeuge eigens für VS Code** (2026-09-26): Was die Erweiterung braucht — `status`
+bzw. `whoami`, `list`, `read`, `changes`, zum Schreiben die Werkzeuge unten —, taugt auch für
+die KI. Ein eigenes Profil oder eine eigene Schnittstelle neben MCP entfällt; die
+Erweiterung ist ein Client wie jeder andere ([`vscode.md`](vscode.md)).
 
 ### Allgemein — schreiben (Stufe 2 und 3)
 
@@ -1126,16 +1153,9 @@ sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
 - **Warteschlange** der offenen Fragen: hinzufügen, auflisten, verwerfen
   (heute `knowledge_queue_*`).
 - **Todos:** hinzufügen, auflisten, ändern, löschen (heute `todo_*`).
-- **Tasks — zurückgestellt, entschieden am 2026-09-26: Sie bleiben vorerst als Dateien im
-  Projekt** (`k-playbook-local/tasks/`) und kommen nicht in Kephalaion. Ein Task beschreibt
-  eine Änderung am Code und wandert mit ihr durch Git: im selben Commit angelegt, ausgeführt
-  und nach `done/` verschoben, mit demselben Stand je Branch und demselben Review. Geteilt
-  wird er ohnehin über das Repository. Dazu bleiben sie in VS Code und für jedes Werkzeug,
-  das Dateipfade liest, sichtbar — eine Datenbank bräuchte dafür einen Spiegel als Dateien,
-  eine Erweiterung für VS Code oder einen Mount. Wieder aufzunehmen, wenn es Tasks ohne
-  eigenes Repository gibt oder sie über Projekte hinweg sichtbar sein sollen. Der Entwurf
-  bleibt als Richtung stehen: eigene Werkzeuge, weil eine KI ein Werkzeug, das ihre Absicht
-  beim Namen nennt, zuverlässiger benutzt als eine Folge allgemeiner Aufrufe:
+- **Tasks** — als eigene Werkzeuge, weil eine KI ein Werkzeug, das ihre Absicht beim Namen
+  nennt, zuverlässiger benutzt als eine Folge allgemeiner Aufrufe. In VS Code bleiben sie
+  über die Erweiterung sichtbar ([`vscode.md`](vscode.md)):
 
   | Werkzeug | Zweck | darunter |
   |---|---|---|
