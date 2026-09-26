@@ -1,6 +1,6 @@
 # Fortschritt
 
-Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt; Task 009 Etappen 1–5 erledigt; Task 011 Etappen 1–6 erledigt)
+Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 012 Etappen 1–3 erledigt; Task 009 Etappen 1–5 erledigt; Task 011 Etappen 1–7 erledigt)
 
 ## So wird diese Datei aktualisiert
 
@@ -84,7 +84,7 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
   `changes`. „Collection einbinden“ (0.0.2) im echten VS Code geprüft, Inhalte (0.0.3) nur
   gegen den Node mit Ersatz für `vscode` (`docs/vscode.md`, „Umsetzung“; README „VS Code“).
 
-- **Task 011 — Installation pro User und global** (2026-09-26, Etappen 1–6):
+- **Task 011 — Installation pro User und global** (2026-09-26, Etappen 1–7):
   - config-Suche `--config` > `KEPHALAION_CONFIG` > User > `/etc/kephalaion/config.yaml` > Ort
     des Users; `status` zeigt Quelle und Dienst, meldet zwei Arten (Exit 1), global ohne
     Leserecht nur Hinweis (Exit 0); `init` bricht neben der globalen config ab;
@@ -95,7 +95,11 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     `manual`), Abbruch vor dem Download, Neustart des Dienstes; `make dev-install` ebenso;
   - `serve` fragt höchstens einmal am Tag, `whoami` zeigt `update`;
   - CI-Job auf macOS (LaunchAgent mit `plutil`, `install.sh`); `docs/installation.md` mit
-    Ansible-Beispiel (`konzept.md`, „Installation und Betrieb“).
+    Ansible-Beispiel (`konzept.md`, „Installation und Betrieb“);
+  - Durchlauf: pro User hier echt (Abbruch bei `serve` von Hand, Dienst eingerichtet, Neustart
+    über `make dev-install`, `uninstall` und wieder `install`; der Dienst läuft), global im
+    Container nach der Doku, Ansible gegen einen zweiten Container (echter Download von v0.1.1
+    mit Prüfsumme, danach das lokale Binary; zweiter Lauf ohne Änderung).
 
 ## In Arbeit
 
@@ -195,6 +199,12 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
 - **macOS:** `install.sh` und der LaunchAgent (`plutil -lint`) laufen in CI (Task 011);
   `service install` mit `launchctl` und `upgrade` nie echt auf einem Mac getestet (Task 001,
   Intent-Alignment; Task 011).
+- **Task 011, global mit systemd als PID 1:** Im Container lief `serve` von Hand; die
+  System-Unit ist nur mit `systemd-analyze verify` geprüft, `enable --now`, der Handler und
+  `service status`/`status` gegen eine laufende System-Unit nur mit ersetztem `systemctl`.
+- **Task 011, Neustart nach echtem `upgrade`:** nur über Tests mit ersetzter Schnittstelle;
+  echt geprüft ist der Neustart über `make dev-install` (kein Release mit den neuen
+  Kommandos).
 - **`upgrade`-Abbruch:** nur per httptest belegt, nicht durch einen echten Abbruch.
 - **PostgreSQL:** Tauglichkeit der Hub-Abfragen nur per Check auf verbotene Konstrukte;
   Eindeutigkeit bei gleichzeitigen Schreibern liefert dort rohe Treiberfehler (Task 003).
