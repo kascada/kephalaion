@@ -30,7 +30,13 @@ func TestServeUpdateInWhoami(t *testing.T) {
 		fmt.Fprint(w, `{"tag_name":"v0.2.0","assets":[]}`)
 	}))
 	t.Cleanup(gh.Close)
-	binDir := filepath.Join(dir, "usr-local-bin")
+	// Aufgelöst wie in upgrade: Auf macOS liegt das temporäre Verzeichnis
+	// hinter einem Link.
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(resolved, "usr-local-bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

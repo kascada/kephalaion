@@ -92,9 +92,15 @@ func (f *fakeGitHub) writeRelease(w http.ResponseWriter, tag string) {
 }
 
 // installed legt ein „installiertes“ Binary in einem temporären Verzeichnis an.
+// Der Pfad ist aufgelöst, wie upgrade ihn sieht: Auf macOS liegt das
+// temporäre Verzeichnis hinter einem Link (/var → /private/var).
 func installed(t *testing.T) string {
 	t.Helper()
-	exe := filepath.Join(t.TempDir(), "kephalaion")
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "kephalaion")
 	if err := os.WriteFile(exe, []byte("alt"), 0o755); err != nil {
 		t.Fatal(err)
 	}

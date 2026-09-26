@@ -37,7 +37,13 @@ func fakeReleases(t *testing.T, installed string) (exe string, srv *httptest.Ser
 	srv = httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	exe = filepath.Join(t.TempDir(), "kephalaion")
+	// Aufgelöst wie in upgrade: Auf macOS liegt das temporäre Verzeichnis
+	// hinter einem Link.
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe = filepath.Join(tmp, "kephalaion")
 	if err := os.WriteFile(exe, []byte("alt"), 0o755); err != nil {
 		t.Fatal(err)
 	}

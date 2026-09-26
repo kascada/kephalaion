@@ -2,7 +2,8 @@ name: CI
 
 # Jeder Push auf main und dev, jeder Pull Request und von Hand: Format, vet,
 # Tests und der Cross-Build aller vier Plattformen — über dieselben
-# Make-Targets wie lokal. Der Lauf ändert nichts und veröffentlicht nichts.
+# Make-Targets wie lokal —, dazu dieselben Prüfungen auf macOS samt
+# LaunchAgent und install.sh. Der Lauf ändert nichts und veröffentlicht nichts.
 
 on:
   # Push nur für main und dev: andere Branches kommen als Pull Request. Mit
@@ -65,3 +66,62 @@ jobs:
           command -v shellcheck >/dev/null 2>&1 || { sudo apt-get update -q && sudo apt-get install -y -q shellcheck; }
           shellcheck --version | head -n 2
           shellcheck install.sh
+
+  # macOS nur pro User (LaunchAgent) und hier selten von Hand zu testen: Tests,
+  # das Binary dieser Plattform, der LaunchAgent, den es erzeugt, und
+  # install.sh gegen das neueste Release. Kein Aufruf der GitHub-API: Die
+  # Runner teilen sich Adressen und damit das Rate-Limit ohne Anmeldung.
+  macos:
+    runs-on: macos-latest
+    env:
+      GOTOOLCHAIN: local
+
+    steps:
+      - name: Auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Toolchain-Version lesen
+        id: toolchain
+        run: |
+          set -eu
+          version="$(awk '$1 == "toolchain" { sub(/^go/, "", $2); print $2 }' go.mod)"
+          test -n "$version" || { echo "In go.mod fehlt die toolchain-Zeile." >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Go einrichten
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache-dependency-path: go.mod
+
+      - name: Toolchain prüfen
+        run: make check-toolchain
+
+      - name: make check
+        run: make check
+
+      - name: make dist-host
+        run: make dist-host
+
+      - name: LaunchAgent ausgeben und prüfen
+        run: |
+          set -eu
+          bin="dist/kephalaion-$(go env GOOS)-$(go env GOARCH)"
+          "$bin" version
+          plist="$RUNNER_TEMP/io.github.kephalaion.plist"
+          "$bin" service unit > "$plist"
+          cat "$plist"
+          plutil -lint "$plist"
+
+      # Den Tag des neuesten Releases liefert die Weiterleitung von
+      # releases/latest auf der Webseite, nicht die API.
+      - name: install.sh mit dem neuesten Release
+        run: |
+          set -eu
+          url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$GITHUB_REPOSITORY/releases/latest")"
+          version="${url##*/}"
+          printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
+            { echo "Kein Tag aus $url gelesen." >&2; exit 1; }
+          home="$(mktemp -d)"
+          HOME="$home" KEPHALAION_VERSION="$version" sh install.sh
+          "$home/.local/bin/kephalaion" version
