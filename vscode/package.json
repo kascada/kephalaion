@@ -1,19 +1,31 @@
 {
   "name": "kephalaion",
   "displayName": "Kephalaion",
-  "description": "Collections von Kephalaion als Ordner in VS Code (Versuch: Dummy, nur lesen)",
-  "version": "0.0.1",
+  "description": "Collections von Kephalaion als Ordner in VS Code",
+  "version": "0.0.2",
   "publisher": "kascada",
   "license": "SEE LICENSE IN ../LICENSE",
   "repository": "https://github.com/kephalaion/kephalaion",
   "engines": { "vscode": "^1.90.0" },
   "extensionKind": ["workspace"],
   "main": "./extension.js",
-  "activationEvents": ["onFileSystem:keph"],
+  "activationEvents": ["onStartupFinished", "onFileSystem:keph"],
   "contributes": {
     "commands": [
-      { "command": "kephalaion.openDummyFile", "title": "Kephalaion: Dummy-Datei öffnen" },
-      { "command": "kephalaion.addDummyFolder", "title": "Kephalaion: Dummy-Ordner zum Workspace hinzufügen" }
-    ]
+      { "command": "kephalaion.menu", "title": "Kephalaion: Menü" },
+      { "command": "kephalaion.refresh", "title": "Kephalaion: Neu verbinden" },
+      { "command": "kephalaion.addCollection", "title": "Kephalaion: Collection einbinden" },
+      { "command": "kephalaion.showLog", "title": "Kephalaion: Log anzeigen" }
+    ],
+    "configuration": {
+      "title": "Kephalaion",
+      "properties": {
+        "kephalaion.nodeUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Adresse des Nodes, z. B. http://127.0.0.1:7433. Leer: aus listen im Abschnitt node der config."
+        }
+      }
+    }
   }
 }
