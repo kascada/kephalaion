@@ -162,6 +162,11 @@ Regeln dazu:
 
 - Vor jedem Commit mit Code: `make check` (gofmt, `go vet`, `go test`, `sh -n install.sh`).
 - `shellcheck` über `install.sh` läuft nur in CI; lokal ist es nicht installiert.
+- Von Hand, weder in `make check` noch in CI: `make race` (Race-Detector, braucht cgo und
+  einen C-Compiler), `make cover` (Abdeckung je Paket einschließlich der Tests anderer Pakete,
+  Bericht nach `coverage/`) und `make mutate` (Mutationstests mit gremlins, per `go run` in
+  fester Fassung, in einer Kopie von `go.mod`, `go.sum`, `cmd` und `internal`;
+  `MUTATE=./internal/<paket>` für ein Paket).
 - Tests gegen GitHub laufen über `httptest`; die Basis-URL der API ist dafür im
   `upgrade.Upgrader` überschreibbar. Sie ist keine Nutzeroption und wird nicht dokumentiert.
 

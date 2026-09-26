@@ -5,13 +5,21 @@
 
 BINARY := kephalaion
 PKG := ./cmd/kephalaion
-BUILDINFO := github.com/kephalaion/kephalaion/internal/buildinfo
+MODULE := github.com/kephalaion/kephalaion
+BUILDINFO := $(MODULE)/internal/buildinfo
 DIST_DIR := dist
+COVER_DIR := coverage
 SUMS_FILE := SHA256SUMS
 RELEASE_TARGETS := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64
 # Verzeichnisse mit Go-Code des Projekts. Nicht `.`: darunter liegt die
 # k-playbook-Installation mit eigenem Go-Code, der hier nicht geprüft wird.
 GO_DIRS := cmd internal
+
+# Werkzeug für make mutate, per go run in genau dieser Fassung: Es landet weder
+# in go.mod noch in ~/go/bin.
+GREMLINS := github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+# Was make mutate untersucht; ein Paket etwa mit MUTATE=./internal/ident.
+MUTATE ?= .
 
 # Die Version ist der Git-Tag; ohne Angabe entsteht ein dev build. Der
 # Release-Workflow ruft `make dist VERSION=<tag>`.
@@ -27,7 +35,7 @@ HOST_TARGET = $(shell go env GOOS)-$(shell go env GOARCH)
 # -buildvcs=false, weil der Commit ausdrücklich per -ldflags kommt.
 LDFLAGS = -s -w -X $(BUILDINFO).Version=$(VERSION) -X $(BUILDINFO).Commit=$(COMMIT)
 
-.PHONY: help build test check check-toolchain dist dist-host dev-install clean
+.PHONY: help build test check check-toolchain race cover mutate dist dist-host dev-install clean
 
 help: ## Zeigt diese Hilfe an
 	@echo "Targets:"
@@ -36,7 +44,8 @@ help: ## Zeigt diese Hilfe an
 	  awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Parameter:"
-	@echo "  VERSION=v0.1.0   Version im Binary, sonst dev"
+	@echo "  VERSION=v0.1.0            Version im Binary, sonst dev"
+	@echo "  MUTATE=./internal/ident   make mutate nur für dieses Paket"
 	@echo ""
 
 define build_binaries
@@ -102,6 +111,59 @@ check-toolchain: ## Prüft, ob die Toolchain aus go.mod läuft
 	  }; \
 	  echo "Toolchain: $$have"
 
+# Der Race-Detector braucht cgo und damit einen C-Compiler; das Binary selbst
+# baut weiter ohne.
+race: ## Tests mit dem Race-Detector
+	CGO_ENABLED=1 go test -race ./...
+
+# -coverpkg zählt auch, was die Tests anderer Pakete abdecken: loopback etwa
+# prüfen nur die Tests von serve und mcpnode. go test meldet dann je Testpaket
+# dessen Anteil am ganzen Modul, deshalb bleibt seine Ausgabe im Log, und die
+# Werte je Paket rechnet awk aus dem Profil. Ein Block steht darin einmal je
+# Testpaket; abgedeckt ist er, wenn eines ihn ausgeführt hat.
+cover: ## Abdeckung je Paket und gesamt, HTML-Bericht nach ./coverage/
+	@set -eu; \
+	  mkdir -p "$(COVER_DIR)"; \
+	  profile="$(COVER_DIR)/cover.out"; \
+	  if ! go test -coverpkg=./... -coverprofile="$$profile" ./... > "$(COVER_DIR)/test.log" 2>&1; then \
+	    cat "$(COVER_DIR)/test.log" >&2; \
+	    exit 1; \
+	  fi; \
+	  awk -v mod="$(MODULE)/" ' \
+	    NR > 1 { \
+	      pkg = $$1; sub(/\/[^\/]*$$/, "", pkg); \
+	      if (index(pkg, mod) == 1) pkg = substr(pkg, length(mod) + 1); \
+	      stmts[$$1] = $$2; where[$$1] = pkg; \
+	      if ($$3 > 0) hit[$$1] = 1; \
+	    } \
+	    END { \
+	      for (b in stmts) { all[where[b]] += stmts[b]; if (b in hit) cov[where[b]] += stmts[b] } \
+	      for (p in all) printf "  %-28s %5.1f %%\n", p, 100 * cov[p] / all[p]; \
+	    }' "$$profile" | sort; \
+	  go tool cover -func="$$profile" | awk 'END { sub(/%/, "", $$NF); printf "  %-28s %5.1f %%\n", "gesamt", $$NF }'; \
+	  go tool cover -html="$$profile" -o "$(COVER_DIR)/cover.html"; \
+	  echo "Bericht: $(COVER_DIR)/cover.html"
+
+# gremlins verändert den Code an vielen Stellen einzeln und führt je Mutant die
+# Tests seines Pakets aus; LIVED heißt, kein Test hat die Änderung bemerkt.
+# Es kopiert je Worker das Verzeichnis, in dem es läuft; hier scheiterte das an
+# der schreibgeschützten k-playbook-Installation. Es läuft deshalb in einer
+# Kopie von go.mod, go.sum und GO_DIRS, samt seinen Arbeitskopien unter TMPDIR
+# daneben; die Kopie hält auch den Stand beim Start fest. Die Zeitgrenze je
+# Mutant ist die Dauer des ersten Testlaufs mal dem Faktor; mit dem Vorgabewert
+# 3 laufen schnelle Pakete schon beim Kompilieren hinein. Gezeigt werden nur
+# LIVED und TIMED OUT, danach die Summen.
+mutate: ## Mutationstests mit gremlins (dauert)
+	@set -eu; \
+	  work="$$(mktemp -d)"; \
+	  trap 'rm -rf "$$work"' EXIT; \
+	  trap 'exit 130' INT TERM; \
+	  mkdir "$$work/src" "$$work/tmp"; \
+	  cp -R go.mod go.sum $(GO_DIRS) "$$work/src/"; \
+	  cd "$$work/src"; \
+	  TMPDIR="$$work/tmp" go run $(GREMLINS) unleash \
+	    --timeout-coefficient 30 --output-statuses lt "$(MUTATE)"
+
 dev-install: dist-host ## Baut diese Plattform und ersetzt ~/.local/bin/kephalaion
 	@set -eu; \
 	  binary="$(DIST_DIR)/$(BINARY)-$(HOST_TARGET)"; \
@@ -111,5 +173,5 @@ dev-install: dist-host ## Baut diese Plattform und ersetzt ~/.local/bin/kephalai
 	  mv -f "$$target.tmp" "$$target"; \
 	  printf 'Installiert: %s\n' "$$target"
 
-clean: ## Entfernt ./dist/
-	rm -rf "$(DIST_DIR)"
+clean: ## Entfernt ./dist/ und ./coverage/
+	rm -rf "$(DIST_DIR)" "$(COVER_DIR)"

@@ -8,5 +8,8 @@
 # Build-Ausgabe von make dist
 /dist/
 
+# Abdeckung aus make cover
+/coverage/
+
 # Protokolle und Seiten-Snapshots des Playwright-MCP-Servers
 /.playwright-mcp/
