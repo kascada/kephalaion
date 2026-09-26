@@ -378,3 +378,176 @@ Nach der Ergänzung, dass `status` beide configs erkennt und als Fehler meldet, 
 - K5: Umfang bewusst so geschnitten.
 - K9: Besitz von `/etc/kephalaion/` wird in der Umsetzung festgelegt.
 - K10: Voraussetzung ist genannt; die Branch-Regel folgt aus Task 010.
+
+## Ausführung
+
+**Status:** Erfolgreich ausgeführt  
+**Datum:** 2026-09-26  
+**Zusammenfassung:** Kephalaion findet die config in beiden Arten (`config.Locate`: Flag > Umgebung > User > global > Ort des Users), `status` meldet Quelle, Dienstzeile und zwei Arten (Exit 1). Neu ist `kephalaion service install|uninstall|status|unit [--system]` (`internal/service`: Benutzer-Unit, System-Unit, LaunchAgent `io.github.kephalaion`, `systemctl`/`launchctl` hinter einem Runner). `upgrade --check [--json]` meldet Weg und Schreibrecht (`upgrade.Report`), `upgrade` bricht ohne Schreibrecht vor dem Download ab und startet den Dienst pro User neu; `serve` fragt als Node höchstens einmal am Tag (`upgrade.Watcher`) und gibt das Ergebnis in `whoami` (`update`) mit. Dazu `docs/installation.md` (neu, mit Ansible-Beispiel), README, Begriffe, Konzept, Projektregeln, Fortschritt, und ein macOS-Job in CI, der auf Wunsch des Nutzers mit `if: false` abgeschaltet ist.
+
+**Entscheidungen des Nutzers beim Lauf (2026-09-26):**
+- Durchlauf pro User echt, der Dienst bleibt eingerichtet: Das `serve` von Hand wurde beendet. Der Benutzerdienst läuft jetzt mit dem zuletzt gebauten Binary, Linger ist aus. Kein echtes `upgrade` gegen GitHub, der Neustart danach ist nur mit ersetzter Schnittstelle getestet.
+- `community.docker` installiert. Das Ansible-Beispiel lief echt gegen einen Wegwerf-Container: v0.1.1 mit Prüfsumme aus `SHA256SUMS`, danach das lokale Binary, nur im Durchlauf. Dienst und Handler waren mit `kephalaion_manage_service=false` aus, weil der Container kein systemd hat.
+- `/etc/kephalaion` gehört `kephalaion:kephalaion` mit `0755`, die config ist `0644`; Label `io.github.kephalaion`.
+- CI-Fehler durch `TestBackgroundSync` werden ignoriert, Task 013 behebt sie. Der macOS-Job ist abgeschaltet (`if: false`), das Wiedereinschalten steht in `docs/fortschritt.md`.
+
+**Nachweise:** `make check` lokal grün. CI auf `76b70e0` grün auf Linux und macOS (https://github.com/kephalaion/kephalaion/actions/runs/36260980326). Der letzte Lauf auf HEAD (36261362305) ist rot, einzig durch `TestBackgroundSync` (Befund `k-playbook-local/material/befunde/ci-macos.md`). Global im Container (Ubuntu 24.04, ohne systemd als PID 1) liefen die Schritte nach `docs/installation.md`: Rechte stimmen, `systemd-analyze verify` der System-Unit ist ok. Ein zweiter User erreicht `whoami` und `read` über Loopback; `init` und `service install` brechen bei ihm ab. Die Container sind entfernt.
+
+**Offen:**
+- Nicht getestet: globale Installation mit systemd als PID 1 (echtes `enable --now`, Handler), `service install` und `upgrade` auf einem echten Mac.
+- Zu entscheiden: `node whoami` fragt GitHub bei jedem Aufruf direkt (siehe Code-Review, Punkt 1).
+- Die VS-Code-Erweiterung findet einen globalen Node nicht. Das ist nicht Teil von 011 und steht in `docs/fortschritt.md`.
+
+**Geänderte Dateien** (`git diff 88e1d00 HEAD`, ohne die fremden Commits `46e9a9c`/`53fc6c3` zu `vscode/` und `docs/vscode.md` und ohne Task 013; README und `docs/fortschritt.md` enthalten noch einige VS-Code-Hunks aus diesen Commits):
+
+```
+ .github/workflows/ci.yml                           |  71 +++-
+ Makefile                                           |  21 +-
+ README.md                                          |  94 ++++-
+ cmd/kephalaion/configcmd.go                        |   5 +-
+ cmd/kephalaion/installation_test.go                | 150 +++++++
+ cmd/kephalaion/main.go                             |  56 +--
+ cmd/kephalaion/main_test.go                        |  47 +++
+ cmd/kephalaion/mcp_test.go                         |  13 +
+ cmd/kephalaion/nodewhoami_test.go                  |  11 +-
+ cmd/kephalaion/nodewhoamicmd.go                    |  41 +-
+ cmd/kephalaion/roles.go                            | 124 +++++-
+ cmd/kephalaion/roles_test.go                       |   4 +
+ cmd/kephalaion/serve.go                            |  46 +-
+ cmd/kephalaion/serve_test.go                       |  13 +-
+ cmd/kephalaion/servicecmd.go                       | 388 +++++++++++++++++
+ cmd/kephalaion/servicecmd_test.go                  | 275 ++++++++++++
+ cmd/kephalaion/updatecheck_test.go                 |  94 +++++
+ cmd/kephalaion/upgradecmd.go                       | 143 +++++++
+ cmd/kephalaion/upgradecmd_test.go                  | 159 +++++++
+ docs/begriffe.md                                   |  68 ++-
+ docs/fortschritt.md                                |  57 ++-
+ docs/installation.md                               | 470 +++++++++++++++++++++
+ docs/konzept.md                                    | 121 +++++-
+ install.sh                                         |   9 +
+ internal/config/config.go                          | 150 ++++++-
+ internal/config/config_test.go                     | 133 ++++++
+ internal/node/mcpnode/docenv_test.go               |   3 +-
+ internal/node/mcpnode/mcpnode.go                   |  16 +-
+ internal/node/mcpnode/mcpnode_test.go              |  18 +-
+ internal/node/mcpnode/whoami.go                    |  20 +-
+ internal/service/manager.go                        | 422 ++++++++++++++++++
+ internal/service/service_test.go                   | 308 ++++++++++++++
+ internal/service/testdata/launchagent.plist        |  28 ++
+ internal/service/testdata/system.service           |  22 +
+ internal/service/testdata/user-config.service      |  12 +
+ internal/service/testdata/user.service             |  12 +
+ internal/service/units.go                          | 166 ++++++++
+ internal/upgrade/report.go                         | 185 ++++++++
+ internal/upgrade/report_test.go                    | 178 ++++++++
+ internal/upgrade/upgrade.go                        | 167 +++++---
+ internal/upgrade/upgrade_test.go                   |  75 +++-
+ internal/upgrade/watch.go                          |  80 ++++
+ internal/upgrade/watch_test.go                     | 169 ++++++++
+ k-playbook-local/k-playbook.md                     |  34 +-
+ k-playbook-local/material/befunde/ci-macos.md      |  32 ++
+ .../tasks/011-installation-pro-user-und-global.md  |  12 +
+ 46 files changed, 4468 insertions(+), 254 deletions(-)
+```
+
+**Code-Änderungen** (Auszug; rund 4500 Zeilen, davon etwa die Hälfte Tests und Doku):
+
+- `internal/config/config.go` — die Suche nach der config:
+
+```go
+func Locate(flagValue string) (Location, error) {
+	var loc Location
+	userPath, userErr := UserPath()
+	if userErr == nil {
+		loc.UserPath = userPath
+		loc.UserExists = userFileExists(userPath)
+	}
+	loc.SystemExists = fileExists(SystemPath)
+	switch {
+	case flagValue != "":
+		...
+		loc.Path, loc.Source = p, FromFlag
+	case os.Getenv(EnvConfig) != "":
+		...
+		loc.Path, loc.Source = p, FromEnv
+	case loc.UserExists:
+		loc.Path, loc.Source = userPath, FromUser
+	case loc.SystemExists:
+		loc.Path, loc.Source = filepath.Clean(SystemPath), FromSystem
+	case userErr != nil:
+		return Location{}, userErr
+	default:
+		loc.Path, loc.Source = userPath, FromUser
+	}
+	return loc, nil
+}
+```
+
+- `internal/service/units.go` — die System-Unit (golden in `testdata/system.service`):
+
+```go
+		"User=" + config.SystemUser + "\n" +
+		"Group=" + config.SystemUser + "\n" +
+		"Environment=" + config.EnvConfig + "=" + config.SystemConfig + "\n" +
+		"ExecStart=" + config.SystemBinary + " serve\n" +
+		"Restart=on-failure\n" +
+		fmt.Sprintf("RestartSec=%ds\n", RestartSec) +
+		"StateDirectory=" + strings.TrimPrefix(config.SystemDataDir, "/var/lib/") + "\n" +
+		"StateDirectoryMode=0700\n" +
+		"NoNewPrivileges=yes\n" +
+		"ProtectSystem=strict\n" +
+		"ProtectHome=yes\n" +
+		"PrivateTmp=yes\n" +
+```
+
+- `internal/upgrade/watch.go` — Prüfung im Hintergrund, Antwort nur im Speicher:
+
+```go
+func (w *Watcher) Run(ctx context.Context) {
+	for {
+		cctx, cancel := context.WithTimeout(ctx, w.Timeout)
+		r := w.check(cctx)
+		cancel()
+		if ctx.Err() != nil {
+			return
+		}
+		w.mu.Lock()
+		prev := w.last
+		w.last = r
+		w.mu.Unlock()
+		...
+		wait := w.Interval
+		if r.State != StateOK {
+			wait = w.Retry
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.After(wait):
+		}
+	}
+}
+```
+
+- Übrige Änderungen in Kürze:
+  - `upgrade.Report` mit `way()`: `self`/`explicit`/`admin`/`manual`, Probedatei nach `TempPattern`. `Upgrader.Run` liefert jetzt `Result` (`Replaced`), `upgradecmd.go` startet danach den Dienst pro User neu. `runUpgrade` ist aus `main.go` nach `upgradecmd.go` gezogen.
+  - `servicecmd.go`: Abbruch neben globaler config (vor systemd), ohne systemd, ohne Rolle, bei laufendem `serve` von Hand. Dazu die Hinweise auf Linger und WSL und `serviceLine` für `status`.
+  - `status`/`init` in `roles.go` nutzen `Locate`. Bei zwei Arten meldet `status` Exit 1; bei globaler config ohne Leserecht auf die Datenbank steht ein Hinweis statt eines Fehlers da.
+  - `mcpnode.Whoami` bekommt `update upgrade.Report`, `NewHandler` eine Funktion, die die zwischengespeicherte Antwort liefert.
+  - `Makefile dev-install` startet den Dienst pro User neu. `install.sh` nennt die nächsten Schritte. `ci.yml` hat den Job `macos` (abgeschaltet).
+
+**Code-Review** (engineering:code-review, nur der Diff):
+
+Zusammenfassung: Die Änderung ist sauber geschnitten und gut dokumentiert. Die Aufrufe von `systemctl`/`launchctl` und GitHub stecken hinter ersetzbaren Schnittstellen, Units und plist sind golden getestet. Kritische Befunde gibt es keine.
+
+| # | Datei | Stelle | Befund | Art |
+|---|---|---|---|---|
+| 1 | `cmd/kephalaion/nodewhoamicmd.go` | `cliUpdate` in `runNodeWhoami` | `node whoami` fragt GitHub bei **jedem** Aufruf, auch für die Textübersicht und noch vor der Prüfung des Account-Namens. Das kostet vom geteilten Limit (60/h je Adresse), und ohne Netz wartet ein Aufruf bis zu 10 s. Vorschlag: frühestens nach der Prüfung des Namens fragen. Oder die CLI zeigt `Local()` (Zustand `unchecked`), dann bleibt `--json` in der Struktur gleich, nicht im Inhalt. Entscheidung beim Nutzer. | Performance/Design |
+| 2 | `cmd/kephalaion/upgradecmd.go` | `restartAfterUpgrade` / `upgradeUsage` | Scheitert der Neustart nach dem Ersetzen, endet `upgrade` mit Exit 1. Die Hilfe sagt aber zu Exit 1: „das Binary bleibt unverändert“, und das stimmt hier nicht. Die Meldung auf stderr ist richtig, nur der dokumentierte Exit-Code widerspricht. Vorschlag: eigener Exit-Code oder den Text der Hilfe ergänzen, auch in `docs/installation.md`. | Korrektheit (Doku) |
+| 3 | `internal/upgrade/watch.go` / `serve.go` | `Watcher.Run` | Die erste Prüfung läuft bei jedem Start von `serve`. „Höchstens einmal am Tag“ gilt also je Prozess. Häufige Neustarts (`make dev-install`, eine Schleife durch `Restart=on-failure`) fragen jedes Mal. Ein Crash direkt beim Start fragt nicht, weil der Watcher erst nach dem Start der Listener läuft. Ein geringes Risiko, das so gewollt ist (nur im Speicher). | Performance |
+| 4 | `internal/config/config.go` | `Location.System()` | Die globale config wird nur am bereinigten Pfad erkannt. `--config` über einen Symlink oder einen anderen Pfad zur selben Datei gilt nicht als global, dann stimmen Weg des Upgrades und Dienstzeile nicht. Ein Randfall. | Korrektheit |
+| 5 | `Makefile` | `dev-install` | Unit-Name und Label stehen ein zweites Mal neben `internal/service`, ein Kommentar verweist darauf. Bei einer Umbenennung müssen beide Stellen nachgezogen werden. | Wartbarkeit |
+
+Positiv: `service install` bricht bei laufendem `serve` ab, bevor eine Unit geschrieben wird. `execLine` maskiert `%` und `$` für systemd, `checkArgs` weist Steuerzeichen ab. Ohne Schreibrecht bricht `upgrade` vor dem Download ab. `userFileExists` behandelt eine fremde config des Users unter `sudo -u` richtig. Das `Watcher`-Ergebnis ist per Mutex geschützt, und `serve` beendet die Goroutine mit.
+
+Urteil: **Approve** mit Hinweisen. Die Punkte 1 und 2 sind vor dem nächsten Release zu klären.
