@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "nextId": 10,
+  "nextId": 11,
   "migratedOn": "2026-09-25",
   "todos": [
     {
@@ -47,6 +47,12 @@
       "id": 9,
       "text": "Tests ergänzen: große Revision (cut == 0) während andere Collection since \u003e last hat, am echten Hub; Import mit a und a/b neu im selben Aufruf (Review Task 004)",
       "created": "2026-09-26"
+    },
+    {
+      "id": 10,
+      "text": "Ereignisstrom Hub → Node (SSE oder Long-Polling): Der Hub meldet Änderungen, statt dass der Node alle 30 s fragt; der Abstand des Abgleichs im Hintergrund wird dann nur Rückfallebene (konzept.md, „Abgleich“, Stufe 1)",
+      "created": "2026-09-26",
+      "origin": "Gespräch 2026-09-26, Abgleich im Hintergrund"
     }
   ]
 }

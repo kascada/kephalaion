@@ -418,6 +418,16 @@ nach — genau der Vorgang, den der lokale Index heute beim Dateiwechsel schon m
 Angestoßen wird das beim Start und danach regelmäßig, sowie unmittelbar nach einem eigenen
 Schreibvorgang.
 
+**Im Hintergrund — entschieden am 2026-09-26.** `serve` gleicht jeden Hub-Eintrag beim Start
+ab und danach in festem Abstand, Standard 30 s, änderbar in den `settings` des Nodes. Der
+Abstand bestimmt, wie schnell eine Änderung von woanders — anderer Rechner, CLI am Hub —
+lokal sichtbar wird, in `read`, `list`, `changes` und damit im Explorer von VS Code. Eigene
+Schreibvorgänge warten nicht darauf. Eine Anfrage ohne Änderungen ist klein. Scheitert ein
+Abgleich, steht das im Log, und der nächste folgt nach dem Abstand. Letzter Erfolg und
+letzter Fehler je Hub liegen in der Datenbank des Nodes, damit `whoami` und `status` dasselbe
+zeigen. Später meldet der Hub Änderungen über einen Ereignisstrom (SSE oder Long-Polling);
+der Abstand bleibt dann als Rückfallebene.
+
 **Entschieden am 2026-09-25: Abgleich über die Revision, nicht über die Uhrzeit.** Der Hub
 ist der einzige Schreiber und vergibt je Schreibvorgang innerhalb der Transaktion eine
 fortlaufende Nummer. Ein Zeitstempel taugt nicht als Revision: Uhren springen zurück (NTP), und
@@ -1132,13 +1142,19 @@ im Hub. Wo die Grenze liegt und ob etwas allgemein taugt, wird je Werkzeug entsc
 
 ### Allgemein — lesen
 
+**Adresse — entschieden am 2026-09-26:** Werkzeuge nennen eine Collection als
+`<hub>:<collection>` (`team:wissen`), wie `whoami` sie ausgibt. Der Hub-Teil darf fehlen,
+wenn der Client nur bei einem Hub angemeldet ist. Innerhalb der Collection steht `path` bzw.
+`name`. Die URI der Erweiterung für VS Code (`keph://team/wissen/…`) bildet sich eins zu eins
+darauf ab.
+
 | Werkzeug | Zweck | Anmerkungen |
 |---|---|---|
 | `search` | Volltextsuche | Collections wählbar; getrennte Trefferlisten je Collection, Rang ab 1, kein Punktwert |
 | `read` | ein Dokument lesen | per Name oder `id`; wahlweise ein Abschnitt; mit `content: false` nur die Angaben dazu, siehe unten |
 | `list` | Inhalt eines Verzeichnisses | siehe unten |
 | `changes` | was sich seit einer Revision oder einem Zeitpunkt geändert hat | siehe unten; neu am 2026-09-26 |
-| `status` / `whoami` | eigener Account, Hubs, lesbare Collections, Stand des Abgleichs | `whoami` gebaut (Task 005): je Hub mit Header-Paar angemeldet ja/nein, bei ja Account, Collections und Rechte; nie Token oder Hash |
+| `whoami` | Version, Hubs, Anmeldung, eigener Account, lesbare Collections, Stand des Abgleichs | siehe unten; kein eigenes `status`. Gebaut (Task 005): je Hub mit Header-Paar angemeldet ja/nein, bei ja Account, Collections und Rechte |
 
 **`list` — neu aufgenommen am 2026-09-25**, um etwa das Neueste zu finden:
 
@@ -1161,19 +1177,52 @@ schreibbar ja/nein. Billig, weil ohne Inhalt; die KI fragt so „gibt es das, wi
 es“, die Erweiterung für VS Code beantwortet damit `stat`, das VS Code sehr oft aufruft.
 
 **`changes` — neu am 2026-09-26:** was sich in den lesbaren Collections eines Hubs geändert
-hat, seit einer Revision oder seit einem Zeitpunkt.
+hat, seit der letzten Abfrage oder seit einem Zeitpunkt.
 
-- `since_revision` oder `since` (Zeitpunkt), wahlweise `collection` und `path` als Präfix;
-- Antwort: je Dokument Name, `id`, Art der Änderung (angelegt, geändert, umbenannt mit altem
-  Namen, gelöscht), Revision — dazu die aktuelle Revision der Replica, mit der der nächste
-  Aufruf weiterfragt; mit `limit` und Cursor;
+- `cursor` aus der letzten Antwort oder `since` (Zeitpunkt); ohne beides nur der Cursor für
+  „ab jetzt“. Wahlweise `collection` und `path` als Präfix, `limit`;
+- Antwort: je Dokument, das sich seitdem geändert hat, der aktuelle Stand — Name, `id`,
+  Revision, gelöscht ja/nein, geändert (wann, von wem); Löschmarken zählen mit. Dazu der
+  Cursor, mit dem der nächste Aufruf weiterfragt. Ein Dokument, das sich mehrmals geändert
+  hat, erscheint einmal. Der Cursor trägt den Stand je Collection, weil Collections einzeln
+  abgleichen und eine nachhinkende sonst übersprungen würde; ist die Replica neu angelegt
+  worden, meldet `changes` das, und der Aufrufer liest neu mit `list`;
+- **ohne alten Namen (2026-09-26):** Ein Umbenennen erkennt der Aufrufer an der `id`, die er
+  aus `list` oder `read` kennt; einen Namen, den er nie gesehen hat, muss er auch nicht
+  entfernen. So braucht die Replica kein Protokoll der Änderungen. Fehlt der alte Name
+  später doch, lässt er sich nachrüsten;
 - beantwortet aus der Replica, ohne Netz. Die KI fragt nach Zeit („was ist neu seit
   gestern“), die Erweiterung für VS Code nach Revision, in kurzen Abständen, und löst damit
-  `onDidChangeFile` aus. Benachrichtigungen von MCP (`resources/subscribe`) brauchten eine
-  Sitzung, die der Node bewusst nicht führt (siehe „Kommunikation“).
+  `onDidChangeFile` aus. Lückenlos ist nur das Weiterfragen mit dem Stand der letzten
+  Antwort; ein Zeitpunkt ist der des Hubs beim Schreiben, nicht der des Abgleichs.
+  Benachrichtigungen von MCP (`resources/subscribe`) brauchten eine Sitzung, die der Node
+  bewusst nicht führt (siehe „Kommunikation“).
 
-**Keine Werkzeuge eigens für VS Code** (2026-09-26): Was die Erweiterung braucht — `status`
-bzw. `whoami`, `list`, `read`, `changes`, zum Schreiben die Werkzeuge unten —, taugt auch für
+**`whoami` — festgelegt am 2026-09-26.** Ein Werkzeug für „wer bin ich“ und „wie steht der
+Node“; ein eigenes `status` brächte kaum mehr. Die Antwort:
+
+| Feld | Inhalt | auch ohne Anmeldung |
+|---|---|---|
+| `version` | Version des Nodes; die Erweiterung für VS Code vergleicht sie mit ihrer | ja |
+| je Hub: `hub` | Alias — **alle** Hub-Einträge des Nodes, nicht nur die mit Header-Paar | ja |
+| `login` | `ok`, `invalid` (geschickt, aber ungültig) oder `missing` (nichts geschickt) | ja |
+| `node` | Name dieses Nodes am Hub | ja |
+| `sync` | letzter erfolgreicher Abgleich (Zeit), Revision der Replica, letzter Fehler mit Zeit — leer, wenn der letzte Versuch gelang | ja |
+| `account`, `user` | Account und User | nein |
+| `collections` | Collection, Adresse (`<hub>:<collection>`), Rechte | nein |
+
+Nie in der Antwort: Token, Hash, Adresse und Transport des Hubs, `hub_id`. Dass alle Hubs
+erscheinen, ist unbedenklich: Der Node lauscht nur auf Loopback, die Prüfung von Host und
+Origin hält Browser fern. `invalid` unterscheidet weiterhin nicht zwischen unbekanntem
+Account, falschem Token und gesperrt.
+
+**Dasselbe auf der Kommandozeile:** `kephalaion node whoami` listet die Accounts, die der
+Node aus seinen Replicas kennt; `kephalaion node whoami <account>` zeigt, was `whoami` diesem
+Account antworten würde. Ohne Token — wer die CLI aufruft, kann die Datenbanken des Nodes
+ohnehin lesen. Ob ein Token gilt, prüft weiterhin `node account check`.
+
+**Keine Werkzeuge eigens für VS Code** (2026-09-26): Was die Erweiterung braucht —
+`whoami`, `list`, `read`, `changes`, zum Schreiben die Werkzeuge unten —, taugt auch für
 die KI. Ein eigenes Profil oder eine eigene Schnittstelle neben MCP entfällt; die
 Erweiterung ist ein Client wie jeder andere ([`vscode.md`](vscode.md)).
 

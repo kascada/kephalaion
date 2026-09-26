@@ -41,7 +41,7 @@ vscode.workspace.registerFileSystemProvider('keph', provider, {
 `keph://team/entscheidungen/2026/009-transport.md`. Der Alias ist der Hub-Eintrag des Nodes.
 
 ```
-keph://<hub-alias>/                  ← lesbare Collections (status bzw. list auf die Wurzel)
+keph://<hub-alias>/                  ← lesbare Collections (whoami bzw. list auf die Wurzel)
 keph://<hub-alias>/<collection>/     ← list
 keph://<hub-alias>/<collection>/…    ← list / read
 ```
@@ -69,7 +69,7 @@ Welche Collections es gibt, fragt die Erweiterung ab; sie stehen nirgends in VS 
 | `rename(alt, neu)` | `rename`, `id` bleibt |
 | `delete(uri)` | `delete` (Löschmarke) bzw. `supersede`, je nach Recht |
 | `createDirectory(uri)` | nichts am Hub — Verzeichnisse sind nur Präfixe von Namen; die Erweiterung merkt sich das leere Verzeichnis, bis darin etwas angelegt wird |
-| `watch` / Event `onDidChangeFile` | `changes` seit der zuletzt gesehenen Revision, abgefragt alle paar Sekunden — aus der Replica, ohne Netz |
+| `watch` / Event `onDidChangeFile` | `changes` mit dem Cursor der letzten Antwort, abgefragt alle paar Sekunden — aus der Replica, ohne Netz. Ein Umbenennen erkennt die Erweiterung an der `id` (alter Name gelöscht, neuer angelegt); `changes` nennt keinen alten Namen |
 
 - **Konflikte:** VS Code vergleicht `mtime` beim Speichern selbst und fragt nach, wenn die
   Datei inzwischen neuer ist. Zusätzlich lehnt der Hub ab, wenn die mitgeschickte Revision
@@ -79,7 +79,7 @@ Welche Collections es gibt, fragt die Erweiterung ab; sie stehen nirgends in VS 
   `writeFile` `FileSystemError.Unavailable` mit der Meldung des Nodes. Lesen läuft weiter.
 - **Rechte:** Collections ohne Schreibrecht meldet `stat` als schreibgeschützt
   (`FilePermission.Readonly`); VS Code öffnet sie dann nur zum Lesen.
-- **Verbindung und Stand:** `status` bzw. `whoami` — Account, Hubs, lesbare Collections und
+- **Verbindung und Stand:** `whoami` — Account, Hubs, lesbare Collections und
   Rechte, Stand des Abgleichs, Version.
 - **Die Replica bleibt unberührt.** Die Erweiterung schreibt nie in sie; jeder
   Schreibvorgang geht über den Node zum Hub, die Replica zieht über den Abgleich nach — wie bei
@@ -87,7 +87,7 @@ Welche Collections es gibt, fragt die Erweiterung ab; sie stehen nirgends in VS 
 
 ### Welche Werkzeuge — keine eigens für VS Code
 
-Entschieden am 2026-09-26: Die Erweiterung braucht **`status`/`whoami`, `list`, `read` und
+Entschieden am 2026-09-26: Die Erweiterung braucht **`whoami`, `list`, `read` und
 `changes`**, zum Schreiben später `create`, `write`, `rename`, `delete`. Alle taugen auch für
 die KI; es gibt keine Werkzeuge nur für VS Code, kein eigenes Profil, keine Schnittstelle
 neben MCP. Dafür wurden drei Werkzeuge im Konzept erweitert bzw. neu aufgenommen
@@ -106,14 +106,14 @@ und deren Benachrichtigungen brauchen eine Sitzung.
 
 - **Statusleiste:** etwa `Keph ✓ team` bzw. `Keph ⚠ offline`. Tooltip: Account je Hub,
   letzter Abgleich, Revision, Version von Node und Erweiterung — mit Warnung, wenn sie
-  verschieden sind. Quelle ist `status` bzw. `whoami`, dasselbe Werkzeug, das die KI benutzt.
+  verschieden sind. Quelle ist `whoami`, dasselbe Werkzeug, das die KI benutzt.
 - **Klick darauf:** ein kleines Menü — neu verbinden, Token setzen, Collection einbinden,
   Log anzeigen (Output-Channel „Kephalaion“ mit den Aufrufen und Fehlern).
 - **Node nicht erreichbar:** Dann scheitert auch das Lesen, weil die Erweiterung die Replica
   nie selbst öffnet. Die Statusleiste zeigt das, mit einem Hinweis, wie der Node gestartet
   wird.
 - **In VS Code wird gewählt, was angezeigt wird:** „Collection einbinden“ bietet die
-  lesbaren Collections aus `status` zur Auswahl an und fügt die gewählte als Ordner in den
+  lesbaren Collections aus `whoami` zur Auswahl an und fügt die gewählte als Ordner in den
   Workspace ein.
 - **Über die CLI wird eingerichtet:** Hubs, Tokens, gewünschte Collections, Accounts. Das
   ist Verwaltung mit Tokens und heute schon Kommandozeile; die Verwaltung über MCP ist im
@@ -196,7 +196,7 @@ wenn sich nur eines geändert hat. Bei wenigen Nutzern ist das unkritisch; bei v
 lässt es sich später trennen.
 
 - **Gleiche Version heißt: kein Abgleich von Versionen zwischen Erweiterung und Node.** Die
-  Erweiterung fragt beim Start die Version des Nodes ab (`status`) und weist auf einen
+  Erweiterung fragt beim Start die Version des Nodes ab (`whoami`) und weist auf einen
   Unterschied hin, statt Kompatibilitäten zu verwalten.
 - **Verzeichnis:** etwa `vscode/` im Repository, mit eigenem `package.json`. Der Build
   braucht Node.js und `@vscode/vsce`; das kommt zur CI hinzu.
