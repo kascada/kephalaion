@@ -245,7 +245,7 @@ MCP (Node, /mcp):
 | 3 — Node: Transport http, check, --create, rotate | erledigt | 2026-09-26 | Connector mit `http`, `node hub check`, `--create`, `node account rotate` und `check` samt `.pending`; Replica-Schema 2 mit `documents_system`; make check grün |
 | 4 — serve | erledigt | 2026-09-26 | `serve` je Rolle auf Loopback, Sperrdatei `<db>.lock` (flock), Log je Anfrage über `internal/reqlog`, Beenden mit Frist, `status` zeigt serve; make check grün |
 | 5 — Node als MCP-Server | erledigt | 2026-09-26 | `internal/node/mcpnode` (go-sdk v1.7.0, zustandslos), Host/Origin-Prüfung, Header-Paare je Hub, Werkzeug `whoami` gegen die Replica; make check grün |
-| 6 — Durchlauf und Doku | offen | | |
+| 6 — Durchlauf und Doku | erledigt | 2026-09-26 | Durchlauf mit dem Binary grün (alle Strecken, kein Token im Log); README, vertrag, begriffe, konzept, k-playbook.md nachgezogen; User am Account (Konzept) nicht gebaut; make check grün |
 
 ---
 ## Review-Log (2026-09-25)

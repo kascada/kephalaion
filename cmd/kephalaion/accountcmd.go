@@ -41,9 +41,10 @@ Kommandos:
   token    erzeugt ein neues Einrichtungstoken und zeigt es einmal; das alte
            gilt nicht mehr
 
-Das Einrichtungstoken gilt nur für den ersten Vorgang des Accounts: rotate
-über einen Node, der eine seiner Collections abgleichen darf (kephalaion node
-account rotate). Gespeichert wird nur der Hash. Account-Namen folgen den
+Das Einrichtungstoken ist das erste Token des Accounts. Sein erster Vorgang
+tauscht es gegen ein eigenes: rotate über einen Node, der eine seiner
+Collections abgleichen darf (kephalaion node account rotate); danach ist es
+wertlos. Gespeichert wird nur der Hash. Account-Namen folgen den
 Regeln für Collections, admin ist reserviert, und sie sind gemeinsam mit den
 Node-Namen eindeutig. Jede Änderung an den Rechten ist ein Schreibvorgang mit
 Revision und gleicht sich zu den Nodes ab; sie steht im Protokoll (actions) als
@@ -201,7 +202,7 @@ func runHubAccount(args []string, stdout, stderr io.Writer) int {
 func printAccountToken(w io.Writer, token, account string) {
 	fmt.Fprintln(w, "Einrichtungstoken (wird nicht wieder angezeigt, gespeichert ist nur der Hash):")
 	fmt.Fprintf(w, "  %s\n", token)
-	fmt.Fprintln(w, "Es gilt nur für den ersten Vorgang: am Node gegen ein eigenes Token tauschen,")
+	fmt.Fprintln(w, "Als Erstes am Node gegen ein eigenes Token tauschen, danach ist es wertlos —")
 	fmt.Fprintln(w, "über eine Datei oder stdin, nie als Argument:")
 	fmt.Fprintf(w, "  kephalaion node account rotate <hub> %s --token-file <pfad>\n", account)
 }

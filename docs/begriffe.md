@@ -143,7 +143,8 @@ Ausführlich: [`konzept.md`](konzept.md).
   der Name des Accounts. Steht in den `SYSTEM:A:`-Zeilen und in `created_by`/`updated_by` der
   Dokumente. Ein User hat meist mehrere Accounts. Namensregel wie bei Accounts, nicht `admin`.
 - **setup token** (Einrichtungstoken) — das Token, das `hub account add` und `hub account
-  token` einmal anzeigen. Es gilt nur für den ersten Vorgang, ein `rotate`.
+  token` einmal anzeigen: das erste Token des Accounts. Sein erster Vorgang tauscht es per
+  `rotate` gegen ein eigenes, danach ist es wertlos.
 - **token** — Geheimnis eines Accounts, Format `keph_<geheimnis>`. Jede Anfrage trägt
   Account-Name und Token. Gespeichert wird nur der Hash. Unabhängig vom Transport.
 - **scope** — ein Recht eines Accounts auf einer Collection, geschrieben

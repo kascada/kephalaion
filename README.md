@@ -6,11 +6,14 @@ Was geplant ist und warum, steht in [`docs/konzept.md`](docs/konzept.md), die Be
 [`docs/begriffe.md`](docs/begriffe.md).
 
 **Stand:** Gebaut sind das Gerüst (`version`, `upgrade`) und das Einrichten der Rollen:
-`hub init`, `node init`, `status`, `config show|export|import`, dazu am Hub Collections und
-Nodes, am Node seine Hubs und die gewünschten Collections. Der Hub nimmt Dokumente auf
-(`hub doc`, `hub import`), der Node gleicht sie in seine Replica ab (`node sync`) und zeigt
-sie an (`node doc`) — bisher nur über `transport local`, also mit Hub und Node in derselben
-config. Noch nicht gebaut: `serve`, jede Verbindung über das Netz, Accounts, Suche.
+`hub init`, `node init`, `status`, `config show|export|import`, dazu am Hub Collections,
+Nodes und Accounts mit Rechten je Collection, am Node seine Hubs und die gewünschten
+Collections. Der Hub nimmt Dokumente auf (`hub doc`, `hub import`), der Node gleicht sie in
+seine Replica ab (`node sync`) und zeigt sie an (`node doc`), über `transport local` oder
+`http` auf diesem Rechner. `kephalaion serve` lauscht je Rolle: der Hub für Nodes, der Node als
+MCP-Server für Clients mit dem Werkzeug `whoami`. Accounts tauschen ihr Token am Node
+(`node account rotate`). Noch nicht gebaut: `https` und `ssh`, Abgleich im Hintergrund,
+Suche, Schreiben über den Node, weitere Werkzeuge.
 
 ## Was gebraucht wird (grob)
 
@@ -31,8 +34,8 @@ im Konzept.
 - **Werkzeuge** — lesen (`search`, `read`, `list`), schreiben (`create`, `create_numbered`,
   `write`, `append`, `replace_section`, `rename`, `supersede`, `delete`,
   `replace_directory`), dazu eigene für k-playbook (Eingang, Warteschlange, Todos, Tasks).
-- **Kommandozeile** — `init`, `status`, `config`, Verwaltung von Collections, Nodes und Hubs,
-  Dokumente am Hub, `node sync`; später Accounts, `serve`, `search`.
+- **Kommandozeile** — `init`, `status`, `config`, Verwaltung von Collections, Nodes, Accounts
+  und Hubs, Dokumente am Hub, `node sync`, `node account rotate`, `serve`; später `search`.
 - **Stufen** — 1 lesen, 2 schreiben mit Rechten, 3 Vorgänge auf Dateien, 4 Schnipsel
   (zurückgestellt), 5 semantische Suche.
 
@@ -73,18 +76,20 @@ Hub und Node werden je mit einem Aufruf eingerichtet — ohne Rückfragen, nie �
 kephalaion hub init     # Datenbank ~/.local/share/kephalaion/hub.db, Abschnitt hub: in der config
 kephalaion node init    # Datenbank ~/.local/share/kephalaion/node.db, Abschnitt node: in der config
 kephalaion node init --db sqlite:///pfad/node.db   # anderer Ort, absoluter Pfad
-kephalaion hub init --listen 0.0.0.0:7434          # auch für Nodes anderer Rechner
+kephalaion hub init --listen 127.0.0.1:7500        # anderer Port
 ```
 
 `init` legt die Datenbank samt Schema an und trägt die Rolle in die config
-`~/.config/kephalaion/config.yaml` ein, mit `db:` und `listen:` — wo der Dienst der Rolle
-später lauscht; Standard Node `127.0.0.1:7433`, Hub `127.0.0.1:7434`. Noch lauscht nichts. Steht die Rolle schon dort oder gibt es die
+`~/.config/kephalaion/config.yaml` ein, mit `db:` und `listen:` — wo `kephalaion serve` für
+die Rolle lauscht; Standard Node `127.0.0.1:7433`, Hub `127.0.0.1:7434`. `serve` lauscht
+bisher nur auf `127.0.0.1`, `::1` oder `localhost`: Klartext-HTTP verlässt den Rechner nicht,
+bis `https` und `ssh` kommen. Steht die Rolle schon dort oder gibt es die
 Datenbankdatei schon, bricht es ab. Die Orte folgen `XDG_CONFIG_HOME` und `XDG_DATA_HOME`;
 eine andere config wählt `--config` oder `KEPHALAION_CONFIG`. PostgreSQL ist vorgesehen, aber
 noch nicht unterstützt.
 
 ```sh
-kephalaion status       # welche Rollen, wo ihre Datenbank liegt, Kennzahlen
+kephalaion status       # welche Rollen, wo ihre Datenbank liegt, ob serve läuft, Kennzahlen
 kephalaion config show  # config und settings je Rolle
 kephalaion config export --output keph-config.yaml   # Einstellungen sichern, ohne Inhalte
 kephalaion config import keph-config.yaml            # in eingerichtete Rollen zurückschreiben
@@ -110,56 +115,146 @@ kephalaion hub init
 kephalaion node init
 
 kephalaion hub collection add team-x --description "Wissen von Team X"
-kephalaion hub node add laptop --description "dieser Rechner"   # zeigt das Token einmal
+
+# Transport local: Hub im selben Prozess. --create legt den Node am Hub derselben
+# config selbst an und trägt sein Token direkt ein, ohne es anzuzeigen.
+kephalaion node hub add privat --node laptop --transport local --create
 kephalaion hub node grant laptop team-x
-
-# Transport local: Hub im selben Prozess, verlangt den Hub in derselben config
-read -rs TOKEN            # Token einfügen, Enter
-printf '%s\n' "$TOKEN" | kephalaion node hub add privat --node laptop --transport local --token-stdin
 kephalaion node collection add privat:team-x
+kephalaion node hub check privat   # whoami: erreichbar, Node-Name, erlaubte Collections
 
-# oder http auf localhost — verhält sich wie eine getrennte Installation
-printf '%s\n' "$TOKEN" | kephalaion node hub add test --node laptop --transport http \
+# oder http auf localhost — verhält sich wie eine getrennte Installation. Dafür ein
+# eigener Node, dessen Token der Hub einmal anzeigt; kephalaion serve muss laufen.
+kephalaion hub node add laptop-http --description "dieser Rechner, über HTTP"
+kephalaion hub node grant laptop-http team-x
+read -rs TOKEN            # Token einfügen, Enter
+printf '%s\n' "$TOKEN" | kephalaion node hub add test --node laptop-http --transport http \
   --address http://localhost:7434 --token-stdin
 unset TOKEN
 
-kephalaion status       # Collections und Nodes am Hub, Hubs und Collections am Node
+kephalaion status       # Collections, Accounts und Nodes am Hub, Hubs und Collections am Node
 ```
 
-Weitere Transporte sind `https` (`--address https://…`) und `ssh` (`--address
-[user@]host[:port]`, optional `--ssh-key`). Namen von Collections, Nodes und Hub-Aliasen
-bestehen aus `a–z`, `0–9`, `.`, `_` und `-`, beginnen mit Buchstabe oder Ziffer, haben
-höchstens 63 Zeichen und nicht den Präfix `system`. Die Hilfe zeigt alle Kommandos:
-`kephalaion hub node --help`, `kephalaion node hub --help`.
+Ohne `--create` trägt `node hub add` einen Node ein, den der Hub schon kennt: Name mit
+`--node`, Token über die Standardeingabe (`--token-stdin`). `https` (`--address https://…`)
+und `ssh` (`--address [user@]host[:port]`, optional `--ssh-key`) lassen sich eintragen, aber
+noch nicht benutzen. Namen von Collections, Nodes, Accounts und Hub-Aliasen bestehen aus
+`a–z`, `0–9`, `.`, `_` und `-`, beginnen mit Buchstabe oder Ziffer, haben höchstens 63 Zeichen
+und nicht den Präfix `system`; Nodes und Accounts heißen nicht `admin` und teilen sich die
+Namen. Die Hilfe zeigt alle Kommandos: `kephalaion hub node --help`,
+`kephalaion node hub --help`.
 
-`config export` sichert auch die Collections, Nodes (nur mit Hash) und die Hubs des Nodes
-samt ihrem Token im Klartext — die Datei entsteht deshalb mit `0600`. Das Exportformat ist 3
-(`format: 3`, mit `node_name` je Hub-Eintrag). Ein Export im Format 1 lässt sich weiter
-importieren und ersetzt nur die `settings`; einer im Format 2 nur, wenn er am Node keine
+`config export` sichert auch die Collections, Nodes und Accounts (nur mit Hash, Accounts samt
+Rechten je Collection) und die Hubs des Nodes samt ihrem Token im Klartext — die Datei entsteht
+deshalb mit `0600`. Das Exportformat ist 4 (`format: 4`). `config import` gleicht am Hub die
+Account-Zeilen an den Export an; ein Export vor Format 4 lässt die Accounts unberührt, einer im
+Format 1 ersetzt nur die `settings`, einer im Format 2 geht nur, wenn er am Node keine
 Hub-Einträge enthält — ihnen fehlt `node_name`. Dokumente und Replicas gehören nicht zum
 Export.
+
+### Accounts
+
+Ein Account ist, wer zugreift — Mensch, KI oder Programm. Der Hub legt ihn an, zeigt sein
+Einrichtungstoken einmal und speichert nur den Hash; die Rechte gelten je Collection: `read`
+immer, dazu wahlweise `write` (Eigenes anlegen, ändern, löschen) und `supersede` (Fremdes
+ändern, ablösen, löschen).
+
+```sh
+kephalaion hub account add alice --description "Alice"     # zeigt das Einrichtungstoken einmal
+kephalaion hub account grant alice team-x                  # read
+kephalaion hub account grant alice team-x --write          # setzt vollständig: read, write
+kephalaion hub account grant alice team-x                  # und wieder nur read
+kephalaion hub account show alice
+kephalaion hub account lock alice      # Zeilen werden Löschmarken, die Rechte bleiben gemerkt
+kephalaion hub account unlock alice
+kephalaion hub account token alice     # neues Einrichtungstoken, das alte gilt nicht mehr
+```
+
+Das Einrichtungstoken ist das erste Token des Accounts. Sein erster Vorgang tauscht es am
+Node gegen ein eigenes — `rotate`, ein Kommando der Kommandozeile, nie ein MCP-Werkzeug, damit
+das Token nicht im Kontext der KI steht:
+
+```sh
+install -m 600 /dev/null ~/.config/kephalaion/alice.token
+read -rs TOKEN && printf '%s\n' "$TOKEN" > ~/.config/kephalaion/alice.token && unset TOKEN
+kephalaion node account rotate privat alice --token-file ~/.config/kephalaion/alice.token
+kephalaion node account check  privat alice --token-file ~/.config/kephalaion/alice.token
+```
+
+`rotate` erzeugt das neue Token am Node, schreibt es vor dem Aufruf nach
+`alice.token.pending`, meldet sich mit dem alten an und schickt dem Hub nur den Hash des
+neuen. Nach Erfolg ersetzt es die Datei und schreibt die Zeilen des Accounts in die Replica —
+nur die gewünschter Collections —, der Account ist also sofort bekannt. Scheitert der Aufruf
+eindeutig, bleibt die Datei; ist der Ausgang unklar (Zeitüberschreitung), bleiben beide
+Dateien, und `node account check` klärt, welches Token gilt, und räumt auf. Mit
+`--token-stdin` statt `--token-file` liest `rotate` das alte Token von der Standardeingabe und
+gibt das neue einmal aus. `rotate` wird nie wiederholt: Danach gilt das alte Token nicht mehr.
+
+### serve und MCP
+
+`kephalaion serve` startet je eingerichteter Rolle einen Listener auf ihrem `listen`: den Hub
+für Nodes (`POST /v1/whoami|rotate|sync`, siehe [`docs/vertrag.md`](docs/vertrag.md)), den
+Node als MCP-Server für Clients unter `/mcp`. Er läuft im Vordergrund, schreibt je Anfrage
+eine Zeile nach stderr (Methode, Pfad, Status, Dauer, Node- und Account-Namen, nie ein Token)
+und endet mit SIGINT oder SIGTERM. Eine Sperre auf `<db>.lock` neben jeder Datenbank verhindert
+einen zweiten `serve` auf derselben Rolle; alle anderen Kommandos laufen daneben. Einen
+Abgleich im Hintergrund gibt es noch nicht — dafür `node sync`.
+
+```sh
+kephalaion serve 2>> ~/.local/state/kephalaion/serve.log &
+kephalaion status | grep serve     # serve: läuft
+```
+
+Ein MCP-Client meldet sich am Node je Hub mit einem Header-Paar an —
+`X-Keph-Account-<alias>` und `X-Keph-Token-<alias>`, der Alias ist der des Hub-Eintrags am
+Node, Groß- und Kleinschreibung der Header zählt nicht. Die Header stehen in der
+MCP-Konfiguration des Clients; die KI sieht sie nicht. Für Claude Code etwa `.mcp.json`, das
+Token aus einer Umgebungsvariable, damit es nicht im Repository steht:
+
+```json
+{
+  "mcpServers": {
+    "kephalaion": {
+      "type": "http",
+      "url": "http://127.0.0.1:7433/mcp",
+      "headers": {
+        "X-Keph-Account-privat": "${KEPH_ACCOUNT}",
+        "X-Keph-Token-privat": "${KEPH_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+```sh
+export KEPH_ACCOUNT=alice
+export KEPH_TOKEN="$(cat ~/.config/kephalaion/alice.token)"
+```
+
+Für mehrere Hubs steht je Hub ein Paar darin. Der Node prüft das Paar bei jeder Anfrage gegen
+die Account-Zeilen seiner Replica, ohne Cache; `initialize` geht ohne Anmeldung. Das Werkzeug
+`whoami` zeigt je Hub, ob die Anmeldung gilt, und wenn ja Account, Collections und Rechte —
+nie ein Token. Ein gesperrter Account gilt am Node nach dem nächsten `node sync` nicht mehr.
+Der Node lehnt Anfragen mit fremdem `Host` oder fremder `Origin` mit 403 ab (Schutz gegen
+DNS-Rebinding aus dem Browser).
 
 ### Dokumente einspielen und abgleichen
 
 Der ganze Weg auf einem Rechner, mit Hub und Node in derselben config: Der Hub nimmt
 Dokumente auf, der Node gleicht sie über `transport local` in seine Replica ab und liest sie
-dort. Ausgangspunkt ist ein Verzeichnis `~/wissen/team-x` mit `leitfaden.md`,
+dort. Über `http` geht es genauso, mit laufendem `serve`. Ausgangspunkt ist ein Verzeichnis `~/wissen/team-x` mit `leitfaden.md`,
 `tasks/001-start.md`, `tasks/002-ende.md` und einem `.git/`.
 
 ```sh
 kephalaion hub init
 kephalaion node init
 kephalaion hub collection add team-x --description "Wissen von Team X"
-kephalaion hub node add laptop --description "dieser Rechner"   # zeigt das Token einmal
+kephalaion node hub add privat --node laptop --transport local --create
 kephalaion hub node grant laptop team-x
+kephalaion node collection add privat:team-x
 
 kephalaion hub import team-x ~/wissen/team-x      # ein Verzeichnis, eine Revision
 echo "Heute: Abgleich ausprobieren" | kephalaion hub doc put team-x notizen/heute.md
-
-read -rs TOKEN            # Token einfügen, Enter
-printf '%s\n' "$TOKEN" | kephalaion node hub add privat --node laptop --transport local --token-stdin
-unset TOKEN
-kephalaion node collection add privat:team-x
 
 kephalaion node sync                              # alle Hub-Einträge; oder: node sync privat
 kephalaion node doc list privat:team-x
@@ -220,17 +315,18 @@ node: eingerichtet
         team-x: Revision 3, abgeglichen 2026-09-26 10:15
 ```
 
-Bisher geht nur `transport local`: der Hub derselben config, im selben Prozess. Für
-Einträge mit `http`, `https` oder `ssh` meldet `node sync` „noch nicht unterstützt“, ohne
+`node sync` geht über `local` (der Hub derselben config, im selben Prozess) und über `http`
+(ein Hub auf diesem Rechner mit laufendem `serve`; bei Fehlern des Netzes wiederholt es jede
+Seite bis zu dreimal). Für `https` und `ssh` meldet es „noch nicht unterstützt“, ohne
 `hub:`-Abschnitt in der config scheitert auch `local`. Ein gescheiterter Eintrag hält die
 übrigen nicht auf; die Meldung steht auf stderr, und der Exit-Code ist 1 — hier mit dem
-Eintrag `test` (`http`) aus dem Beispiel davor:
+Eintrag `test` (`http`), während `serve` nicht läuft:
 
 ```text
 Hub privat (hub_id 01M3ECGQP32QBHTGXERZSMVBWR): 1 Seite
   team-x: abgeglichen, 0 Zeilen, Revision 3
 Hub test: gescheitert
-node sync: Hub test: Transport http wird noch nicht unterstützt; bisher geht nur local
+node sync: Hub test: Hub http://localhost:7434: dial tcp 127.0.0.1:7434: connect: connection refused
 ```
 
 Collections, die der Hub nicht (mehr) erlaubt oder die der Node nicht mehr will

@@ -29,17 +29,28 @@ Pakete unter `internal/`:
   deshalb ohne Transaktion.
 - `ident` — neutral, für Hub und Node: Namensregel, Adresse `<hub>:<collection>`, Token
   erzeugen, hashen, Format prüfen, gekürzt anzeigen; Pfadregeln für Dokumentnamen
-  (`CheckDocName`, `SYSTEM:` abgelehnt).
+  (`CheckDocName`, `SYSTEM:` abgelehnt); `CheckPrincipalName` für Accounts und Nodes (`admin`
+  reserviert), `LogName` für Namen im Log.
 - `sqlq` — Hilfe für PostgreSQL-taugliche Abfragen: Platzhalter `$n`, `Bind` je Dialekt,
   `Check` auf verbotene Konstrukte.
 - `hub/store`, `node/store` — die gekapselten Datenbanken von Hub und Node, je eine
   Schnittstelle `Store` mit SQLite-Umsetzung und DDL.
 - `contract` — neutral, der Vertrag zwischen Node und Hub als Go-Typen: Anfragen, Antworten,
-  Fehlercodes, Schnittstelle `Hub`, Fassung (`contract.Version`).
+  Fehlercodes, Schnittstelle `Hub` (`Whoami`, `Rotate`, `Sync`), Fassung (`contract.Version`),
+  Form der Account-Zeilen (`AccountContent`).
+- `contract/httpapi` — neutral, der Vertrag über HTTP: `NewHandler` bedient jede Umsetzung von
+  `contract.Hub`, `Client` setzt sie über HTTP um (Wiederholung nur für `whoami` und `sync`,
+  `rotate` nie; unklarer Ausgang als `contract.ErrOutcomeUnknown`).
+- `reqlog` — neutral, eine Logzeile je HTTP-Anfrage; Namen nur über `ident.LogName`, nie ein
+  Token.
 - `hub/replication` — die Seite des Hubs im Vertrag: setzt `contract.Hub` über dem Hub-Store
-  um (Anmeldung, erlaubte Collections, Seitenschnitt); der Store liefert nur Zeilen.
+  um (Anmeldung von Node und Account, erlaubte Collections, Seitenschnitt); der Store liefert
+  nur Zeilen und schreibt `rotate` in einer Transaktion.
 - `node/replica` — die Replica des Nodes (je Hub-Eintrag eine SQLite-Datei) und der Abgleich
-  (`Syncer`), der sie über `contract.Hub` füllt.
+  (`Syncer`), der sie über `contract.Hub` füllt; dazu die Account-Zeilen (`AccountRows` über
+  den Teilindex `documents_system`, `WriteAccountRows` nach `rotate`).
+- `node/mcpnode` — der MCP-Eingang des Nodes (`/mcp`, go-sdk, zustandslos): Host/Origin,
+  Header-Paare je Hub, Prüfung gegen die Replica, Werkzeug `whoami`.
 
 Regeln dazu:
 
@@ -51,9 +62,10 @@ Regeln dazu:
   folgt ihm; wer den einen ändert, zieht den anderen im selben Commit nach. Er trägt eine
   Fassung (`contract.Version`, derzeit 1), und der Hub soll auch ältere Nodes bedienen.
 - **Welche Umsetzung des Vertrags ein Node bekommt, entscheidet nur `cmd/kephalaion`.** Dort
-  ist `local` verdrahtet (`localConnector` in `synccmd.go`: der Hub der eigenen config,
-  `hub/replication` darüber); `internal/node` kennt nur `contract.Hub`. Auch `local` prüft
-  die Anmeldung wie jeder Transport.
+  ist sie verdrahtet (`connector` in `synccmd.go`): `local` ist der Hub der eigenen config mit
+  `hub/replication` darüber, `http` der Client aus `contract/httpapi` (nur Loopback);
+  `internal/node` kennt nur `contract.Hub`. Auch `local` prüft die Anmeldung wie jeder
+  Transport; die Tests des Vertrags (`hub/replication`) laufen gegen `local` und HTTP.
 - **Die Replica ist abgeleitet.** Sie enthält nur, was der Hub geliefert hat, und darf wie
   der Node-Store SQLite-Eigenes benutzen. Angelegt wird sie nur vom Abgleich, nie von `init`;
   `node hub rm` und `config import` (für weggefallene Aliase) entfernen sie mit, innerhalb der
@@ -65,18 +77,38 @@ Regeln dazu:
   `?`. Ein Test je Paket prüft sie mit `sqlq.Check`. `PRAGMA` gibt es nur beim Öffnen der
   Verbindung. Das DDL steht je Dialekt. Zähler wie die Revision werden im Code
   hochgezählt, nicht per Umwandlung in SQL. Der Node darf SQLite-Eigenes benutzen.
-- **Token nie als Argument.** Ein Token kommt über `--token-stdin` (eine Zeile) herein, nie
-  über ein Argument — Shell-Verlauf und Prozessliste. Angezeigt wird es nur gekürzt
-  (`ident.MaskToken`); ein am Hub erzeugtes Token genau einmal, gespeichert nur als Hash.
-- **Namensregeln.** Collections, Nodes und Hub-Aliase: `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`,
-  kein Präfix `system` in beliebiger Schreibweise — geprüft mit `ident.CheckName` bzw.
-  `ident.ParseAddress`. Die Pfadregeln für Dokumentnamen stehen nur in `ident`
-  (`CheckDocName`, `DocDirPrefix`); Hub-Store und Replica benutzen sie. Node-Namen sind
-  gemeinsam mit Account-Namen eindeutig (jede Zeile `SYSTEM:A:<name>` in `documents` belegt
-  den Namen).
+- **Token nie als Argument.** Ein Token kommt über `--token-stdin` (eine Zeile) oder
+  `--token-file` herein, nie über ein Argument — Shell-Verlauf und Prozessliste. Angezeigt wird
+  es nur gekürzt (`ident.MaskToken`); ein am Hub erzeugtes Token genau einmal, gespeichert nur
+  als Hash. Kein Token in einem MCP-Werkzeug, einer MCP-Antwort oder einem Log; `rotate` ist
+  deshalb ein CLI-Kommando, kein Werkzeug.
+- **Namensregeln.** Collections, Nodes, Accounts und Hub-Aliase:
+  `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`, kein Präfix `system` in beliebiger Schreibweise —
+  geprüft mit `ident.CheckName` bzw. `ident.ParseAddress`; Accounts und Nodes zusätzlich mit
+  `ident.CheckPrincipalName` (`admin` reserviert, er steht im Protokoll für den Verwalter).
+  Die Pfadregeln für Dokumentnamen stehen nur in `ident` (`CheckDocName`, `DocDirPrefix`);
+  Hub-Store und Replica benutzen sie. Node- und Account-Namen sind gemeinsam eindeutig,
+  geprüft über die Tabellen `accounts` ↔ `nodes` in beide Richtungen (nicht mehr über
+  `SYSTEM:A:`-Zeilen); nach `hub account rm` ist der Name frei.
+- **Accounts am Hub.** Die Tabelle `accounts` führt Beschreibung, gesperrt, die gemerkten
+  Rechte eines gesperrten Accounts und **maßgeblich den Hash**; die `SYSTEM:A:`-Zeilen je
+  Account und Collection tragen Rechte und eine Kopie des Hashes. Jede Änderung an den Zeilen
+  ist ein Schreibvorgang mit Revision und genau einer Zeile in `actions` (`admin`, bei `rotate`
+  der Account mit dem Node als `carrier`) und schreibt Hash in `accounts` und Zeilen in
+  derselben Transaktion. Zeilen werden nie entfernt: Löschmarke, und bei erneutem `grant`
+  wiederbelebt.
 - **Import prüft wie die CLI.** `config import` benutzt dieselben Prüffunktionen
   (`CheckTables` je Store) und prüft alles, bevor geschrieben wird; erst der Hub, dann der
-  Node.
+  Node. Exportformat 4 trägt die Accounts samt Rechten; der Import gleicht die
+  `SYSTEM:A:`-Zeilen unter einer Revision an. Ein Export vor Format 4 lässt die Accounts.
+- **`serve` lauscht nur auf Loopback**, beide Rollen, bis `https`/`ssh` kommen. Er nimmt je
+  Rolle eine Sperre (`flock` auf `<db>.lock` neben der Datenbank); CLI-Kommandos laufen daneben
+  über SQLite, `status` prüft die Sperre ohne zu warten. Ein Log je Anfrage auf stderr über
+  `reqlog`. Einen Abgleich im Hintergrund gibt es noch nicht, `local` ist in `serve` nicht
+  verdrahtet.
+- **MCP am Node:** `internal/node/mcpnode`. Clients melden sich je Hub mit
+  `X-Keph-Account-<alias>` und `X-Keph-Token-<alias>` an; der Node prüft sie je Anfrage gegen
+  die Replica, ohne Cache und ohne die Replica offen zu halten.
 - **Keine Migrationen, Schema neu anlegen** — befristet, solange es keine Daten gibt, die
   bleiben müssen. Ändert sich das Schema, wird `SchemaVersion` im Store-Paket erhöht;
   vorhandene Datenbanken werden dann abgelehnt und neu angelegt. Dokumente am Hub gelten

@@ -9,10 +9,13 @@ description: Entwurf für eine geteilte Wissensdatenbank mehrerer Nutzer und Pro
 `kephalaion upgrade`, siehe [`README.md`](../README.md) — und das Einrichten der Rollen
 (`hub init`, `node init`, `status`, `config show|export|import`) samt den lokalen Tabellen —
 Collections und Nodes am Hub, Hubs und gewünschte Collections am Node, alles über die
-Kommandozeile. Dazu Dokumente am Hub (`hub doc`, `hub import`), der Vertrag für den Abgleich
-([`vertrag.md`](vertrag.md)) und die Replica am Node, abgeglichen im selben Prozess über
-`transport local` (`node sync`, `node doc`). Noch nicht gebaut: `serve`, jede
-Verbindung über das Netz, Accounts, Suche und Schreiben über den Node. Die Überlegungen
+Kommandozeile. Dazu Dokumente am Hub (`hub doc`, `hub import`), der Vertrag
+([`vertrag.md`](vertrag.md): `whoami`, `rotate`, `sync`) und die Replica am Node, abgeglichen
+über `transport local` oder `http` auf diesem Rechner (`node sync`, `node doc`). Accounts mit
+Rechten je Collection (`hub account …`), die ihr Token am Node tauschen (`node account
+rotate`), und `kephalaion serve`: der Hub für Nodes, der Node als MCP-Server mit dem Werkzeug
+`whoami` (Task 005). Noch nicht gebaut: `https` und `ssh`, der User am Account, Abgleich im
+Hintergrund, Suche und Schreiben über den Node. Die Überlegungen
 entstanden in k-playbook und sind am 2026-09-25 hierher umgezogen.
 Begriffe nach [`begriffe.md`](begriffe.md): Sie sind englisch, die Dokumentation ist deutsch.
 
@@ -115,7 +118,7 @@ wo ihre Datenbank liegt und wo ihr Dienst lauscht — mehr nicht:
 hub:                          # nur auf dem Rechner des Hubs
   db: sqlite:///home/kleist/.local/share/kephalaion/hub.db
   # später: postgres://keph@db.intern/kephalaion
-  listen: 127.0.0.1:7434      # für Nodes anderer Rechner bewusst 0.0.0.0:7434
+  listen: 127.0.0.1:7434      # für Nodes anderer Rechner später 0.0.0.0:7434 (mit https)
 node:
   db: sqlite:///home/kleist/.local/share/kephalaion/node.db
   listen: 127.0.0.1:7433      # MCP für Clients
@@ -126,8 +129,10 @@ node:
   diese Rolle lauscht. Es gehört zum „wo“ wie der Ort der Datenbank, und `serve` braucht es
   beim Start. Standard Node `127.0.0.1:7433`, Hub `127.0.0.1:7434`; `init` schreibt den Wert
   sichtbar in die Datei, `--listen` weicht ab. Nach außen lauscht nur, wer es ausdrücklich
-  einträgt. Ein Node-Eintrag mit `http` für den Test auf einem Rechner nennt die Adresse des
-  Hubs: `http://localhost:7434`.
+  einträgt. **Bis `https` und `ssh` gebaut sind, lauscht `serve` für beide Rollen nur auf
+  Loopback** (`127.0.0.1`, `::1`, `localhost`) und bricht sonst beim Start ab — Klartext-HTTP
+  verlässt den Rechner nicht (Task 005). Ein Node-Eintrag mit `http` für den Test auf einem
+  Rechner nennt die Adresse des Hubs: `http://localhost:7434`.
 - **Alles andere steht in der Datenbank der Rolle** und wird nur über die CLI geändert:
   die Hubs eines Nodes mit Transport und Token, die Collections, die ein Node haben will, am
   Hub Collections, Nodes und Accounts. Eine Quelle, eine Prüfung.
@@ -170,7 +175,8 @@ node:
   Leser in der Datei des einzigen Schreibers. Die doppelten Daten sind wenige Megabyte. Der
   Abgleich ist lokal sofort da; statt eines Ereignisstroms genügt ein Signal im Prozess.
 - **Der Hub bleibt extern erreichbar**, wenn eingestellt — für Nodes anderer Rechner —, und
-  wird zugleich lokal direkt aufgerufen.
+  wird zugleich lokal direkt aufgerufen. Extern erst mit `https` oder `ssh`; bis dahin nur
+  Loopback.
 - **Die Kopplung ist gewollt.** Ein Absturz oder Update betrifft beide Rollen; im Code bleiben
   sie getrennt: Der Hub kennt den Node nicht, der Node kennt den Hub nur über die
   Schnittstelle.
@@ -201,9 +207,14 @@ eigenen Prozess. Eine Bridge wäre der Prozess, den der Client startet, und reic
 Node weiter. Sie wird erst gebaut, wenn ein Client zwingend stdio braucht; am Node ändert sie
 nichts.
 
-**Zustandslos.** Jede Anfrage trägt Account-Name und Token als HTTP-Header, je Hub ein Paar; der Client trägt
-sie aus seiner MCP-Konfiguration ein, die KI sieht sie nicht. Eine Sitzung (`Mcp-Session-Id`)
-wird nicht geführt. Die Prüfung je Anfrage kostet Mikrosekunden: ein Nachschlagen der
+**Zustandslos.** Jede Anfrage trägt Account-Name und Token als HTTP-Header, je Hub ein Paar:
+`X-Keph-Account-<alias>` und `X-Keph-Token-<alias>`, der Alias ist der des Hub-Eintrags am
+Node. Header-Namen zählen ohne Groß- und Kleinschreibung; der Alias ist der Rest des Namens
+nach dem Präfix, klein geschrieben — eindeutig, weil Aliase klein sind. Der Client trägt die
+Header aus seiner MCP-Konfiguration ein, die KI sieht sie nicht. Eine Sitzung
+(`Mcp-Session-Id`) wird nicht geführt (go-sdk, zustandsloser Modus); `initialize` geht ohne
+Anmeldung, ein Paar für einen unbekannten Alias ergibt „nicht angemeldet“ für diesen Alias.
+Die Prüfung je Anfrage kostet Mikrosekunden: ein Nachschlagen der
 Account-Zeilen in der Replica über einen Index, ein SHA-256 über das Token und ein Vergleich in
 konstanter Zeit. Einen Cache im Speicher gibt es bewusst nicht — er müsste nach jedem
 Abgleich, `rotate` und jeder Sperre nachgezogen werden, und eine vergessene Stelle ließe ein
@@ -214,7 +225,9 @@ Antwort.
 **Lokales HTTP absichern.** Ein lokaler Node bedient nicht nach außen. Er lauscht auf
 `127.0.0.1` und prüft die Header `Host` und `Origin`, wie die MCP-Spezifikation es für lokale
 Server verlangt — sonst könnte eine Webseite im Browser über DNS-Rebinding Anfragen an den
-Node schicken.
+Node schicken. Umgesetzt: `Host` muss `localhost`, `127.0.0.1` oder `[::1]` mit dem eigenen
+Port sein, `Origin` fehlt oder ist `http://localhost…`, `http://127.0.0.1…` (oder
+`http://[::1]…`); sonst 403.
 
 **Devcontainer nutzen den Node des Hosts.** Entschieden am 2026-09-25: kein eigener Node je
 Container. Weil `127.0.0.1` im Container der Container selbst ist, lauscht der Node zusätzlich
@@ -231,7 +244,10 @@ derselbe Eingang.
 
 **Node ↔ Hub: ein Protokoll, zwei Transportwege** — dazu der Funktionsaufruf im selben
 Prozess (`local`, siehe oben). Das Protokoll ist HTTP mit JSON und der Fassung im Pfad, kein
-MCP; es ist zustandslos, die Revision trägt der Node.
+MCP; es ist zustandslos, die Revision trägt der Node. Gebaut ist es als `POST /v1/whoami`,
+`/v1/rotate`, `/v1/sync` (Einzelheiten in [`vertrag.md`](vertrag.md), „HTTP“), der Node meldet
+sich mit `X-Keph-Node` und `Authorization: Bearer <token>` an. Benutzbar ist es bisher nur als
+Transport `http` ohne TLS auf Loopback, zum Testen des HTTP-Wegs auf einem Rechner.
 
 - **Direkt über TLS.** Neue Revisionen meldet der Hub über einen Ereignisstrom (Server-Sent
   Events) oder Long-Polling; das Delta holt der Node danach selbst.
@@ -576,7 +592,7 @@ Geheimnisse. Unbekannter Name und falsches Token bekommen dieselbe Antwort.
 | Strecke | Wie oft | Schutz |
 |---|---|---|
 | MCP-Konfiguration des Clients → Node | je Anfrage, als Header | nur `127.0.0.1`, Datei mit `0600`; die KI sieht es nicht |
-| Node → Hub | je Vorgang in fremdem Namen | TLS oder SSH |
+| Node → Hub | je Vorgang in fremdem Namen | TLS oder SSH; bisher nur `http` auf Loopback |
 
 Das Token steht nie in einem Tool-Call.
 
@@ -596,13 +612,19 @@ Generalschlüssel.
 **Einrichtung.** Collections und Accounts legt der Admin am Hub per Kommandozeile an; sie
 liegen in der Datenbank des Hubs, die Konfigurationsdatei enthält nur, was der Dienst zum
 Starten braucht. Ein Account — ein Zugang auf einem Rechner — bekommt Name, User,
-Kurzbeschreibung und Scopes (`kephalaion hub account add <name> --user <user> --scope
-team-x:write …`); ohne `--user` ist der User der Name des Accounts. Ein
+Kurzbeschreibung (`kephalaion hub account add <name> [--description …]`) und seine Rechte je
+Collection, gesetzt mit `kephalaion hub account grant <name> <collection> [--write]
+[--supersede]` — `grant` setzt die Rechte der Collection vollständig, ohne `--write` wird
+`write` entzogen; `revoke` nimmt die Collection (umgesetzt in Task 005 statt `account add
+--scope`). Der User (`--user`, ohne Angabe der Name des Accounts) ist entschieden, aber noch
+nicht gebaut. Ein
 Node bekommt einen Eintrag mit Name und Kurzbeschreibung (`kephalaion hub node add <name>`)
 und die Collections, die er abgleichen darf (`kephalaion hub node grant <node>
 <collection>`). In beiden Fällen erzeugt der Hub ein Token, zeigt es einmal an und speichert
 nur den Hash. Das Token wird vorerst von Hand übergeben. Ein Node trägt sein Token in seine
-Datenbank ein (`kephalaion node hub add …`).
+Datenbank ein (`kephalaion node hub add …`); steht der Hub in derselben config, legt `node hub
+add … --transport local --create` den Node dort selbst an und trägt das Token direkt ein, ohne
+es anzuzeigen.
 
 **Auch der erste Vorgang eines Nodes ist ein `rotate` — entschieden am 2026-09-26**, gebaut
 wird es nach dem `rotate` der Accounts. Das angezeigte Token taugt dann nur zur Einrichtung,
@@ -627,6 +649,17 @@ Vorgang:
 Das Einrichtungs-Token ist danach wertlos. Nebeneffekt: Ein neuer Account ist sofort auf dem
 Node bekannt, ohne auf einen Abgleich zu warten.
 
+**Umgesetzt (Task 005): `rotate` ist ein Kommando der Kommandozeile des Nodes, kein
+MCP-Werkzeug** — das Token stünde sonst im Kontext der KI: `kephalaion node account rotate
+<hub> <account> (--token-file pfad | --token-stdin)`. „Ausstehend“ ist die Datei
+`<pfad>.pending` (`0600`), geschrieben vor dem Aufruf; nach Erfolg ersetzt sie die Token-Datei,
+danach schreibt der Node die gelieferten Zeilen in die Replica — nur die der gewünschten
+Collections; ein Fehler dabei kippt den Erfolg nicht, `node sync` holt nach. Der Hub ersetzt
+den Hash in `accounts` und allen Zeilen in einer Transaktion, eine Revision, eine Zeile `rotate`
+in `actions` (`carrier` ist der Node); Fehlversuche stehen nur im Log. Der Transport wiederholt
+`rotate` nie; bei unklarem Ausgang bleiben beide Dateien, und `kephalaion node account check`
+(`whoami` mit Account-Teil) klärt, welches Token gilt, und räumt auf.
+
 **Wenn das „ok“ ausbleibt,** meldet sich der Account mit dem neuen Token an (`whoami`).
 Gelingt das, war die Rotation erfolgreich; sonst wiederholt er sie mit dem alten. Der Hub
 kennt keinen Wiederholungsfall, `rotate` verlangt immer ein gültiges altes Token. Der
@@ -634,7 +667,9 @@ Mechanismus wird so definiert; ein Account implementiert die Wiederholung, wenn 
 
 **Sperren** wirkt beim Schreiben sofort, denn geschrieben wird nur über den Hub. Beim Lesen
 wirkt es auf einem Node erst mit dem nächsten Abgleich; der Hub meldet Sperren deshalb sofort
-über den Ereignisstrom.
+über den Ereignisstrom (noch nicht gebaut). `hub account lock` macht alle Zeilen des Accounts
+zu Löschmarken und **merkt seine Rechte in `accounts`**; `unlock` legt die Zeilen daraus neu an,
+mit dem Hash aus `accounts`. Ein gesperrter Account kann nicht rotieren.
 
 **Die Grenze beim Lesen ist der Rechner.** Die Replica liegt unverschlüsselt beim Node. Auf
 dem Rechner haben nur root und der Node Zugriff auf sie; das genügt. Die Token-Prüfung im
@@ -794,6 +829,15 @@ CREATE TABLE actions (                 -- Protokoll, befristet
 );
 
 -- Nur am Hub, gleichen sich nicht ab:
+CREATE TABLE accounts (                -- seit Task 005; die Rechte stehen in SYSTEM:A:-Zeilen
+  name          TEXT PRIMARY KEY,
+  description   TEXT,
+  token_hash    TEXT NOT NULL,         -- sha256(token), maßgeblich, auch gesperrt
+  locked        INTEGER NOT NULL DEFAULT 0,
+  locked_rights TEXT,                  -- gemerkte Rechte eines gesperrten Accounts (JSON)
+  created_at    INTEGER NOT NULL,
+  created_by    TEXT NOT NULL
+);
 CREATE TABLE collections (
   name        TEXT PRIMARY KEY,
   description TEXT,
@@ -836,15 +880,23 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
 
 - **Lokale Tabellen:** Einzelne Werte stehen in `settings` (Schlüssel, Wert); Listen mit
   Struktur bekommen eigene Tabellen. Nichts davon gleicht sich ab. `config export` und
-  `config import` nehmen sie mit (Exportformat 3, `tables:` je Rolle), `db_info` und
-  `actions` nicht. Änderungen an ihnen zählen keine Revision hoch.
-- **Namen** von Collections, Nodes und Hub-Aliasen: `[a-z0-9][a-z0-9._-]{0,62}`, kein `:`
-  (Adressen sind `<hub>:<collection>`), kein Präfix `system`. `documents.collection` hat
+  `config import` nehmen sie mit (Exportformat 4, `tables:` je Rolle), `db_info` und
+  `actions` nicht. Änderungen an ihnen zählen keine Revision hoch — außer bei Accounts, deren
+  Rechte in `SYSTEM:A:`-Zeilen stehen. Der Export nimmt je Account Beschreibung, gesperrt,
+  Hash und die Rechte je Collection mit; der Import gleicht die `SYSTEM:A:`-Zeilen daran an —
+  vorhandene ändern, fehlende werden Löschmarken, neue entstehen —, unter einer Revision in
+  derselben Transaktion. Fehlt der Accounts-Teil in Format 4, bricht er ab; ein Export vor
+  Format 4 lässt die Accounts, wie sie sind.
+- **Namen** von Collections, Nodes, Accounts und Hub-Aliasen: `[a-z0-9][a-z0-9._-]{0,62}`,
+  kein `:` (Adressen sind `<hub>:<collection>`), kein Präfix `system`; Accounts und Nodes
+  heißen nicht `admin` (Task 005). `documents.collection` hat
   keinen Fremdschlüssel auf `collections`; eine Collection lässt sich aber nur entfernen,
   solange keine Zeile in `documents` sie nennt und kein Node sie abgleichen darf.
 - **Namen von Accounts und Nodes sind am Hub gemeinsam eindeutig.** Das Protokoll nennt nur
   Namen (`account`, `carrier`); „laptop“ darf dort nicht zweierlei bedeuten. Der Hub prüft
-  das beim Anlegen.
+  das beim Anlegen und beim Import über die Tabellen `accounts` und `nodes`, in beide
+  Richtungen. Nach `hub account rm` ist der Name wieder frei; die Löschmarken bleiben, ein
+  neuer Account gleichen Namens belebt sie mit neuer Revision wieder.
 - **Ein Node-Token ist nie ein Client-Token.** Der Node prüft Clients nur gegen
   `SYSTEM:A:`-Zeilen; ein Node steht dort gar nicht.
 - **Das Token des Nodes steht im Klartext in `node.db`**, denn der Node muss es vorzeigen.
@@ -959,13 +1011,19 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
 - **In `documents` steht nur, was sich abgleichen muss.** Das ist der einzige Grund für
   `SYSTEM:`-Zeilen. Was nur der Hub selbst braucht, steht in eigenen Tabellen des Hubs; was
   nur der Node braucht (seine Hubs, seine Einstellungen), in `node.db`.
-- **Accounts sind Zeilen in `documents`**, keine eigene Tabelle — damit gleichen sie sich
-  ohne eigenen Mechanismus ab. Je Account und Collection eine Zeile:
+- **Accounts sind Zeilen in `documents`** — damit gleichen sie sich ohne eigenen Mechanismus
+  ab. Was nur der Hub braucht, steht seit Task 005 in einer eigenen Tabelle `accounts`
+  (Beschreibung, gesperrt, angelegt, die gemerkten Rechte eines gesperrten Accounts) — früher
+  hieß es hier „keine eigene Tabelle“. **Den Hash führt `accounts` maßgeblich und immer**, auch
+  gesperrt und ohne Collection; die Zeilen tragen eine Kopie, und jede Änderung schreibt beides
+  in derselben Transaktion. Je Account und Collection eine Zeile:
   - `name` = `SYSTEM:A:<account>`, also der Account-Name; der eindeutige Index auf
     `(collection, name)` sichert die Eindeutigkeit.
   - `content` = Hash des Tokens, der User und die Rechte in *dieser* Collection, etwa
     `{"hash": "…", "user": "kleist", "rights": {"write": true, "supersede": false}}`; `read`
-    ergibt sich aus der Zeile selbst.
+    ergibt sich aus der Zeile selbst. **Stand Task 005:** gebaut ist `{"hash": …, "rights":
+    …}` ohne `user` (Form in [`vertrag.md`](vertrag.md), „Account-Zeilen“); `accounts` hat noch
+    keine Spalte für den User.
   - Der User steht in jeder Zeile des Accounts; ändert der Admin ihn, ändern sich alle Zeilen
     in einer Transaktion, wie bei `rotate`. Vorhandene Dokumente behalten ihren User. Alle
     Accounts eines Users findet der Admin über die Daten, die nur der Hub über Accounts führt
@@ -984,7 +1042,9 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   braucht der Node alle Zeilen eines Accounts, quer über die Collections; der Index auf
   `(collection, name)` hilft dabei nicht. Dafür:
   `CREATE INDEX documents_system ON documents(name) WHERE name LIKE 'SYSTEM:%';`
-  Der Node fragt je Anfrage die Datenbank, ohne Cache.
+  Der Node fragt je Anfrage die Datenbank, ohne Cache. Die Abfrage nennt die Bedingung
+  `name LIKE 'SYSTEM:%'` wörtlich mit, sonst benutzt SQLite den Teilindex nicht; genau grenzt
+  `name = …` ein. Der Hub hat denselben Index.
 
 ## Suche über mehrere Collections
 
@@ -1016,7 +1076,7 @@ im Hub. Wo die Grenze liegt und ob etwas allgemein taugt, wird je Werkzeug entsc
 | `search` | Volltextsuche | Collections wählbar; getrennte Trefferlisten je Collection, Rang ab 1, kein Punktwert |
 | `read` | ein Dokument lesen | per Name oder `id`; wahlweise ein Abschnitt |
 | `list` | Inhalt eines Verzeichnisses | siehe unten |
-| `status` / `whoami` | eigener Account, Hubs, lesbare Collections, Stand des Abgleichs | |
+| `status` / `whoami` | eigener Account, Hubs, lesbare Collections, Stand des Abgleichs | `whoami` gebaut (Task 005): je Hub mit Header-Paar angemeldet ja/nein, bei ja Account, Collections und Rechte; nie Token oder Hash |
 
 **`list` — neu aufgenommen am 2026-09-25**, um etwa das Neueste zu finden:
 
