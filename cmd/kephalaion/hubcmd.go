@@ -56,7 +56,7 @@ Kommandos:
   token    erzeugt ein neues Token und zeigt es einmal; das alte gilt nicht mehr
 
 Gespeichert wird nur der Hash des Tokens. Am Node wird es mit
-kephalaion node hub add … --token-stdin eingetragen. Node-Namen folgen den
+kephalaion node hub add … --node <name> --token-stdin eingetragen. Node-Namen folgen den
 Regeln für Collections und sind gemeinsam mit den Account-Namen eindeutig.
 
 Optionen:
@@ -160,7 +160,7 @@ func runHubNode(args []string, stdout, stderr io.Writer) int {
 					return err
 				}
 				fmt.Fprintf(stdout, "Node %s angelegt.\n", pos[0])
-				printToken(stdout, token, "kephalaion node hub add <alias> --transport … --token-stdin")
+				printToken(stdout, token, "kephalaion node hub add <alias> --transport … --node "+pos[0]+" --token-stdin")
 				return nil
 			})
 		},
