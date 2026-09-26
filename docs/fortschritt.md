@@ -65,9 +65,10 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
 - **Rotation des Node-Tokens** (vorgemerkt 2026-09-26): Ein Node rotiert sein Token bei einem
   Hub selbst, anders als ein Account — er hält es in `node.db` (`hubs.token`) und kann das neue
   dort ablegen, ohne fremde Konfiguration. Vorbild `rotate` der Accounts: neues Token vor dem
-  Aufruf als ausstehend merken, altes zur Anmeldung, Hash des neuen, danach ersetzen. Offen, ob
-  auch beim Node der erste Vorgang ein `rotate` ist (Token aus `hub node add` nur zur
-  Einrichtung). Grundsatz: Nodes werden wie Accounts behandelt, außer wo es anders sinnvoll
+  Aufruf als ausstehend merken, altes zur Anmeldung, Hash des neuen, danach ersetzen.
+  **Entschieden 2026-09-26: Auch beim Node ist der erste Vorgang ein `rotate`** — das Token aus
+  `hub node add` taugt nur zur Einrichtung; das erste `rotate` prüft Verbindung und
+  Zusammenspiel gleich bei der Einrichtung. Kommt erst, wenn `rotate` gebaut ist. Grundsatz: Nodes werden wie Accounts behandelt, außer wo es anders sinnvoll
   ist (`konzept.md`, „Offene Punkte“, Token-Rotation).
 - **Danach (Konzept, „Stufen“):**
   - Stufe 1: Zerlegung in Abschnitte, FTS5-Index, MCP-Werkzeuge `search`, `read`, `list`;
