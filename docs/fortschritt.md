@@ -54,6 +54,9 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
 - **Task 004 abschließen** und nach `done/` — Vorbedingung für Task 005.
 - **Task 005 — Kommunikation** (reviewt, nicht begonnen):
   1. Accounts am Hub (`hub account …`, `SYSTEM:A:`-Zeilen, `admin` reserviert, Export);
+     **nachzutragen:** User je Account (`--user`, ohne Angabe = Account-Name; in `accounts`
+     mit Index und in den `SYSTEM:A:`-Zeilen; `created_by`/`updated_by` = User; `whoami` nennt
+     ihn) — entschieden 2026-09-26, `konzept.md`, „Account und User“;
   2. Vertrag um `whoami`/`rotate`, Hub über HTTP `/v1/`;
   3. Node: Transport `http`, `node hub check`, `--create`, `node account rotate|check`;
   4. `kephalaion serve` (nur Loopback, Sperrdatei, Logs ohne Token);
@@ -107,6 +110,9 @@ Stand: 2026-09-26 (nach Commit `ae1b4b7`, Task 004 Etappe 4)
   k-playbook — Kandidaten“).
 - **Token-Rotation mit Frist** für Menschen/KIs; Node rotiert sein eigenes Token; wie ein neues
   Token zu k-playbook gelangt.
+- **Persönliche Verzeichnisse** (`personal`, `numbered` als Eigenschaften eines Verzeichnisses)
+  — vorgemerkt; ob es sie braucht, wer sie setzt, Übergabe an einen anderen User
+  (`konzept.md`, „Persönliche Verzeichnisse“).
 - **Collection „nur nach Bestätigung“** schreiben — ja/nein?
 - **Was eine Collection im Betrieb ist** (Team, Produkt, Thema).
 - **Ausgangskorb** bei nicht erreichbarem Hub — derzeit nein.

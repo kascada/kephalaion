@@ -253,18 +253,48 @@ Zugangsdaten, sagt ihr das Briefing von k-playbook; das ist Sache der Gegenseite
 **Collection** ist die Einheit, über die Rechte vergeben werden, und zugleich die Einheit, die
 abgeglichen wird. Collections eines Hubs sind unabhängig und überschneiden sich nicht. Eine
 Collection hat einen Namen. Was eine Collection ist — Team, Produkt, Thema — entscheidet der
-Betrieb, nicht das Werkzeug. „Privat“ ist kein Sonderfall, sondern eine Collection mit genau
-einem berechtigten Account.
+Betrieb, nicht das Werkzeug.
 
-**Account** ist, wer zugreift — Mensch, KI oder Programm: ein Name und ein Token. Das Token
-liegt nie im Repository, sondern beim Nutzer auf dem Rechner.
+**Wer in einer Collection eingetragen ist, liest alles darin — ohne Einschränkung.** Was ein
+anderer nicht lesen soll, kommt entweder nicht in den Store oder in eine eigene Collection.
+„Privat“ ist kein Sonderfall, sondern eine Collection, in der nur die Accounts eines Users
+eingetragen sind. Eine Ansicht, die Fremdes ausblendet, gibt es als Vormerkung
+(„Persönliche Verzeichnisse“ unten) — sie ist Bequemlichkeit, keine Grenze.
+
+**Account und User — entschieden am 2026-09-26.**
+
+**Account** ist ein Zugang: eine Zugriffsart auf einem Rechner — die KI-Sitzung am Desktop,
+eine Automatisierung auf der VM, ein Prozess, der nur lesen soll. Ein Name, ein Token und die
+Rechte je Collection. Mehrere Accounts auf einem Rechner haben verschiedene Namen; wo das Token
+liegt, liegt auch der Name des Accounts. Das Token liegt nie im Repository, sondern beim Nutzer
+auf dem Rechner.
+
+**Ein Account liegt auf genau einem Rechner.** Das ist eine Regel, die niemand prüft. Wer sich
+nicht daran hält, sperrt sich selbst aus: Das erste `rotate` auf einem Rechner macht das Token
+auf dem anderen ungültig.
+
+**User** ist, wem ein Account gehört. Er ist kein eigenes Objekt, sondern ein Merkmal am
+Account, wie ein Tag: kein Token, keine Rechte, keine Anmeldung. Die Zuordnung Account → User
+setzt allein der Admin. Wer drei Rechner hat und auf jedem eine KI-Sitzung und eine
+Automatisierung, hat sechs Accounts und einen User.
+
+- **Rechte hängen am Account, nicht am User.** Das ist gewollt: Ein User kann einen Account
+  haben, der nur liest, und einen, der verwaltet.
+- **Ohne Angabe ist der User der Name des Accounts** — für Accounts, die niemandem gehören,
+  etwa eine Automatisierung. Ein Account eines Menschen nennt seinen User beim Anlegen.
+- **Warum nicht mehrere Tokens je Account:** Dann stünde am Hub je Account eine Liste, und
+  `rotate` müsste sagen, welches Token es ersetzt. Ein Token je Account hält Anmeldung,
+  `rotate`, Sperren und Rückruf so, wie sie sind; jedes betrifft genau einen Rechner und einen
+  Zweck. Synchronisiert werden muss dabei nichts.
+- **Was nach der Anmeldung feststeht:** Hub und Node kennen zum Account seinen User und seine
+  Rechte je Collection.
 
 **Rechte** je Account und Collection — entschieden am 2026-09-25:
 
 | Recht | Bedeutung |
 |---|---|
 | `read` | Suchen, Lesen. Hat jeder Account, der in der Collection eingetragen ist. |
-| `write` | Neues anlegen; **Eigenes** ändern und löschen (`created_by` ist der Account). Einen gelöschten Namen neu anlegen darf jeder mit `write`. |
+| `write` | Neues anlegen; **Eigenes** ändern und löschen (`created_by` ist der eigene User — auch was ein anderer Account desselben Users angelegt hat). Einen gelöschten Namen neu anlegen darf jeder mit `write`. |
 | `supersede` | **Fremdes** ändern, ablösen und löschen. |
 | `replicate` | Kein Recht eines Accounts, sondern eines Nodes: Inhalt und Account-Zeilen der Collection abgleichen. Steht am Hub in `node_collections` (siehe „Datenmodell“). |
 
@@ -283,9 +313,45 @@ Fremdes zu ändern, abzulösen oder zu löschen ist ausdrücklich ein eigenes Re
 etwas aus der Suche, und wer schreiben darf, darf deshalb nicht automatisch löschen, was ein
 anderer beigetragen hat.
 
-**Urheber.** Jedes Dokument trägt, wer es angelegt und zuletzt geändert hat: den Account
-(`created_by`, `updated_by`). Die Herkunft (`origin`) bleibt davon unberührt — sie sagt,
-woher der Inhalt stammt, der Urheber sagt, wer ihn abgelegt hat.
+**Urheber.** Jedes Dokument trägt, wer es angelegt und zuletzt geändert hat: den **User** des
+Accounts (`created_by`, `updated_by`). Welcher Account es war und über welchen Node, steht im
+Protokoll (`actions`: `account`, `carrier`); das genügt. Die Herkunft (`origin`) bleibt davon
+unberührt — sie sagt, woher der Inhalt stammt, der Urheber sagt, wer ihn abgelegt hat.
+
+### Persönliche Verzeichnisse (vorgemerkt am 2026-09-26)
+
+Nicht gebaut; festgehalten, damit der Weg klar ist. Gebaut wird es, wenn es sich als nötig
+erweist.
+
+**Die Mischform:** Alle dürfen lesen, aber man will bei der Arbeit nur das Eigene sehen.
+Beispiel Tasks: Ein Entwickler legt sie an, bearbeitet und führt sie aus. Sie sind für alle
+sichtbar, versioniert und gelten in begrenztem Umfang als Nachweis — die Tasks der anderen
+stören aber bei der eigenen Arbeit. Tasks selbst bleiben vorerst Dateien im Projekt (siehe
+„Werkzeuge“, „Für k-playbook“); dort wäre das Ausblenden Sache von k-playbook. Das Beispiel
+gilt für alles Gleichartige, das in den Store kommt.
+
+- **Ein Verzeichnis einer Collection bekommt die Eigenschaft `personal`.** Dann zeigen
+  Auflisten, Lesen und Schreiben dort nur Dokumente, deren `created_by` der User des Accounts
+  ist. Ein Schalter `all` zeigt alles.
+- **Die Suche bleibt unberührt.** Sie findet auch Fremdes.
+- **Kein Recht, sondern eine Ansicht.** Der Hub prüft dafür nichts Neues; wer lesen darf, darf
+  alles lesen. Gefiltert wird im Node, über ein Feld, das jede Zeile schon hat. Weder der
+  Abgleich noch die Suche werden dadurch je Account verschieden.
+- **Fremdes ohne `all`:** Lesen per Name oder Nummer meldet „gehört X, mit `all` lesbar“ statt
+  „nicht gefunden“. Schreiben lehnt der Node ab — Schutz vor Versehen; ob fremdes Schreiben
+  überhaupt erlaubt ist, regelt weiter `supersede`.
+- **Nummern bleiben gemeinsam.** Der Hub vergibt fortlaufende Nummern über alle Dokumente des
+  Verzeichnisses, gleich wem sie gehören. „Task 012“ bleibt eindeutig; in der eigenen Liste
+  entstehen Lücken.
+- **Die Eigenschaft muss sich abgleichen**, weil der Node filtert. Sie steht deshalb in
+  `documents` als `SYSTEM:`-Zeile des Verzeichnisses, etwa `SYSTEM:D:tasks/` mit
+  `{"personal": true}`, und nur der Hub schreibt sie.
+- **Zweite Eigenschaft `numbered`** — fortlaufend nummerierte Namen, siehe „Zwei Arten von
+  Eingaben“. Beide sind unabhängig: Tasks sind `numbered` und `personal`, Todos nur
+  `personal`, gemeinsame Entscheidungen nur `numbered`. Das ersetzt den Gedanken der „Reihen“
+  (siehe „Werkzeuge“).
+- **Offen:** wer die Eigenschaft setzt (der Admin am Hub, später vielleicht über MCP), und wie
+  eine Übergabe an einen anderen User geht — `created_by` ändert sich nie.
 
 ## Der Weg eines Eintrags
 
@@ -529,8 +595,9 @@ Generalschlüssel.
 
 **Einrichtung.** Collections und Accounts legt der Admin am Hub per Kommandozeile an; sie
 liegen in der Datenbank des Hubs, die Konfigurationsdatei enthält nur, was der Dienst zum
-Starten braucht. Ein Account — für einen Menschen, eine KI oder ein Programm — bekommt Name,
-Kurzbeschreibung und Scopes (`kephalaion hub account add <name> --scope team-x:write …`). Ein
+Starten braucht. Ein Account — ein Zugang auf einem Rechner — bekommt Name, User,
+Kurzbeschreibung und Scopes (`kephalaion hub account add <name> --user <user> --scope
+team-x:write …`); ohne `--user` ist der User der Name des Accounts. Ein
 Node bekommt einen Eintrag mit Name und Kurzbeschreibung (`kephalaion hub node add <name>`)
 und die Collections, die er abgleichen darf (`kephalaion hub node grant <node>
 <collection>`). In beiden Fällen erzeugt der Hub ein Token, zeigt es einmal an und speichert
@@ -579,8 +646,8 @@ Ein Node bedient mehrere Hubs — etwa den eines Arbeitgebers, dessen Daten dess
 verlassen dürfen, und einen privaten. Mehrere Nodes auf einem Rechner wären schlechter: mehrere
 Dienste, mehrere Ports, mehrere MCP-Einträge je Client.
 
-- **Hubs wissen nichts voneinander.** Jeder hat eigene Collections, Accounts und Token. Sie
-  treffen sich nur im Node.
+- **Hubs wissen nichts voneinander.** Jeder hat eigene Collections, Accounts, User und Token.
+  Sie treffen sich nur im Node. Derselbe Mensch kann an zwei Hubs verschiedene User heißen.
 - **Adressen sind zweistufig.** Auf dem Hub bleibt alles hub-lokal (`team-x:write`). Im Node
   und für Clients gilt `<hub>:<collection>`; den Hub-Namen vergibt der Node als Alias in
   seiner Datenbank.
@@ -700,16 +767,16 @@ CREATE TABLE documents (
   deleted     INTEGER NOT NULL DEFAULT 0,
   revision    INTEGER NOT NULL,        -- Abgleich: alles mit revision > X
   created_at  INTEGER NOT NULL,        -- ms seit Epoche
-  created_by  TEXT NOT NULL,           -- Account
+  created_by  TEXT NOT NULL,           -- User des Accounts
   updated_at  INTEGER NOT NULL,
-  updated_by  TEXT NOT NULL
+  updated_by  TEXT NOT NULL            -- User des Accounts
 );
 CREATE UNIQUE INDEX documents_name ON documents(collection, name) WHERE deleted = 0;
 CREATE INDEX documents_revision ON documents(collection, revision);
 
 CREATE TABLE actions (                 -- Protokoll, befristet
   at          INTEGER NOT NULL,
-  account     TEXT NOT NULL,
+  account     TEXT NOT NULL,           -- der Account, nicht der User
   carrier     TEXT,                    -- welcher Node es gebracht hat
   action      TEXT NOT NULL,           -- create, update, rename, delete, rotate,
                                        -- collection.add, node.grant, config.import …
@@ -775,7 +842,8 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   `SYSTEM:A:`-Zeilen; ein Node steht dort gar nicht.
 - **Das Token des Nodes steht im Klartext in `node.db`**, denn der Node muss es vorzeigen.
   Das Verzeichnis hat `0700`, die Datei `0600`.
-- **Die CLI am Hub handelt als `admin`.** So steht es in `created_by` und im Protokoll.
+- **Die CLI am Hub handelt als `admin`** — Account und User heißen so. So steht es in
+  `created_by` und im Protokoll.
 
 - **Nur Text, kein Typ.** Solange nur Texte gespeichert werden, braucht es keine Typspalte.
 - **Metadaten: ein freies Feld `meta` (JSON), vom Hub nicht gedeutet**, nur gespeichert und
@@ -809,8 +877,8 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   A, und B hieße `x`, solange A dort noch `x` heißt. Ein eindeutiger Index ließe den Abgleich
   scheitern.
 - **Wer erzeugt und geändert hat** steht zweifach: `created_by`/`updated_by` in der Tabelle
-  beantworten „wer war zuletzt dran“ ohne Umweg; das Protokoll `actions` den Rest, solange es
-  zurückreicht. Es ist befristet; Einträge über echtes Löschen durch den Admin bleiben
+  beantworten „wer war zuletzt dran“ ohne Umweg, mit dem User; das Protokoll `actions` den
+  Rest — auch welcher Account und welcher Node —, solange es zurückreicht. Es ist befristet; Einträge über echtes Löschen durch den Admin bleiben
   dauerhaft.
 - **Jede Datenbank — des Hubs, `node.db` und jede Replica — hat zwei weitere Tabellen**,
   beide `(key TEXT PRIMARY KEY, value TEXT NOT NULL)`:
@@ -888,9 +956,14 @@ CREATE TABLE hub_collections (         -- was der Node von diesem Hub haben will
   ohne eigenen Mechanismus ab. Je Account und Collection eine Zeile:
   - `name` = `SYSTEM:A:<account>`, also der Account-Name; der eindeutige Index auf
     `(collection, name)` sichert die Eindeutigkeit.
-  - `content` = Hash des Tokens und die Rechte in *dieser* Collection, etwa
-    `{"hash": "…", "rights": {"write": true, "supersede": false}}`; `read` ergibt sich aus
-    der Zeile selbst.
+  - `content` = Hash des Tokens, der User und die Rechte in *dieser* Collection, etwa
+    `{"hash": "…", "user": "kleist", "rights": {"write": true, "supersede": false}}`; `read`
+    ergibt sich aus der Zeile selbst.
+  - Der User steht in jeder Zeile des Accounts; ändert der Admin ihn, ändern sich alle Zeilen
+    in einer Transaktion, wie bei `rotate`. Vorhandene Dokumente behalten ihren User. Alle
+    Accounts eines Users findet der Admin über die Daten, die nur der Hub über Accounts führt
+    (mit Task 005 die Tabelle `accounts`, dort mit Index auf dem User) — nicht über JSON in
+    `documents`.
   - Ein Node bekommt mit dem Abgleich genau die Zeilen seiner Collections — der beschränkte
     Auszug fällt von selbst heraus; kein Node erfährt, dass ein Account noch andere
     Collections hat.
@@ -1004,13 +1077,15 @@ sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
   Weil erledigte Tasks bei der Vergabe mitzählen, ist eine Nummer eindeutig und reicht als
   Schlüssel. Finden sich doch zwei Dateien mit derselben Nummer (von Hand angelegt), meldet
   `task_get` beide, statt zu raten. Offen: in welcher Collection die Tasks eines Projekts
-  liegen, und ob sie ein Standard des Nodes oder des Clients ist.
+  liegen, und ob sie ein Standard des Nodes oder des Clients ist. Kommen sie doch hierher,
+  liegen mit persönlichen Verzeichnissen (vorgemerkt, siehe „Collections, Accounts, Rechte“)
+  die Tasks aller Entwickler in einer Collection, und jeder sieht bei der Arbeit nur seine.
 
-- **Verallgemeinerung, später: Reihen.** Die Werkzeuge für Tasks sind eine nummerierte Reihe
-  mit Voreinstellung — Verzeichnis `tasks/`, Ablage `tasks/done/`, Breite drei Stellen.
-  Allgemein hieße das: `series_create`, `series_get`, `series_list`, `series_done` mit einer
-  benannten Reihe, deren Verzeichnisse in der Collection eingetragen sind. `task_*` bliebe als
-  bequemer Name darüber.
+- **Verallgemeinerung, später.** Die Werkzeuge für Tasks arbeiten auf einem Verzeichnis mit
+  Voreinstellung — `tasks/`, Ablage `tasks/done/`, Breite drei Stellen. Früher hieß das hier
+  „Reihen“ (`series_*`). Vorgemerkt ist stattdessen, dass ein Verzeichnis Eigenschaften trägt
+  — `numbered` und `personal`, unabhängig voneinander —; allgemeine Werkzeuge richten sich
+  danach, `task_*` bliebe als bequemer Name darüber.
 - **Werkzeuge sind zuschaltbar.** Jedes Werkzeug mehr lenkt die KI ab. Die Werkzeuge für
   k-playbook erscheinen nur, wo sie gebraucht werden — etwa wenn eine Collection als
   k-playbook-Ablage gekennzeichnet ist. Wie genau, ist offen.
@@ -1037,6 +1112,8 @@ sie auf den allgemeinen aufsetzen oder in k-playbook bleiben:
   Frage, ob ein Mensch oder eine Sitzung aufruft. Offen bleibt, ob eine Collection zusätzlich
   „nur nach Bestätigung“ verlangen darf.
 - **Was ist eine Collection** im Betrieb? Angelegt wird sie vom Admin am Hub.
+- **Persönliche Verzeichnisse:** vorgemerkt (siehe „Collections, Accounts, Rechte“). Offen, ob
+  es sie braucht, wer die Eigenschaft setzt und wie eine Übergabe an einen anderen User geht.
 - **Erreichbarkeit:** entschieden — Verschlüsselung ist Pflicht, der Transport ist wählbar
   (HTTPS, SSH, lokal im selben Prozess). Offen ist, welcher entfernte zuerst gebaut wird.
 - **Node als Dienst:** entschieden — er läuft ständig (Benutzerdienst), k-playbook prüft
