@@ -78,10 +78,11 @@ Stand: 2026-09-26 (Task 008 abgeschlossen, in `done/`; Task 010 erledigt; Task 0
     (`generation`) und Collection, `reset`, `dropped`, `since`;
   - `generation` in `db_info` der Replica (Replica-Schema 4); Durchlauf über `serve`
     (`konzept.md`, „Allgemein — lesen“).
-- **VS-Code-Erweiterung, Stufe `whoami`** (2026-09-26, ohne Task): `vscode/`, reines
+- **VS-Code-Erweiterung, Lesen** (2026-09-26, ohne Task, Version 0.0.3): `vscode/`, reines
   JavaScript; Statusleiste und Menü aus `whoami`, Adresse aus `listen`, Tokens aus
-  `tokens/<hub>/<account>.token`; „Collection einbinden“ im echten VS Code geprüft. Inhalte
-  über `list`/`read` fehlen noch (`docs/vscode.md`, README „VS Code“).
+  `tokens/<hub>/<account>.token`; Collections als Ordner über `list`/`read`, Änderungen über
+  `changes`. „Collection einbinden“ (0.0.2) im echten VS Code geprüft, Inhalte (0.0.3) nur
+  gegen den Node mit Ersatz für `vscode` (`docs/vscode.md`, „Umsetzung“; README „VS Code“).
 
 ## In Arbeit
 

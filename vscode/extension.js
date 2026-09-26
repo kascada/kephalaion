@@ -83,13 +83,33 @@ class Node {
   }
 
   async call(tool, args) {
+    return (await this.request(tool, args)).structuredContent;
+  }
+
+  // Wie call, dazu der Text des Ergebnisses — bei read der Inhalt des Dokuments.
+  async callWithText(tool, args) {
+    const r = await this.request(tool, args);
+    return { data: r.structuredContent, text: (r.content || []).map((c) => c.text || '').join('') };
+  }
+
+  // Tokens je Aufruf frisch, aber höchstens alle 5 s von der Platte (stat kommt oft).
+  credentials() {
+    const now = Date.now();
+    if (!this._creds || now - this._credsAt > 5000) {
+      this._creds = readCredentials(this.log);
+      this._credsAt = now;
+    }
+    return this._creds;
+  }
+
+  async request(tool, args) {
     const url = nodeUrl();
     if (!url) throw new Error(`keine Adresse des Nodes: listen fehlt in ${configFile()}`);
     const headers = {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
     };
-    for (const [hub, c] of Object.entries(readCredentials(this.log))) {
+    for (const [hub, c] of Object.entries(this.credentials())) {
       headers[`X-Keph-Account-${hub}`] = c.account;
       headers[`X-Keph-Token-${hub}`] = c.token;
     }
@@ -100,9 +120,11 @@ class Node {
     if (msg.error) throw new Error(`${tool}: ${msg.error.message}`);
     if (msg.result && msg.result.isError) {
       const t = (msg.result.content || []).map((c) => c.text).join('\n');
-      throw new Error(`${tool}: ${t}`);
+      const err = new Error(`${tool}: ${t}`);
+      err.toolError = true; // Antwort des Werkzeugs, kein Fehler der Verbindung
+      throw err;
     }
-    return msg.result.structuredContent;
+    return msg.result;
   }
 }
 
@@ -154,6 +176,27 @@ class Status {
     return (h.collections || []).filter((c) => (c.rights || []).includes('read'));
   }
 
+  // Dasselbe wie der Tooltip, als Text — für „Kephalaion: Status anzeigen“.
+  summary() {
+    const lines = [`Kephalaion — Node ${nodeUrl() || '(keine Adresse)'}`];
+    if (!this.who) {
+      lines.push(`nicht erreichbar: ${this.error}`);
+      return lines;
+    }
+    lines.push(`Version Node ${this.who.version}, Erweiterung ${ext.packageJSON.version}`);
+    for (const h of this.hubs()) {
+      let l = `Hub ${h.hub} (Node ${h.node}): Anmeldung ${h.login}`;
+      if (h.login === 'ok') l += `, Account ${h.account}, User ${h.user}`;
+      lines.push(l);
+      for (const c of h.collections || []) lines.push(`  ${c.address}: ${c.rights.join(', ')}`);
+      const sy = h.sync;
+      lines.push(sy.never_synced ? '  noch nie abgeglichen' : `  abgeglichen ${sy.last_success}, Revision ${sy.revision}`);
+      if (sy.last_error) lines.push(`  letzter Fehler ${sy.last_error_at}: ${sy.last_error}`);
+    }
+    if ((this.who.unknown_hubs || []).length) lines.push(`Token-Verzeichnisse ohne Hub am Node: ${this.who.unknown_hubs.join(', ')}`);
+    return lines;
+  }
+
   render() {
     const it = this.item;
     if (!this.who) {
@@ -187,13 +230,35 @@ class Status {
 }
 
 // --- Dateisystem: keph://<hub>/<collection>/… ---
+// Die Authority ist der Hub-Alias, das erste Segment die Collection, der Rest der Name.
+// Namen kommen vom Node immer als voller Pfad ab der Collection.
+
+const CHANGES_MS = 3000;
+
+function toFsError(e, uri) {
+  if (e.toolError) return vscode.FileSystemError.FileNotFound(uri); // „nicht lesbar“ u. ä.
+  return vscode.FileSystemError.Unavailable(`Kephalaion: ${e.message}`);
+}
+
+function time(t) {
+  const n = t && Date.parse(t.at);
+  return Number.isFinite(n) ? n : 0;
+}
 
 class KephFs {
-  constructor(status) {
-    this.status = status;
+  constructor(node, status, log) {
+    this.node = node;
+    this.log = log;
+    this.cursor = undefined;
     this._emitter = new vscode.EventEmitter();
     this.onDidChangeFile = this._emitter.event;
+    // Neue Anmeldung oder andere Collections: die Wurzeln neu lesen lassen — nur dann,
+    // nicht bei jedem whoami.
+    this.shape = '';
     status.onChanged(() => {
+      const shape = JSON.stringify(status.hubs().map((h) => [h.hub, h.login, status.collections(h.hub).map((c) => c.collection)]));
+      if (shape === this.shape) return;
+      this.shape = shape;
       const events = status.hubs().map((h) => ({
         type: vscode.FileChangeType.Changed,
         uri: vscode.Uri.parse(`${SCHEME}://${h.hub}/`),
@@ -206,38 +271,119 @@ class KephFs {
     return new vscode.Disposable(() => {});
   }
 
-  parts(uri) {
-    return uri.path.split('/').filter(Boolean);
+  split(uri) {
+    const [col, ...rest] = uri.path.split('/').filter(Boolean);
+    return { hub: uri.authority, col, name: rest.join('/') };
   }
 
-  dir(permissions) {
-    return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0, permissions };
+  dir() {
+    return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0, permissions: vscode.FilePermission.Readonly };
   }
 
   async stat(uri) {
-    const [col, ...rest] = this.parts(uri);
-    if (!col) return this.dir(vscode.FilePermission.Readonly);
-    const c = this.status.collections(uri.authority).find((x) => x.collection === col);
-    if (!c) throw vscode.FileSystemError.FileNotFound(uri);
-    if (rest.length === 0) return this.dir(vscode.FilePermission.Readonly);
-    // Inhalte der Collections: kommt mit read (Task 009).
-    throw vscode.FileSystemError.FileNotFound(uri);
+    const { hub, col, name } = this.split(uri);
+    if (!col) return this.dir();
+    let d;
+    try {
+      d = await this.node.call('read', { collection: `${hub}:${col}`, name, content: false });
+    } catch (e) {
+      throw toFsError(e, uri);
+    }
+    if (d.kind === 'directory') return this.dir();
+    if (d.kind !== 'document') throw vscode.FileSystemError.FileNotFound(uri);
+    // Schreiben kommt später; bis dahin alles schreibgeschützt, unabhängig von writable.
+    return {
+      type: vscode.FileType.File,
+      ctime: time(d.created),
+      mtime: time(d.updated),
+      size: d.size || 0,
+      permissions: vscode.FilePermission.Readonly,
+    };
   }
 
   async readDirectory(uri) {
-    const [col, ...rest] = this.parts(uri);
-    if (!col) return this.status.collections(uri.authority).map((c) => [c.collection, vscode.FileType.Directory]);
-    if (rest.length === 0 && this.status.collections(uri.authority).some((x) => x.collection === col)) {
-      return []; // kommt mit list (Task 009)
+    const { hub, col, name } = this.split(uri);
+    const args = col ? { collection: `${hub}:${col}`, path: name, limit: 1000 } : { collection: `${hub}:`, limit: 1000 };
+    const out = [];
+    try {
+      for (;;) {
+        const r = await this.node.call('list', args);
+        for (const e of r.entries || []) {
+          const last = e.name.split('/').pop();
+          if (e.kind === 'document') out.push([last, vscode.FileType.File]);
+          else out.push([last, vscode.FileType.Directory]); // directory, collection
+        }
+        if (!r.more || !r.cursor) break;
+        args.cursor = r.cursor;
+      }
+    } catch (e) {
+      throw toFsError(e, uri);
     }
-    throw vscode.FileSystemError.FileNotFound(uri);
+    return out;
   }
 
-  readFile(uri) { throw vscode.FileSystemError.FileNotFound(uri); }
+  async readFile(uri) {
+    const { hub, col, name } = this.split(uri);
+    if (!col || !name) throw vscode.FileSystemError.FileIsADirectory(uri);
+    let r;
+    try {
+      r = await this.node.callWithText('read', { collection: `${hub}:${col}`, name });
+    } catch (e) {
+      throw toFsError(e, uri);
+    }
+    if (r.data.kind === 'directory') throw vscode.FileSystemError.FileIsADirectory(uri);
+    if (r.data.kind !== 'document') throw vscode.FileSystemError.FileNotFound(uri);
+    return new TextEncoder().encode(r.text);
+  }
+
   createDirectory(uri) { throw vscode.FileSystemError.NoPermissions(uri); }
   writeFile(uri) { throw vscode.FileSystemError.NoPermissions(uri); }
   delete(uri) { throw vscode.FileSystemError.NoPermissions(uri); }
   rename(uri) { throw vscode.FileSystemError.NoPermissions(uri); }
+
+  // changes lückenlos weiterfragen und daraus onDidChangeFile auslösen. Ohne cursor liefert
+  // der erste Aufruf nur den Ausgangspunkt „ab jetzt“.
+  async pollChanges() {
+    let r;
+    try {
+      r = await this.node.call('changes', this.cursor ? { cursor: this.cursor } : {});
+    } catch (e) {
+      if (e.toolError) this.cursor = undefined; // z. B. ungültiger cursor: neu ansetzen
+      return;
+    }
+    const first = this.cursor === undefined;
+    this.cursor = r.cursor;
+    if (first) return;
+    const events = [];
+    const seen = new Set();
+    const add = (type, uri) => {
+      const k = `${type} ${uri}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        events.push({ type, uri });
+      }
+    };
+    for (const c of r.changes || []) {
+      const [hub, col] = c.address.split(':');
+      const uri = vscode.Uri.parse(`${SCHEME}://${hub}/${col}/${c.name}`);
+      add(c.deleted ? vscode.FileChangeType.Deleted : vscode.FileChangeType.Changed, uri);
+      // Der Explorer liest ein Verzeichnis neu, wenn es selbst geändert gemeldet wird —
+      // auch neu entstandene oder leer gewordene Verzeichnisse darüber.
+      const segs = c.name.split('/');
+      for (let i = segs.length - 1; i >= 0; i--) {
+        const dir = [col, ...segs.slice(0, i)].join('/');
+        add(vscode.FileChangeType.Changed, vscode.Uri.parse(`${SCHEME}://${hub}/${dir}`));
+      }
+      this.log(`changes: ${c.address} ${c.name}${c.deleted ? ' gelöscht' : ''} (Revision ${c.revision})`);
+    }
+    for (const hub of r.reset || []) add(vscode.FileChangeType.Changed, vscode.Uri.parse(`${SCHEME}://${hub}/`));
+    for (const d of r.dropped || []) {
+      const [hub] = String(d.address || d).split(':');
+      add(vscode.FileChangeType.Changed, vscode.Uri.parse(`${SCHEME}://${hub}/`));
+    }
+    if (events.length) this._emitter.fire(events);
+    if (r.more) return this.pollChanges();
+  }
 }
 
 // --- Aktivierung ---
@@ -250,16 +396,23 @@ function activate(context) {
   const log = (s) => out.appendLine(`${new Date().toISOString()} ${s}`);
   const node = new Node(log);
   const status = new Status(node, log);
+  const kfs = new KephFs(node, status, log);
 
   context.subscriptions.push(
     out,
     status.item,
-    vscode.workspace.registerFileSystemProvider(SCHEME, new KephFs(status), {
+    vscode.workspace.registerFileSystemProvider(SCHEME, kfs, {
       isCaseSensitive: true,
       isReadonly: true,
     }),
     vscode.commands.registerCommand('kephalaion.refresh', () => status.refresh()),
     vscode.commands.registerCommand('kephalaion.showLog', () => out.show()),
+    vscode.commands.registerCommand('kephalaion.showStatus', async () => {
+      await status.refresh();
+      out.appendLine('');
+      for (const l of status.summary()) out.appendLine(l);
+      out.show();
+    }),
     vscode.commands.registerCommand('kephalaion.addCollection', async () => {
       await status.refresh();
       const items = status.hubs().flatMap((h) => status.collections(h.hub).map((c) => ({
@@ -282,6 +435,7 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('kephalaion.menu', async () => {
       const pick = await vscode.window.showQuickPick([
+        { label: '$(info) Status anzeigen', cmd: 'kephalaion.showStatus' },
         { label: '$(refresh) Neu verbinden', cmd: 'kephalaion.refresh' },
         { label: '$(folder-library) Collection einbinden', cmd: 'kephalaion.addCollection' },
         { label: '$(output) Log anzeigen', cmd: 'kephalaion.showLog' },
@@ -293,7 +447,22 @@ function activate(context) {
   log(`Node: ${nodeUrl() || '(keine Adresse)'}, config ${configFile()}`);
   status.refresh();
   const timer = setInterval(() => status.refresh(), POLL_MS);
-  context.subscriptions.push(new vscode.Disposable(() => clearInterval(timer)));
+  let polling = false;
+  const pollChanges = async () => {
+    if (polling) return;
+    polling = true;
+    try {
+      await kfs.pollChanges();
+    } finally {
+      polling = false;
+    }
+  };
+  pollChanges();
+  const changesTimer = setInterval(pollChanges, CHANGES_MS);
+  context.subscriptions.push(new vscode.Disposable(() => {
+    clearInterval(timer);
+    clearInterval(changesTimer);
+  }));
 }
 
 function deactivate() {}

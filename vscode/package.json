@@ -2,7 +2,7 @@
   "name": "kephalaion",
   "displayName": "Kephalaion",
   "description": "Collections von Kephalaion als Ordner in VS Code",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "kascada",
   "license": "SEE LICENSE IN ../LICENSE",
   "repository": "https://github.com/kephalaion/kephalaion",
@@ -13,6 +13,7 @@
   "contributes": {
     "commands": [
       { "command": "kephalaion.menu", "title": "Kephalaion: Menü" },
+      { "command": "kephalaion.showStatus", "title": "Kephalaion: Status anzeigen" },
       { "command": "kephalaion.refresh", "title": "Kephalaion: Neu verbinden" },
       { "command": "kephalaion.addCollection", "title": "Kephalaion: Collection einbinden" },
       { "command": "kephalaion.showLog", "title": "Kephalaion: Log anzeigen" }

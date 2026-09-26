@@ -442,7 +442,7 @@ muss (`extensionKind: workspace`):
 
 ```sh
 cd vscode && npx --yes @vscode/vsce package --skip-license
-code --install-extension kephalaion-0.0.2.vsix
+code --install-extension kephalaion-0.0.3.vsix
 ```
 
 Danach „Developer: Reload Window“.
@@ -454,11 +454,12 @@ Danach „Developer: Reload Window“.
 - **Statusleiste:** `Keph <hub>`, der Tooltip zeigt, was `whoami` liefert — Version, je Hub
   Anmeldung, Account, User, Collections mit Rechten und Stand des Abgleichs. Gelb, wenn der
   Node nicht erreichbar ist oder eine Anmeldung nicht gilt; abgefragt alle 30 s.
-- **Menü** per Klick auf die Statusleiste: neu verbinden, Collection einbinden, Log (Output
-  „Kephalaion“).
+- **Menü** per Klick auf die Statusleiste: Status anzeigen (dasselbe als Text im Output
+  „Kephalaion“), neu verbinden, Collection einbinden, Log.
 - **„Kephalaion: Collection einbinden“** bietet die lesbaren Collections zur Auswahl an und
-  fügt die gewählte als Ordner in den Workspace ein. Nur lesen; der Inhalt der Ordner kommt
-  mit `list` und `read`.
+  fügt die gewählte als Ordner in den Workspace ein. Verzeichnisse und Dokumente kommen über
+  `list` und `read` aus der Replica; Änderungen erscheinen nach dem Abgleich des Nodes von
+  selbst (`changes`, alle 3 s). Nur lesen — Schreiben kommt mit dem Schreiben über MCP.
 
 ## Bauen
 

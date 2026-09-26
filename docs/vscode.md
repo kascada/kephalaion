@@ -5,8 +5,9 @@ description: Erweiterung, die Collections über einen FileSystemProvider als Ord
 
 # Kephalaion in VS Code
 
-**Stand: Versuch mit Dummy gelungen** (2026-09-26, siehe „Versuch“ unten); die Anbindung an
-den Node ist nicht gebaut. Was sie zum Lesen braucht, gibt es am Node: `whoami` in der Form,
+**Stand: Lesen gebaut** (2026-09-26, Version 0.0.3, siehe „Umsetzung“ unten): Statusleiste
+aus `whoami`, Collections als Ordner mit Inhalt über `list` und `read`, Änderungen über
+`changes`. Schreiben fehlt. Was die Erweiterung zum Lesen braucht, gibt es am Node: `whoami` in der Form,
 die die Statusleiste braucht — Version, alle Hubs mit `login`, Node-Name und Stand des
 Abgleichs (Task 008) —, dazu `list`, `read` und `changes` (Task 009, Festlegungen in
 [`konzept.md`](konzept.md), „Allgemein — lesen“), und `serve` gleicht im Hintergrund ab. Begriffe nach [`begriffe.md`](begriffe.md), Hintergrund in
@@ -274,6 +275,33 @@ Ergebnis:
   einem Workspace mit mehreren Ordnern und lädt neu.
 - Die Suche verhält sich wie oben beschrieben.
 - Der Weg trägt; offen ist nur noch die Anbindung an den Node.
+
+## Umsetzung: Lesen (2026-09-26)
+
+Ohne Task gebaut, in zwei Schritten, weiter reines JavaScript ohne Abhängigkeiten
+([`vscode/extension.js`](../vscode/extension.js)). MCP über das `fetch` von Node.js, JSON-RPC
+ohne Sitzung — das SDK braucht es dafür nicht.
+
+- **0.0.2 — `whoami`:** Adresse aus `listen`, Tokens aus `tokens/<hub>/<account>.token`
+  (höchstens alle 5 s neu von der Platte), Statusleiste mit Tooltip, abgefragt alle 30 s;
+  Menü; „Collection einbinden“. Im echten VS Code geprüft.
+- **0.0.3 — Inhalte:** `stat` über `read` mit `content: false`, `readDirectory` über `list`
+  (Namen kommen als voller Pfad ab der Collection, die Erweiterung nimmt das letzte Segment;
+  blättert mit `cursor`), `readFile` über `read` — der Inhalt ist der Text des Ergebnisses.
+  `changes` alle 3 s mit dem Cursor der letzten Antwort; je Eintrag `Changed` bzw. `Deleted`
+  für das Dokument und `Changed` für jedes Verzeichnis darüber bis zur Collection, damit der
+  Explorer neue und leer gewordene Verzeichnisse sieht. Ein Umbenennen kommt so als
+  gelöscht und neu an; die `id` wertet die Erweiterung dafür nicht aus. `reset` und
+  `dropped` lassen die Wurzel des Hubs neu lesen. Dazu „Kephalaion: Status anzeigen“ — der
+  Inhalt des Tooltips im Output „Kephalaion“, weil der Tooltip schwer zu finden ist (der
+  Tooltip eines Ordners im Explorer zeigt nur den Pfad, etwa `\eins`).
+- **Fehler:** Eine Antwort des Werkzeugs mit Fehler („nicht lesbar“) wird zu
+  `FileNotFound`, ein Fehler der Verbindung zu `Unavailable`.
+- **Alles schreibgeschützt**, auch mit `writable: true`, bis Schreiben gebaut ist.
+- **Geprüft** mit einem Ersatz für das Modul `vscode` gegen den laufenden Node (`home:eins`,
+  Dokumente unter `test/`): Verzeichnisse, Metadaten, Inhalt, „nicht gefunden“, fremde
+  Collection, Ereignisse nach `hub doc put` und `node sync`. Im echten VS Code steht der
+  Test von 0.0.3 aus.
 
 ## Fundstellen
 
